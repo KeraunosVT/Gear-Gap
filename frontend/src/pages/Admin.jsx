@@ -6,7 +6,7 @@ import Sigil from '../components/Sigil';
 import weaponToClass from '../../../shared/weaponClasses.json';
 import { UploadCloud, Plus, Trash2, X, Image as ImageIcon, FileSpreadsheet, Loader2, Check, AlertCircle, RotateCw } from 'lucide-react';
 
-const WEAPONS = ['SnS', 'Greatsword', 'Daggers', 'Crossbow', 'Longbow', 'Staff', 'Wand', 'Spear', 'Orb'];
+const WEAPONS = ['SnS', 'Greatsword', 'Dagger', 'Crossbow', 'Longbow', 'Staff', 'Wand', 'Spear', 'Orb'];
 const STAT_COLS = ['kills', 'assists', 'damage_dealt', 'damage_taken', 'healing'];
 
 // Class options + reverse map (class -> [weapon_1, weapon_2]), derived from the
