@@ -48,6 +48,7 @@ export default function Admin() {
   const [items, setItems] = useState([]); // {id,file,status:'idle'|'processing'|'done'|'failed',players,error,retryable}
   const [title, setTitle] = useState('');
   const [matchDate, setMatchDate] = useState('');
+  const [result, setResult] = useState('');
   const [players, setPlayers] = useState(null);
   const [warnings, setWarnings] = useState([]);
   const [running, setRunning] = useState(false);   // a parse pass is in progress
@@ -85,6 +86,7 @@ export default function Admin() {
         setEditingMatchId(editId);
         setTitle(m.title || '');
         setMatchDate(m.match_date ? m.match_date.slice(0, 10) : '');
+        setResult(m.result || '');
         setPlayers(res.data.players || []);
         setWarnings([]);
         setDone(null);
@@ -188,12 +190,12 @@ export default function Admin() {
     try {
       let res;
       if (editingMatchId) {
-        res = await axios.put(`/api/admin/match/${editingMatchId}`, { title, match_date: matchDate, players });
+        res = await axios.put(`/api/admin/match/${editingMatchId}`, { title, match_date: matchDate, result, players });
       } else {
-        res = await axios.post('/api/admin/match/commit', { title, match_date: matchDate, players });
+        res = await axios.post('/api/admin/match/commit', { title, match_date: matchDate, result, players });
       }
       setDone(editingMatchId ? { ...res.data, edited: true } : res.data);
-      setPlayers(null); setItems([]); setTitle(''); setMatchDate(''); setWarnings([]);
+      setPlayers(null); setItems([]); setTitle(''); setMatchDate(''); setResult(''); setWarnings([]);
       if (editingMatchId) {
         setEditingMatchId(null);
         setSearchParams({});
@@ -324,6 +326,18 @@ export default function Admin() {
                 className="w-full bg-panel border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
               />
             </div>
+            <div>
+              <label className="eyebrow text-[10px] text-ash block mb-2">Result</label>
+              <select
+                value={result} onChange={(e) => setResult(e.target.value)}
+                className="w-full bg-panel border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
+              >
+                <option value="">— set result —</option>
+                <option value="Win">Win</option>
+                <option value="Loss">Loss</option>
+                <option value="Draw">Draw</option>
+              </select>
+            </div>
             <div className="space-y-3">
               {items.some((it) => it.status === 'idle') && (
                 <button
@@ -364,7 +378,7 @@ export default function Admin() {
           )}
 
           {editingMatchId && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
               <div>
                 <label className="eyebrow text-[10px] text-ash block mb-2">Match title</label>
                 <input
@@ -379,6 +393,18 @@ export default function Admin() {
                   type="date" value={matchDate} onChange={(e) => setMatchDate(e.target.value)}
                   className="w-full bg-panel border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
                 />
+              </div>
+              <div>
+                <label className="eyebrow text-[10px] text-ash block mb-2">Result</label>
+                <select
+                  value={result} onChange={(e) => setResult(e.target.value)}
+                  className="w-full bg-panel border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
+                >
+                  <option value="">— set result —</option>
+                  <option value="Win">Win</option>
+                  <option value="Loss">Loss</option>
+                  <option value="Draw">Draw</option>
+                </select>
               </div>
             </div>
           )}
@@ -468,7 +494,7 @@ export default function Admin() {
             <button
               onClick={() => {
                 setPlayers(null); setWarnings([]);
-                if (editingMatchId) { setEditingMatchId(null); setSearchParams({}); setTitle(''); setMatchDate(''); }
+                if (editingMatchId) { setEditingMatchId(null); setSearchParams({}); setTitle(''); setMatchDate(''); setResult(''); }
               }}
               className="px-6 py-3 text-ash hover:text-bone transition-colors"
             >

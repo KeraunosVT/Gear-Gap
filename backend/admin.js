@@ -373,7 +373,7 @@ module.exports = function createAdminRouter(supabase, gateway) {
   router.post('/match/commit', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
 
-    const { title, match_date, players } = req.body || {};
+    const { title, match_date, result, players } = req.body || {};
     if (!Array.isArray(players) || players.length === 0) {
       return res.status(400).json({ error: 'No players to save.' });
     }
@@ -386,6 +386,7 @@ module.exports = function createAdminRouter(supabase, gateway) {
       id: matchId,
       title: clean(title) || 'Wargame',
       match_date: clean(match_date),
+      result: clean(result),
       created_at: nowIso,
     });
     if (mErr) {
@@ -439,7 +440,7 @@ module.exports = function createAdminRouter(supabase, gateway) {
   router.put('/match/:id', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
 
-    const { title, match_date, players } = req.body || {};
+    const { title, match_date, result, players } = req.body || {};
     if (!Array.isArray(players) || players.length === 0) {
       return res.status(400).json({ error: 'No players to save.' });
     }
@@ -451,7 +452,7 @@ module.exports = function createAdminRouter(supabase, gateway) {
     if (chk || !existing) return res.status(404).json({ error: 'Match not found.' });
 
     const { error: mErr } = await supabase.from('wargame_matches')
-      .update({ title: clean(title) || 'Wargame', match_date: clean(match_date) })
+      .update({ title: clean(title) || 'Wargame', match_date: clean(match_date), result: clean(result) })
       .eq('id', matchId);
     if (mErr) {
       console.error('Match update error:', mErr.message);

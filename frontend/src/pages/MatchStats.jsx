@@ -121,6 +121,15 @@ export default function MatchStats() {
         <>
           <div className="flex items-center gap-4 mb-1">
             <h2 className="font-display text-3xl text-brassbright tracking-[0.06em]">{selectedMatch.title}</h2>
+            {selectedMatch.result && (
+              <span className={`px-3 py-1 rounded-sm text-sm font-semibold tracking-wide ${
+                selectedMatch.result === 'Win' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' :
+                selectedMatch.result === 'Loss' ? 'bg-oxblooddeep/30 text-oxblood border border-oxblood/50' :
+                'bg-amber-500/15 text-amber-400 border border-amber-500/40'
+              }`}>
+                {selectedMatch.result}
+              </span>
+            )}
             {user?.isAdmin && (
               <Link
                 to={`/admin?edit=${selectedMatch.id}`}
