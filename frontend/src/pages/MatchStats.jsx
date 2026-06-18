@@ -127,7 +127,9 @@ export default function MatchStats() {
                 selectedMatch.result === 'Loss' ? 'bg-oxblooddeep/30 text-oxblood border border-oxblood/50' :
                 'bg-amber-500/15 text-amber-400 border border-amber-500/40'
               }`}>
-                {selectedMatch.result}
+                {selectedMatch.result === 'Win' ? 'Held The Field' :
+                 selectedMatch.result === 'Loss' ? 'Lost The Field' :
+                 'Contested Field'}
               </span>
             )}
             {user?.isAdmin && (
