@@ -160,7 +160,11 @@ export default function PlayerProfile() {
                   <td className="p-4 font-sans text-ash">
                     {h.match_date ? new Date(h.match_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}
                   </td>
-                  <td className="p-4 font-sans text-bone">{h.title || 'Wargame'}</td>
+                  <td className="p-4 font-sans text-bone">
+                    <Link to={`/war-record?match=${h.match_id}`} className="hover:text-brassbright transition-colors">
+                      {h.title || 'Wargame'}
+                    </Link>
+                  </td>
                   <td className="p-4 font-sans font-medium text-brassbright">{getClassName(h.weapon_1, h.weapon_2)}</td>
                   <td className="p-4 text-center text-brass">{h.rank || '—'}</td>
                   <td className="p-4 text-center text-brassbright">{h.kills}</td>

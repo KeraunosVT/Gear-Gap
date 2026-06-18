@@ -1,6 +1,6 @@
 import { Sword, Target, Heart, Users, ShieldAlert, Pencil } from 'lucide-react';
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../auth';
 import weaponToClass from '../../../shared/weaponClasses.json';
@@ -18,6 +18,7 @@ function getClassName(weapon1, weapon2) {
 
 export default function MatchStats() {
   const { user } = useAuth();
+  const [searchParams] = useSearchParams();
   const [matches, setMatches] = useState([]);
   const [selectedMatchId, setSelectedMatchId] = useState(null);
   const [matchDetail, setMatchDetail] = useState(null);
@@ -31,7 +32,8 @@ export default function MatchStats() {
     axios.get('/api/matches/recent?limit=30')
       .then(res => {
         setMatches(res.data);
-        if (res.data.length > 0) setSelectedMatchId(res.data[0].id);
+        const fromUrl = searchParams.get('match');
+        setSelectedMatchId(fromUrl || (res.data.length > 0 ? res.data[0].id : null));
       })
       .catch(err => { console.error(err); setListError(true); })
       .finally(() => setLoading(false));
