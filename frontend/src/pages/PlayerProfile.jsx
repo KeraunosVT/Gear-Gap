@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
 import weaponToClass from '../../../shared/weaponClasses.json';
-import { ArrowLeft, Sword, Target, Heart, ShieldAlert, Trophy } from 'lucide-react';
+import { ArrowLeft, Sword, Target, Heart, ShieldAlert, Trophy, TrendingUp } from 'lucide-react';
 
 const fmt = (n) => (Number(n) || 0).toLocaleString();
 const fmtM = (n) => ((Number(n) || 0) / 1e6).toFixed(1) + 'M';
@@ -134,6 +134,9 @@ export default function PlayerProfile() {
         </div>
       </div>
 
+      {/* Performance Trends */}
+      {p.matchHistory.length >= 3 && <TrendSection history={p.matchHistory} />}
+
       {/* Match history */}
       <div>
         <h3 className="font-display text-xl text-bone tracking-[0.08em] mb-5 flex items-center gap-3">
@@ -179,5 +182,100 @@ export default function PlayerProfile() {
         </div>
       </div>
     </div>
+  );
+}
+
+/* ── Performance Trends ──────────────────────────────────────── */
+
+function rollingAvg(values, window = 3) {
+  return values.map((_, i) => {
+    const start = Math.max(0, i - window + 1);
+    const slice = values.slice(start, i + 1);
+    return slice.reduce((a, b) => a + b, 0) / slice.length;
+  });
+}
+
+function TrendSection({ history }) {
+  const chronological = useMemo(() => [...history].reverse(), [history]);
+
+  const trends = useMemo(() => [
+    { label: 'Kills', field: 'kills', color: '#c9973a', format: (v) => v.toFixed(0), icon: <Sword className="w-4 h-4" /> },
+    { label: 'Damage Dealt', field: 'damage_dealt', color: '#e2c07a', format: (v) => (v / 1e6).toFixed(1) + 'M', icon: <Target className="w-4 h-4" /> },
+    { label: 'Healing', field: 'healing', color: '#4ade80', format: (v) => (v / 1e6).toFixed(1) + 'M', icon: <Heart className="w-4 h-4" /> },
+  ], []);
+
+  return (
+    <div className="mb-14">
+      <h3 className="font-display text-xl text-bone tracking-[0.08em] mb-5 flex items-center gap-3">
+        <TrendingUp className="w-5 h-5 text-brass" /> Performance Trends
+      </h3>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {trends.map((t) => {
+          const values = chronological.map((h) => Number(h[t.field]) || 0);
+          const avg = rollingAvg(values);
+          const latest = values[values.length - 1];
+          const prevAvg = avg.length >= 2 ? avg[avg.length - 2] : latest;
+          const delta = latest - prevAvg;
+          return (
+            <div key={t.field} className="panel rounded-sm p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-2 text-ash text-sm">
+                  <span style={{ color: t.color }}>{t.icon}</span>
+                  {t.label}
+                </div>
+                <div className="text-right">
+                  <span className="font-mono text-bone text-lg">{t.format(latest)}</span>
+                  {Math.abs(delta) > 0.01 && (
+                    <span className={`ml-2 text-xs font-mono ${delta > 0 ? 'text-emerald-400' : 'text-oxblood'}`}>
+                      {delta > 0 ? '▲' : '▼'} {t.format(Math.abs(delta))}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <Sparkline values={values} avg={avg} color={t.color} />
+              <div className="flex justify-between text-[10px] text-ash mt-1.5 font-mono">
+                <span>{chronological[0]?.match_date ? new Date(chronological[0].match_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}</span>
+                <span>{chronological[chronological.length - 1]?.match_date ? new Date(chronological[chronological.length - 1].match_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function Sparkline({ values, avg, color, height = 56 }) {
+  const w = 200;
+  const pad = 2;
+  if (values.length < 2) return null;
+
+  const allVals = [...values, ...avg];
+  const max = Math.max(...allVals);
+  const min = Math.min(...allVals);
+  const range = max - min || 1;
+
+  const x = (i) => pad + (i / (values.length - 1)) * (w - pad * 2);
+  const y = (v) => pad + (1 - (v - min) / range) * (height - pad * 2);
+
+  const linePath = values.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i)},${y(v)}`).join(' ');
+  const avgPath = avg.map((v, i) => `${i === 0 ? 'M' : 'L'}${x(i)},${y(v)}`).join(' ');
+  const fillPath = `${linePath} L${x(values.length - 1)},${height} L${x(0)},${height} Z`;
+
+  return (
+    <svg viewBox={`0 0 ${w} ${height}`} className="w-full" style={{ height }} preserveAspectRatio="none">
+      <defs>
+        <linearGradient id={`fill-${color.replace('#', '')}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity="0.2" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </linearGradient>
+      </defs>
+      <path d={fillPath} fill={`url(#fill-${color.replace('#', '')})`} />
+      <path d={linePath} fill="none" stroke={color} strokeWidth="1.5" strokeLinejoin="round" strokeOpacity="0.5" />
+      <path d={avgPath} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" />
+      {values.map((v, i) => (
+        <circle key={i} cx={x(i)} cy={y(v)} r="2.5" fill={i === values.length - 1 ? color : 'transparent'} stroke={color} strokeWidth="1" strokeOpacity="0.4" />
+      ))}
+    </svg>
   );
 }
