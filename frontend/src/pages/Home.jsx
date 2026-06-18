@@ -135,8 +135,10 @@ export default function Home() {
 }
 
 function EngagementRow({ match }) {
-  const held = match.winningGuild === GUILD.tag || match.winningGuild === 'FTP';
-  const decided = match.killDifference > 0;
+  const result = match.result;
+  const held = result ? result === 'Win' : (match.winningGuild === GUILD.tag || match.winningGuild === 'FTP');
+  const draw = result === 'Draw';
+  const decided = result ? result !== 'Draw' : match.killDifference > 0;
 
   const date = match.match_date
     ? new Date(match.match_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
@@ -145,7 +147,7 @@ function EngagementRow({ match }) {
 
   return (
     <Link
-      to="/war-record"
+      to={`/war-record?match=${match.id}`}
       className="group flex items-center gap-5 px-5 py-4 bg-panel hover:bg-panelup transition-colors"
     >
       <div className="w-14 shrink-0 text-center">
@@ -173,7 +175,7 @@ function EngagementRow({ match }) {
             <div className="font-mono text-sm text-ash mt-1">+{match.killDifference}</div>
           </>
         ) : (
-          <div className="eyebrow text-[10px] text-ash">Contested</div>
+          <div className="eyebrow text-[10px] text-amber-400">Contested field</div>
         )}
       </div>
     </Link>
