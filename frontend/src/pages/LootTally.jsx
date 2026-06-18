@@ -2,18 +2,15 @@ import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../auth';
 import Sigil from '../components/Sigil';
-import LOOT from '../../../shared/loot.json';
-import { ChevronDown, RefreshCw, Gavel, X, ScrollText } from 'lucide-react';
+import { ChevronDown, RefreshCw, Gavel, X, ScrollText, Plus, Pencil, Trash2 } from 'lucide-react';
 
 const PRIO_SHORT = { 'PvP': 'PvP', 'Second Build': '2nd', 'PvE': 'PvE' };
 const PRIO_DOT = { 'PvP': 'bg-oxblood', 'Second Build': 'bg-brass', 'PvE': 'bg-emerald-500' };
 const PRIO_TEXT = { 'PvP': 'text-oxblood', 'Second Build': 'text-brass', 'PvE': 'text-emerald-400' };
-const PRIO_INDEX = Object.fromEntries(LOOT.priorities.map((p, i) => [p, i]));
-const ALL_ITEMS = LOOT.categories.flatMap((c) => c.items.map((i) => ({ ...i, category: c.label })));
-const ITEM_BY_KEY = Object.fromEntries(ALL_ITEMS.map((i) => [i.key, i]));
 
 export default function LootTally() {
   const { user } = useAuth();
+  const [catalog, setCatalog] = useState(null);
   const [counts, setCounts] = useState({});
   const [tally, setTally] = useState({});
   const [awards, setAwards] = useState([]);
@@ -25,11 +22,18 @@ export default function LootTally() {
   const [open, setOpen] = useState(() => new Set());
   const [pending, setPending] = useState(null); // { item, watcher }
   const [busy, setBusy] = useState(false);
+  const [managing, setManaging] = useState(false);
+  const [newCatName, setNewCatName] = useState('');
+  const [newItemName, setNewItemName] = useState('');
+  const [newItemCat, setNewItemCat] = useState('');
+  const [editingItem, setEditingItem] = useState(null);
+  const [editName, setEditName] = useState('');
 
   const load = () => {
     setLoading(true); setError('');
-    Promise.all([axios.get('/api/loot'), axios.get('/api/admin/loot/awards')])
-      .then(([loot, aw]) => {
+    Promise.all([axios.get('/api/loot/catalog'), axios.get('/api/loot'), axios.get('/api/admin/loot/awards')])
+      .then(([catRes, loot, aw]) => {
+        setCatalog(catRes.data);
         setCounts(loot.data.counts || {});
         setTally(loot.data.tally || {});
         setAwards(aw.data.awards || []);
@@ -39,6 +43,11 @@ export default function LootTally() {
   };
   useEffect(() => { load(); }, []);
 
+  const PRIO_INDEX = useMemo(() => catalog ? Object.fromEntries(catalog.priorities.map((p, i) => [p, i])) : {}, [catalog]);
+
+  const allItems = useMemo(() => catalog ? catalog.categories.flatMap((c) => c.items.map((i) => ({ ...i, category: c.label }))) : [], [catalog]);
+  const itemByKey = useMemo(() => Object.fromEntries(allItems.map((i) => [i.key, i])), [allItems]);
+
   const awardsByItem = useMemo(() => {
     const m = {};
     awards.forEach((a) => { (m[a.item_key] = m[a.item_key] || []).push(a); });
@@ -47,13 +56,14 @@ export default function LootTally() {
   const awardFor = (itemKey, discordId) => (awardsByItem[itemKey] || []).find((a) => a.discord_id === discordId);
 
   const rows = useMemo(() => {
+    if (!catalog) return [];
     const f = filter.toLowerCase();
-    return ALL_ITEMS
+    return allItems
       .map((it) => {
         const watchers = [...(tally[it.key] || [])].sort((a, b) =>
           (PRIO_INDEX[a.priority] - PRIO_INDEX[b.priority]) || (a.name || '').localeCompare(b.name || ''));
         const byPrio = {};
-        LOOT.priorities.forEach((p) => { byPrio[p] = 0; });
+        catalog.priorities.forEach((p) => { byPrio[p] = 0; });
         watchers.forEach((w) => { if (byPrio[w.priority] != null) byPrio[w.priority]++; });
         return { ...it, total: counts[it.key] || 0, watchers, byPrio, awarded: awardsByItem[it.key] || [] };
       })
@@ -61,7 +71,7 @@ export default function LootTally() {
         && (!category || it.category === category)
         && (it.name.toLowerCase().includes(f) || it.category.toLowerCase().includes(f)))
       .sort((a, b) => (b.total - a.total) || a.name.localeCompare(b.name));
-  }, [counts, tally, awardsByItem, filter, category, showZero]);
+  }, [counts, tally, awardsByItem, filter, category, showZero, catalog, allItems, PRIO_INDEX]);
 
   const toggle = (key) => setOpen((prev) => {
     const next = new Set(prev);
@@ -103,6 +113,134 @@ export default function LootTally() {
 
       {error && <div className="mb-6 px-5 py-3 rounded-sm border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
 
+      <div className="mb-8">
+        <button
+          onClick={() => setManaging((v) => !v)}
+          className="inline-flex items-center gap-2 text-sm text-brass hover:text-brassbright transition-colors"
+        >
+          <Pencil className="w-4 h-4" /> {managing ? 'Close item manager' : 'Manage items'}
+        </button>
+      </div>
+
+      {managing && catalog && (
+        <div className="mb-10 panel rounded-sm p-6 space-y-6">
+          <div className="eyebrow text-brass text-[10px] mb-2">Item Manager</div>
+
+          {/* Add category */}
+          <div>
+            <label className="eyebrow text-[10px] text-ash block mb-2">Add category</label>
+            <div className="flex gap-2">
+              <input value={newCatName} onChange={(e) => setNewCatName(e.target.value)} placeholder="e.g. Boots"
+                className="bg-hall border border-line rounded-sm px-3 py-2 text-bone focus:outline-none focus:border-brass flex-1" />
+              <button
+                onClick={() => {
+                  if (!newCatName.trim()) return;
+                  axios.post('/api/admin/loot/categories', { label: newCatName.trim() })
+                    .then(() => { setNewCatName(''); load(); })
+                    .catch((err) => setError(err.response?.data?.error || 'Failed to add category.'));
+                }}
+                disabled={!newCatName.trim()}
+                className="px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors disabled:opacity-40"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Add item */}
+          <div>
+            <label className="eyebrow text-[10px] text-ash block mb-2">Add item</label>
+            <div className="flex gap-2">
+              <select value={newItemCat} onChange={(e) => setNewItemCat(e.target.value)}
+                className="bg-hall border border-line rounded-sm px-3 py-2 text-bone focus:outline-none focus:border-brass">
+                <option value="">— category —</option>
+                {catalog.categories.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+              </select>
+              <input value={newItemName} onChange={(e) => setNewItemName(e.target.value)} placeholder="Item name"
+                className="bg-hall border border-line rounded-sm px-3 py-2 text-bone focus:outline-none focus:border-brass flex-1" />
+              <button
+                onClick={() => {
+                  if (!newItemCat || !newItemName.trim()) return;
+                  axios.post('/api/admin/loot/items', { category: newItemCat, name: newItemName.trim() })
+                    .then(() => { setNewItemName(''); load(); })
+                    .catch((err) => setError(err.response?.data?.error || 'Failed to add item.'));
+                }}
+                disabled={!newItemCat || !newItemName.trim()}
+                className="px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors disabled:opacity-40"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Existing items by category */}
+          <div className="space-y-4">
+            {catalog.categories.map((cat) => (
+              <div key={cat.key}>
+                <div className="flex items-center gap-2 mb-2">
+                  <h4 className="font-display text-bone tracking-wide">{cat.label}</h4>
+                  <button
+                    onClick={() => {
+                      if (!confirm(`Delete the "${cat.label}" category and all its items?`)) return;
+                      axios.delete(`/api/admin/loot/categories/${cat.key}`)
+                        .then(load)
+                        .catch((err) => setError(err.response?.data?.error || 'Failed to delete category.'));
+                    }}
+                    className="text-ash hover:text-oxblood" title="Delete category"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <div className="space-y-1">
+                  {cat.items.map((item) => (
+                    <div key={item.key} className="flex items-center gap-2 bg-hall border border-line rounded-sm px-3 py-1.5">
+                      {editingItem === item.key ? (
+                        <>
+                          <input value={editName} onChange={(e) => setEditName(e.target.value)}
+                            className="bg-panel border border-line rounded px-2 py-1 text-bone focus:outline-none focus:border-brass flex-1 text-sm"
+                            autoFocus onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                axios.put(`/api/admin/loot/items/${item.key}`, { name: editName.trim() })
+                                  .then(() => { setEditingItem(null); load(); })
+                                  .catch((err) => setError(err.response?.data?.error || 'Failed to rename.'));
+                              }
+                              if (e.key === 'Escape') setEditingItem(null);
+                            }}
+                          />
+                          <button onClick={() => {
+                            axios.put(`/api/admin/loot/items/${item.key}`, { name: editName.trim() })
+                              .then(() => { setEditingItem(null); load(); })
+                              .catch((err) => setError(err.response?.data?.error || 'Failed to rename.'));
+                          }} className="text-emerald-400 hover:text-emerald-300 text-xs font-semibold">Save</button>
+                          <button onClick={() => setEditingItem(null)} className="text-ash hover:text-bone text-xs">Cancel</button>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-bone text-sm flex-1">{item.name}</span>
+                          <button onClick={() => { setEditingItem(item.key); setEditName(item.name); }}
+                            className="text-ash hover:text-brass" title="Rename">
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button onClick={() => {
+                            if (!confirm(`Delete "${item.name}"?`)) return;
+                            axios.delete(`/api/admin/loot/items/${item.key}`)
+                              .then(load)
+                              .catch((err) => setError(err.response?.data?.error || 'Failed to delete item.'));
+                          }} className="text-ash hover:text-oxblood" title="Delete">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                  {cat.items.length === 0 && <p className="text-ash text-xs pl-1">No items — add one above or delete this category.</p>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8">
         {/* Main list */}
         <div>
@@ -112,7 +250,7 @@ export default function LootTally() {
             <select value={category} onChange={(e) => setCategory(e.target.value)}
               className="bg-panel border border-line rounded-sm px-3 py-2.5 text-bone focus:outline-none focus:border-brass">
               <option value="">All categories</option>
-              {LOOT.categories.map((c) => <option key={c.key} value={c.label}>{c.label}</option>)}
+              {(catalog?.categories || []).map((c) => <option key={c.key} value={c.label}>{c.label}</option>)}
             </select>
             <label className="inline-flex items-center gap-2 text-sm text-ash cursor-pointer select-none">
               <input type="checkbox" checked={showZero} onChange={(e) => setShowZero(e.target.checked)} className="accent-brass" /> Show unwanted
@@ -145,7 +283,7 @@ export default function LootTally() {
                         <div className="eyebrow text-[10px] text-ash mt-0.5">{it.category}</div>
                       </div>
                       <div className="hidden sm:flex items-center gap-2 shrink-0">
-                        {LOOT.priorities.map((p) => (
+                        {(catalog?.priorities || []).map((p) => (
                           <span key={p} className={`inline-flex items-center gap-1 text-xs font-mono ${it.byPrio[p] ? PRIO_TEXT[p] : 'text-ash/30'}`} title={p}>
                             <span className={`w-2 h-2 rounded-full ${it.byPrio[p] ? PRIO_DOT[p] : 'bg-line'}`} />{it.byPrio[p]}
                           </span>
@@ -199,7 +337,7 @@ export default function LootTally() {
                 {awards.map((a) => (
                   <div key={a.id} className="flex items-start gap-2 border-b border-line/50 pb-3 last:border-0">
                     <div className="min-w-0 flex-1">
-                      <div className="text-sm text-bone truncate">{ITEM_BY_KEY[a.item_key]?.name || a.item_key}</div>
+                      <div className="text-sm text-bone truncate">{itemByKey[a.item_key]?.name || a.item_key}</div>
                       <div className="text-xs text-brass truncate">{a.display_name || 'Member'}</div>
                       <div className="text-[10px] text-ash mt-0.5">{a.awarded_at ? new Date(a.awarded_at).toLocaleDateString() : ''}{a.awarded_by ? ` · by ${a.awarded_by}` : ''}</div>
                     </div>
