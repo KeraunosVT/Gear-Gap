@@ -7,6 +7,7 @@ import { GUILD } from '../guild';
 export default function Home() {
   const [stats, setStats] = useState({});
   const [recentMatches, setRecentMatches] = useState([]);
+  const [wdl, setWdl] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 
@@ -14,12 +15,18 @@ export default function Home() {
     setLoading(true);
     setError(false);
     try {
-      const [statsRes, matchesRes] = await Promise.all([
+      const [statsRes, matchesRes, last10Res] = await Promise.all([
         axios.get('/api/stats/summary'),
         axios.get('/api/matches/recent?limit=6'),
+        axios.get('/api/matches/recent?limit=10'),
       ]);
       setStats(statsRes.data);
       setRecentMatches(matchesRes.data);
+      const last10 = last10Res.data || [];
+      const w = last10.filter((m) => m.result === 'Win').length;
+      const d = last10.filter((m) => m.result === 'Draw').length;
+      const l = last10.filter((m) => m.result === 'Loss').length;
+      if (w + d + l > 0) setWdl({ w, d, l });
     } catch (err) {
       console.error(err);
       setError(true);
@@ -107,7 +114,14 @@ export default function Home() {
       {/* ── WAR RECORD (recent engagements) ─────────────────────── */}
       <section className="max-w-6xl mx-auto px-6 py-16">
         <div className="flex items-baseline justify-between mb-2">
-          <h2 className="font-display text-2xl text-bone tracking-[0.1em]">War Record</h2>
+          <div className="flex items-baseline gap-4">
+            <h2 className="font-display text-2xl text-bone tracking-[0.1em]">War Record</h2>
+            {wdl && (
+              <span className="text-sm text-ash font-mono">
+                Last 10: <span className="text-emerald-400">{wdl.w}</span>/<span className="text-amber-400">{wdl.d}</span>/<span className="text-oxblood">{wdl.l}</span>
+              </span>
+            )}
+          </div>
           <Link to="/war-record" className="text-sm text-brass hover:text-brassbright transition-colors">
             Full record →
           </Link>
