@@ -4,13 +4,28 @@ import { useAuth } from '../auth';
 import { CalendarOff, CalendarX2, Plus, Trash2, Settings, X } from 'lucide-react';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const GUILD_TZ = 'America/New_York';
 
 function fmtTime(t) {
   if (!t) return '';
   const [h, m] = t.split(':').map(Number);
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: GUILD_TZ });
+  const inGuildTz = new Date(`${today}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`);
+  const utcMs = inGuildTz.getTime() - tzOffsetMs(inGuildTz);
+  return new Date(utcMs).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
+function fmtTimeEst(t) {
+  if (!t) return '';
+  const [h, m] = t.split(':').map(Number);
   const ampm = h >= 12 ? 'PM' : 'AM';
-  const h12 = h % 12 || 12;
-  return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${ampm} ET`;
+}
+
+function tzOffsetMs(ref) {
+  const utc = new Date(ref.toLocaleString('en-US', { timeZone: 'UTC' }));
+  const tz = new Date(ref.toLocaleString('en-US', { timeZone: GUILD_TZ }));
+  return tz.getTime() - utc.getTime();
 }
 
 export default function LOA() {
@@ -182,9 +197,12 @@ export default function LOA() {
               <option value="">— day —</option>
               {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
             </select>
-            <input type="time" value={newEventTime} onChange={(e) => setNewEventTime(e.target.value)}
-              className="bg-hall border border-line rounded-sm px-3 py-2 text-bone focus:outline-none focus:border-brass"
-              title="Event time (optional)" />
+            <div className="flex items-center gap-1">
+              <input type="time" value={newEventTime} onChange={(e) => setNewEventTime(e.target.value)}
+                className="bg-hall border border-line rounded-sm px-3 py-2 text-bone focus:outline-none focus:border-brass"
+                title="Event time in ET (optional)" />
+              <span className="text-ash text-xs shrink-0">ET</span>
+            </div>
             <button onClick={addScheduleEvent} disabled={!newEventName.trim() || newEventDay === ''}
               className="px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors disabled:opacity-40">
               <Plus className="w-4 h-4" />
@@ -195,7 +213,7 @@ export default function LOA() {
               <p className="text-ash text-sm">No events scheduled. Add your recurring events above.</p>
             ) : schedule.map((s) => (
               <div key={s.id} className="flex items-center justify-between bg-hall border border-line rounded-sm px-3 py-2">
-                <span className="text-bone text-sm">{s.name} <span className="text-ash">— {DAYS[s.day_of_week]}{s.event_time ? ` at ${fmtTime(s.event_time)}` : ''}</span></span>
+                <span className="text-bone text-sm">{s.name} <span className="text-ash">— {DAYS[s.day_of_week]}{s.event_time ? ` at ${fmtTimeEst(s.event_time)}` : ''}</span></span>
                 <button onClick={() => deleteScheduleEvent(s.id)} className="text-ash hover:text-oxblood"><Trash2 className="w-3.5 h-3.5" /></button>
               </div>
             ))}
@@ -247,6 +265,7 @@ export default function LOA() {
                         className="w-full bg-hall border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass">
                         <option value="">— select event —</option>
                         {eventsOnDate.map((s) => <option key={s.id} value={s.id}>{s.name}{s.event_time ? ` (${fmtTime(s.event_time)})` : ''}</option>)}
+
                       </select>
                     )}
                   </div>
