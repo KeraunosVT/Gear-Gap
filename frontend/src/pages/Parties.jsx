@@ -9,7 +9,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { useAuth } from '../auth';
 import Sigil from '../components/Sigil';
-import { Save, Trash2, Send, Plus, RefreshCw, Users } from 'lucide-react';
+import { Save, Trash2, Send, Plus, RefreshCw, Users, CalendarOff } from 'lucide-react';
 
 const ROLES = ['Tank', 'DPS', 'Healer'];
 const ROLE_STYLE = {
@@ -40,6 +40,8 @@ export default function Parties() {
   const [membersError, setMembersError] = useState('');
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [loaDate, setLoaDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [loaSet, setLoaSet] = useState(new Set());
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -79,7 +81,14 @@ export default function Parties() {
     axios.get('/api/admin/rosters').then((res) => setSaved(res.data.rosters || [])).catch(() => {});
   };
 
-  useEffect(() => { loadMembers(); loadSaved(); }, []);
+  const loadLoa = (date) => {
+    axios.get(`/api/admin/loa/unavailable?date=${date || loaDate}`)
+      .then((res) => setLoaSet(new Set((res.data.unavailable || []).map((u) => u.discord_id))))
+      .catch(() => {});
+  };
+
+  useEffect(() => { loadMembers(); loadSaved(); loadLoa(); }, []);
+  useEffect(() => { loadLoa(loaDate); }, [loaDate]);
 
   if (!user?.isAdmin) {
     return (
@@ -236,6 +245,13 @@ export default function Parties() {
         </select>
         <button onClick={resetBoard} className="inline-flex items-center gap-2 px-3 py-2 text-ash hover:text-bone transition-colors"><Plus className="w-4 h-4" /> New</button>
         <button onClick={del} className="inline-flex items-center gap-2 px-3 py-2 text-ash hover:text-oxblood transition-colors"><Trash2 className="w-4 h-4" /> Delete</button>
+        <div className="flex items-center gap-2 text-sm text-ash">
+          <CalendarOff className="w-4 h-4" />
+          <input type="date" value={loaDate} onChange={(e) => setLoaDate(e.target.value)}
+            className="bg-hall border border-line rounded px-2 py-1.5 text-bone text-sm focus:outline-none focus:border-brass"
+            title="Show LOAs for this date" />
+          {loaSet.size > 0 && <span className="text-oxblood font-mono">{loaSet.size} out</span>}
+        </div>
         <div className="flex-1" />
         <button onClick={post} disabled={busy} className="inline-flex items-center gap-2 px-5 py-2 border border-brass/50 text-brassbright hover:bg-panelup rounded-sm transition-colors disabled:opacity-40"><Send className="w-4 h-4" /> Post to Discord</button>
       </div>
@@ -262,7 +278,7 @@ export default function Parties() {
                     {membersError}<button onClick={loadMembers} className="block mt-2 text-brass hover:text-brassbright">Retry</button>
                   </div>
                 ) : poolView.length === 0 ? <div className="text-ash text-sm py-6 text-center">Everyone's assigned.</div>
-                : poolView.map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} />)}
+                : poolView.map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} isLoa={loaSet.has(id)} />)}
             </div>
           </DroppableColumn>
 
@@ -278,7 +294,7 @@ export default function Parties() {
                 <div className="space-y-2 min-h-[120px]">
                   {items[pid].length === 0
                     ? <div className="text-ash/50 text-xs text-center py-8 border border-dashed border-line rounded">Drop members here</div>
-                    : items[pid].map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} inParty />)}
+                    : items[pid].map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} inParty isLoa={loaSet.has(id)} />)}
                 </div>
               </DroppableColumn>
             ))}
@@ -309,17 +325,18 @@ function SortableMember(props) {
   return <MemberCardBase ref={setNodeRef} style={style} handle={{ ...attributes, ...listeners }} isDragging={isDragging} {...props} />;
 }
 
-const MemberCardBase = forwardRef(function MemberCardBase({ member, role, onRole, inParty, overlay, style, handle, isDragging }, ref) {
+const MemberCardBase = forwardRef(function MemberCardBase({ member, role, onRole, inParty, overlay, style, handle, isDragging, isLoa }, ref) {
   const rs = ROLE_STYLE[role];
   return (
     <div
       ref={ref} style={style} {...handle}
-      className={`group flex items-center gap-2 bg-hall border border-line ${rs ? `border-l-2 ${rs.ring}` : ''} rounded px-2.5 py-2 cursor-grab active:cursor-grabbing select-none ${isDragging ? 'opacity-30' : ''} ${overlay ? 'shadow-xl ring-1 ring-brass/40' : ''}`}
+      className={`group flex items-center gap-2 bg-hall border border-line ${rs ? `border-l-2 ${rs.ring}` : ''} rounded px-2.5 py-2 cursor-grab active:cursor-grabbing select-none ${isDragging ? 'opacity-30' : ''} ${overlay ? 'shadow-xl ring-1 ring-brass/40' : ''} ${isLoa ? 'opacity-50' : ''}`}
     >
       {member.avatar
         ? <img src={member.avatar} alt="" className="w-6 h-6 rounded-full border border-line shrink-0" />
         : <span className="w-6 h-6 rounded-full bg-panelup border border-line shrink-0 flex items-center justify-center text-[10px] text-brass">{(member.name || '?').slice(0, 1).toUpperCase()}</span>}
-      <span className={`text-sm truncate flex-1 ${member.missing ? 'text-ash italic' : 'text-bone'}`} title={member.missing ? 'No longer in the server' : member.name}>{member.name}</span>
+      <span className={`text-sm truncate flex-1 ${member.missing ? 'text-ash italic' : isLoa ? 'text-oxblood' : 'text-bone'}`} title={isLoa ? 'On leave of absence' : member.missing ? 'No longer in the server' : member.name}>{member.name}</span>
+      {isLoa && <CalendarOff className="w-3.5 h-3.5 text-oxblood shrink-0" title="LOA" />}
       {onRole && (
         <div className="flex gap-1 opacity-60 group-hover:opacity-100 transition-opacity" onPointerDown={(e) => e.stopPropagation()}>
           {ROLES.map((r) => (

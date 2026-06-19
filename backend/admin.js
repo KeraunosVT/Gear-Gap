@@ -652,5 +652,56 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
     res.json({ ok: true });
   });
 
+  // ── Event schedule management ────────────────────────────────────────────────
+  router.post('/event-schedule', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const { name, day_of_week } = req.body || {};
+    if (!name || day_of_week === undefined) return res.status(400).json({ error: 'Name and day of week required.' });
+    const dow = parseInt(day_of_week, 10);
+    if (!Number.isFinite(dow) || dow < 0 || dow > 6) return res.status(400).json({ error: 'Day must be 0 (Sun) – 6 (Sat).' });
+    const id = crypto.randomUUID();
+    const { error } = await supabase.from('event_schedule').insert({ id, name: String(name).slice(0, 120), day_of_week: dow });
+    if (error) return res.status(500).json({ error: 'Failed to create event.' });
+    res.json({ id });
+  });
+
+  router.put('/event-schedule/:id', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const { name, day_of_week } = req.body || {};
+    const update = {};
+    if (name !== undefined) update.name = String(name).slice(0, 120);
+    if (day_of_week !== undefined) {
+      const dow = parseInt(day_of_week, 10);
+      if (!Number.isFinite(dow) || dow < 0 || dow > 6) return res.status(400).json({ error: 'Day must be 0 (Sun) – 6 (Sat).' });
+      update.day_of_week = dow;
+    }
+    const { error } = await supabase.from('event_schedule').update(update).eq('id', req.params.id);
+    if (error) return res.status(500).json({ error: 'Failed to update event.' });
+    res.json({ ok: true });
+  });
+
+  router.delete('/event-schedule/:id', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const { error } = await supabase.from('event_schedule').delete().eq('id', req.params.id);
+    if (error) return res.status(500).json({ error: 'Failed to delete event.' });
+    res.json({ ok: true });
+  });
+
+  // ── LOA: who's out on a given date (for party builder) ─────────────────────
+  router.get('/loa/unavailable', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const date = req.query.date || new Date().toISOString().slice(0, 10);
+    const { data, error } = await supabase.from('loa_entries').select('discord_id, display_name, type, event_date, event_schedule_id, start_date, end_date, reason');
+    if (error) return res.status(500).json({ error: 'Failed to load LOAs.' });
+    const out = new Map();
+    (data || []).forEach((e) => {
+      let matches = false;
+      if (e.type === 'event' && e.event_date === date) matches = true;
+      if (e.type === 'range' && e.start_date <= date && e.end_date >= date) matches = true;
+      if (matches) out.set(e.discord_id, { discord_id: e.discord_id, display_name: e.display_name });
+    });
+    res.json({ date, unavailable: [...out.values()] });
+  });
+
   return router;
 };
