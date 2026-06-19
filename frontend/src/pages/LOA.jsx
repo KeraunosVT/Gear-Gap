@@ -5,6 +5,14 @@ import { CalendarOff, CalendarX2, Plus, Trash2, Settings, X } from 'lucide-react
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
+function fmtTime(t) {
+  if (!t) return '';
+  const [h, m] = t.split(':').map(Number);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+}
+
 export default function LOA() {
   const { user } = useAuth();
   const [schedule, setSchedule] = useState([]);
@@ -26,6 +34,7 @@ export default function LOA() {
   const [showScheduleAdmin, setShowScheduleAdmin] = useState(false);
   const [newEventName, setNewEventName] = useState('');
   const [newEventDay, setNewEventDay] = useState('');
+  const [newEventTime, setNewEventTime] = useState('');
 
   const load = () => {
     setLoading(true); setError('');
@@ -93,8 +102,8 @@ export default function LOA() {
   const addScheduleEvent = async () => {
     if (!newEventName.trim() || newEventDay === '') return;
     try {
-      await axios.post('/api/admin/event-schedule', { name: newEventName.trim(), day_of_week: parseInt(newEventDay, 10) });
-      setNewEventName(''); setNewEventDay('');
+      await axios.post('/api/admin/event-schedule', { name: newEventName.trim(), day_of_week: parseInt(newEventDay, 10), event_time: newEventTime || null });
+      setNewEventName(''); setNewEventDay(''); setNewEventTime('');
       load();
       flash('Event added to schedule.');
     } catch (err) {
@@ -115,7 +124,8 @@ export default function LOA() {
   const formatEventLabel = (entry) => {
     const ev = scheduleById[entry.event_schedule_id];
     const name = ev ? ev.name : 'Event';
-    return `${name} — ${new Date(entry.event_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+    const time = ev?.event_time ? ` at ${fmtTime(ev.event_time)}` : '';
+    return `${name}${time} — ${new Date(entry.event_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
   };
 
   const formatRangeLabel = (entry) => {
@@ -172,6 +182,9 @@ export default function LOA() {
               <option value="">— day —</option>
               {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
             </select>
+            <input type="time" value={newEventTime} onChange={(e) => setNewEventTime(e.target.value)}
+              className="bg-hall border border-line rounded-sm px-3 py-2 text-bone focus:outline-none focus:border-brass"
+              title="Event time (optional)" />
             <button onClick={addScheduleEvent} disabled={!newEventName.trim() || newEventDay === ''}
               className="px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors disabled:opacity-40">
               <Plus className="w-4 h-4" />
@@ -182,7 +195,7 @@ export default function LOA() {
               <p className="text-ash text-sm">No events scheduled. Add your recurring events above.</p>
             ) : schedule.map((s) => (
               <div key={s.id} className="flex items-center justify-between bg-hall border border-line rounded-sm px-3 py-2">
-                <span className="text-bone text-sm">{s.name} <span className="text-ash">— {DAYS[s.day_of_week]}</span></span>
+                <span className="text-bone text-sm">{s.name} <span className="text-ash">— {DAYS[s.day_of_week]}{s.event_time ? ` at ${fmtTime(s.event_time)}` : ''}</span></span>
                 <button onClick={() => deleteScheduleEvent(s.id)} className="text-ash hover:text-oxblood"><Trash2 className="w-3.5 h-3.5" /></button>
               </div>
             ))}
@@ -233,7 +246,7 @@ export default function LOA() {
                       <select value={eventScheduleId} onChange={(e) => setEventScheduleId(e.target.value)}
                         className="w-full bg-hall border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass">
                         <option value="">— select event —</option>
-                        {eventsOnDate.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        {eventsOnDate.map((s) => <option key={s.id} value={s.id}>{s.name}{s.event_time ? ` (${fmtTime(s.event_time)})` : ''}</option>)}
                       </select>
                     )}
                   </div>

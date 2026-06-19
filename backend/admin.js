@@ -655,19 +655,21 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
   // ── Event schedule management ────────────────────────────────────────────────
   router.post('/event-schedule', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-    const { name, day_of_week } = req.body || {};
+    const { name, day_of_week, event_time } = req.body || {};
     if (!name || day_of_week === undefined) return res.status(400).json({ error: 'Name and day of week required.' });
     const dow = parseInt(day_of_week, 10);
     if (!Number.isFinite(dow) || dow < 0 || dow > 6) return res.status(400).json({ error: 'Day must be 0 (Sun) – 6 (Sat).' });
     const id = crypto.randomUUID();
-    const { error } = await supabase.from('event_schedule').insert({ id, name: String(name).slice(0, 120), day_of_week: dow });
+    const row = { id, name: String(name).slice(0, 120), day_of_week: dow };
+    if (event_time) row.event_time = String(event_time).slice(0, 5);
+    const { error } = await supabase.from('event_schedule').insert(row);
     if (error) return res.status(500).json({ error: 'Failed to create event.' });
     res.json({ id });
   });
 
   router.put('/event-schedule/:id', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-    const { name, day_of_week } = req.body || {};
+    const { name, day_of_week, event_time } = req.body || {};
     const update = {};
     if (name !== undefined) update.name = String(name).slice(0, 120);
     if (day_of_week !== undefined) {
@@ -675,6 +677,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
       if (!Number.isFinite(dow) || dow < 0 || dow > 6) return res.status(400).json({ error: 'Day must be 0 (Sun) – 6 (Sat).' });
       update.day_of_week = dow;
     }
+    if (event_time !== undefined) update.event_time = event_time ? String(event_time).slice(0, 5) : null;
     const { error } = await supabase.from('event_schedule').update(update).eq('id', req.params.id);
     if (error) return res.status(500).json({ error: 'Failed to update event.' });
     res.json({ ok: true });
