@@ -41,7 +41,9 @@ export default function Parties() {
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState(false);
   const [loaDate, setLoaDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [loaEvent, setLoaEvent] = useState('');
   const [loaSet, setLoaSet] = useState(new Set());
+  const [schedule, setSchedule] = useState([]);
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -81,14 +83,30 @@ export default function Parties() {
     axios.get('/api/admin/rosters').then((res) => setSaved(res.data.rosters || [])).catch(() => {});
   };
 
-  const loadLoa = (date) => {
-    axios.get(`/api/admin/loa/unavailable?date=${date || loaDate}`)
+  const loadSchedule = () => {
+    axios.get('/api/event-schedule')
+      .then((res) => setSchedule(res.data.schedule || []))
+      .catch(() => {});
+  };
+
+  const loadLoa = (date, event) => {
+    const d = date ?? loaDate;
+    const e = event ?? loaEvent;
+    const params = `date=${d}${e ? `&event=${e}` : ''}`;
+    axios.get(`/api/admin/loa/unavailable?${params}`)
       .then((res) => setLoaSet(new Set((res.data.unavailable || []).map((u) => u.discord_id))))
       .catch(() => {});
   };
 
-  useEffect(() => { loadMembers(); loadSaved(); loadLoa(); }, []);
-  useEffect(() => { loadLoa(loaDate); }, [loaDate]);
+  const eventsForDate = useMemo(() => {
+    if (!loaDate) return [];
+    const dow = new Date(loaDate + 'T12:00:00').getDay();
+    return schedule.filter((s) => s.day_of_week === dow);
+  }, [loaDate, schedule]);
+
+  useEffect(() => { loadMembers(); loadSaved(); loadSchedule(); loadLoa(); }, []);
+  useEffect(() => { loadLoa(loaDate, loaEvent); }, [loaDate, loaEvent]);
+  useEffect(() => { setLoaEvent(''); }, [loaDate]);
 
   if (!user?.isAdmin) {
     return (
@@ -250,6 +268,11 @@ export default function Parties() {
           <input type="date" value={loaDate} onChange={(e) => setLoaDate(e.target.value)}
             className="bg-hall border border-line rounded px-2 py-1.5 text-bone text-sm focus:outline-none focus:border-brass"
             title="Show LOAs for this date" />
+          <select value={loaEvent} onChange={(e) => setLoaEvent(e.target.value)}
+            className="bg-hall border border-line rounded px-2 py-1.5 text-bone text-sm focus:outline-none focus:border-brass">
+            <option value="">All events</option>
+            {eventsForDate.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
           {loaSet.size > 0 && <span className="text-oxblood font-mono">{loaSet.size} out</span>}
         </div>
         <div className="flex-1" />

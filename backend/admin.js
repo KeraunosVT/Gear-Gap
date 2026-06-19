@@ -690,16 +690,19 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
     res.json({ ok: true });
   });
 
-  // ── LOA: who's out on a given date (for party builder) ─────────────────────
+  // ── LOA: who's out on a given date/event (for party builder) ────────────────
   router.get('/loa/unavailable', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
     const date = req.query.date || new Date().toISOString().slice(0, 10);
-    const { data, error } = await supabase.from('loa_entries').select('discord_id, display_name, type, event_date, event_schedule_id, start_date, end_date, reason');
+    const eventFilter = req.query.event || null;
+    const { data, error } = await supabase.from('loa_entries').select('discord_id, display_name, type, event_date, event_schedule_id, start_date, end_date');
     if (error) return res.status(500).json({ error: 'Failed to load LOAs.' });
     const out = new Map();
     (data || []).forEach((e) => {
       let matches = false;
-      if (e.type === 'event' && e.event_date === date) matches = true;
+      if (e.type === 'event' && e.event_date === date) {
+        matches = !eventFilter || e.event_schedule_id === eventFilter;
+      }
       if (e.type === 'range' && e.start_date <= date && e.end_date >= date) matches = true;
       if (matches) out.set(e.discord_id, { discord_id: e.discord_id, display_name: e.display_name });
     });
