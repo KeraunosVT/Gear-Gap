@@ -1,88 +1,81 @@
-const fs = require('fs');
-const path = require('path');
+const PRIORITIES = ['PvP', 'Second Build', 'PvE'];
 
-const LOOT_PATH = path.join(__dirname, '..', 'shared', 'loot.json');
+module.exports = function createLootCatalog(supabase) {
+  function slugify(category, name) {
+    const prefix = category.replace(/\s+/g, '_').toLowerCase();
+    const suffix = name.replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '_').toLowerCase();
+    return `${prefix}__${suffix}`;
+  }
 
-let catalog = JSON.parse(fs.readFileSync(LOOT_PATH, 'utf8'));
-let keys = rebuildKeys(catalog);
+  async function getCatalog() {
+    const { data: cats } = await supabase
+      .from('loot_categories').select('key, label, sort_order')
+      .order('sort_order').order('label');
+    const { data: items } = await supabase
+      .from('loot_items').select('key, category_key, name, sort_order')
+      .order('sort_order').order('name');
+    const categories = (cats || []).map((c) => ({
+      key: c.key,
+      label: c.label,
+      items: (items || []).filter((i) => i.category_key === c.key).map((i) => ({ key: i.key, name: i.name })),
+    }));
+    return { priorities: PRIORITIES, categories };
+  }
 
-function rebuildKeys(cat) {
-  return new Set(cat.categories.flatMap((c) => c.items.map((i) => i.key)));
-}
+  async function getKeys() {
+    const { data } = await supabase.from('loot_items').select('key');
+    return new Set((data || []).map((r) => r.key));
+  }
 
-function save() {
-  fs.writeFileSync(LOOT_PATH, JSON.stringify(catalog, null, 2) + '\n');
-  keys = rebuildKeys(catalog);
-}
+  return {
+    priorities: new Set(PRIORITIES),
 
-function slugify(category, name) {
-  const prefix = category.replace(/\s+/g, '_').toLowerCase();
-  const suffix = name.replace(/[^a-zA-Z0-9 ]/g, '').replace(/\s+/g, '_').toLowerCase();
-  return `${prefix}__${suffix}`;
-}
+    getCatalog,
+    getKeys,
 
-module.exports = {
-  get catalog() { return catalog; },
-  get keys() { return keys; },
-  get priorities() { return new Set(catalog.priorities); },
+    async addCategory(label) {
+      const key = label.replace(/\s+/g, '_').toLowerCase();
+      const { data: existing } = await supabase.from('loot_categories').select('key').eq('key', key).single();
+      if (existing) return null;
+      const { data: maxRow } = await supabase.from('loot_categories').select('sort_order').order('sort_order', { ascending: false }).limit(1).single();
+      const sort_order = (maxRow?.sort_order ?? -1) + 1;
+      const { error } = await supabase.from('loot_categories').insert({ key, label, sort_order });
+      if (error) return null;
+      return { key, label, items: [] };
+    },
 
-  addCategory(label) {
-    const key = label.replace(/\s+/g, '_').toLowerCase();
-    if (catalog.categories.some((c) => c.key === key)) return null;
-    const cat = { key, label, items: [] };
-    catalog.categories.push(cat);
-    save();
-    return cat;
-  },
+    async renameCategory(catKey, newLabel) {
+      const { error } = await supabase.from('loot_categories').update({ label: newLabel }).eq('key', catKey);
+      return !error;
+    },
 
-  renameCategory(catKey, newLabel) {
-    const cat = catalog.categories.find((c) => c.key === catKey);
-    if (!cat) return false;
-    cat.label = newLabel;
-    save();
-    return true;
-  },
+    async deleteCategory(catKey) {
+      await supabase.from('loot_items').delete().eq('category_key', catKey);
+      const { error } = await supabase.from('loot_categories').delete().eq('key', catKey);
+      return !error;
+    },
 
-  deleteCategory(catKey) {
-    const idx = catalog.categories.findIndex((c) => c.key === catKey);
-    if (idx === -1) return false;
-    catalog.categories.splice(idx, 1);
-    save();
-    return true;
-  },
+    async addItem(catKey, name) {
+      const { data: cat } = await supabase.from('loot_categories').select('key').eq('key', catKey).single();
+      if (!cat) return null;
+      const itemKey = slugify(catKey, name);
+      const { data: existing } = await supabase.from('loot_items').select('key').eq('key', itemKey).single();
+      if (existing) return null;
+      const { data: maxRow } = await supabase.from('loot_items').select('sort_order').eq('category_key', catKey).order('sort_order', { ascending: false }).limit(1).single();
+      const sort_order = (maxRow?.sort_order ?? -1) + 1;
+      const { error } = await supabase.from('loot_items').insert({ key: itemKey, category_key: catKey, name, sort_order });
+      if (error) return null;
+      return { key: itemKey, name };
+    },
 
-  addItem(catKey, name) {
-    const cat = catalog.categories.find((c) => c.key === catKey);
-    if (!cat) return null;
-    const itemKey = slugify(catKey, name);
-    if (cat.items.some((i) => i.key === itemKey)) return null;
-    const item = { key: itemKey, name };
-    cat.items.push(item);
-    save();
-    return item;
-  },
+    async editItem(itemKey, newName) {
+      const { error } = await supabase.from('loot_items').update({ name: newName }).eq('key', itemKey);
+      return !error;
+    },
 
-  editItem(itemKey, newName) {
-    for (const cat of catalog.categories) {
-      const item = cat.items.find((i) => i.key === itemKey);
-      if (item) {
-        item.name = newName;
-        save();
-        return true;
-      }
-    }
-    return false;
-  },
-
-  deleteItem(itemKey) {
-    for (const cat of catalog.categories) {
-      const idx = cat.items.findIndex((i) => i.key === itemKey);
-      if (idx !== -1) {
-        cat.items.splice(idx, 1);
-        save();
-        return true;
-      }
-    }
-    return false;
-  },
+    async deleteItem(itemKey) {
+      const { error } = await supabase.from('loot_items').delete().eq('key', itemKey);
+      return !error;
+    },
+  };
 };

@@ -1,7 +1,6 @@
 // backend/admin.js — admin-only match ingest. Mounted behind requireAdmin.
 const express = require('express');
 const crypto = require('crypto');
-const lootCatalog = require('./lootCatalog');
 const multer = require('multer');
 const { parseScreenshot, parseCsv, WEAPONS } = require('./ingest');
 const { listMembers, postEmbed } = require('./discord');
@@ -95,7 +94,7 @@ const team = (v) => {
   return null;
 };
 
-module.exports = function createAdminRouter(supabase, gateway) {
+module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
   const router = express.Router();
 
   router.get('/whoami', (req, res) => {
@@ -143,7 +142,8 @@ module.exports = function createAdminRouter(supabase, gateway) {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
     const { item_key, discord_id, display_name } = req.body || {};
     if (!item_key || !discord_id) return res.status(400).json({ error: 'Item and player are required.' });
-    if (!lootCatalog.keys.has(item_key)) return res.status(400).json({ error: 'Unknown item.' });
+    const validKeys = await lootCatalog.getKeys();
+    if (!validKeys.has(item_key)) return res.status(400).json({ error: 'Unknown item.' });
     const id = crypto.randomUUID();
     const { error } = await supabase.from('loot_awards').insert({
       id, item_key, discord_id: String(discord_id),
@@ -163,43 +163,43 @@ module.exports = function createAdminRouter(supabase, gateway) {
   });
 
   // ── Loot catalog management ──────────────────────────────────────────────────
-  router.post('/loot/categories', (req, res) => {
+  router.post('/loot/categories', async (req, res) => {
     const { label } = req.body || {};
     if (!label) return res.status(400).json({ error: 'Category label required.' });
-    const cat = lootCatalog.addCategory(label);
+    const cat = await lootCatalog.addCategory(label);
     if (!cat) return res.status(409).json({ error: 'Category already exists.' });
     res.json(cat);
   });
 
-  router.put('/loot/categories/:key', (req, res) => {
+  router.put('/loot/categories/:key', async (req, res) => {
     const { label } = req.body || {};
     if (!label) return res.status(400).json({ error: 'Category label required.' });
-    if (!lootCatalog.renameCategory(req.params.key, label)) return res.status(404).json({ error: 'Category not found.' });
+    if (!(await lootCatalog.renameCategory(req.params.key, label))) return res.status(404).json({ error: 'Category not found.' });
     res.json({ ok: true });
   });
 
-  router.delete('/loot/categories/:key', (req, res) => {
-    if (!lootCatalog.deleteCategory(req.params.key)) return res.status(404).json({ error: 'Category not found.' });
+  router.delete('/loot/categories/:key', async (req, res) => {
+    if (!(await lootCatalog.deleteCategory(req.params.key))) return res.status(404).json({ error: 'Category not found.' });
     res.json({ ok: true });
   });
 
-  router.post('/loot/items', (req, res) => {
+  router.post('/loot/items', async (req, res) => {
     const { category, name } = req.body || {};
     if (!category || !name) return res.status(400).json({ error: 'Category and item name required.' });
-    const item = lootCatalog.addItem(category, name);
+    const item = await lootCatalog.addItem(category, name);
     if (!item) return res.status(409).json({ error: 'Item already exists or category not found.' });
     res.json(item);
   });
 
-  router.put('/loot/items/:key', (req, res) => {
+  router.put('/loot/items/:key', async (req, res) => {
     const { name } = req.body || {};
     if (!name) return res.status(400).json({ error: 'Item name required.' });
-    if (!lootCatalog.editItem(req.params.key, name)) return res.status(404).json({ error: 'Item not found.' });
+    if (!(await lootCatalog.editItem(req.params.key, name))) return res.status(404).json({ error: 'Item not found.' });
     res.json({ ok: true });
   });
 
-  router.delete('/loot/items/:key', (req, res) => {
-    if (!lootCatalog.deleteItem(req.params.key)) return res.status(404).json({ error: 'Item not found.' });
+  router.delete('/loot/items/:key', async (req, res) => {
+    if (!(await lootCatalog.deleteItem(req.params.key))) return res.status(404).json({ error: 'Item not found.' });
     res.json({ ok: true });
   });
 

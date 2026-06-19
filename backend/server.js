@@ -11,7 +11,7 @@ const cookieParser = require('cookie-parser');
 const { router: authRouter, requireAuth, requireAdmin } = require('./auth');
 const { listMembers } = require('./discord');
 const SHARDS = require('../shared/shards.json');
-const lootCatalog = require('./lootCatalog');
+const createLootCatalog = require('./lootCatalog');
 
 const gateway = require('./discordGateway');
 gateway.start();
@@ -36,6 +36,8 @@ try {
 } catch (e) {
   console.error("❌ Supabase failed to initialize:", e.message);
 }
+
+const lootCatalog = supabase ? createLootCatalog(supabase) : null;
 
 // ── GUILD ALIASES ────────────────────────────────────────────────────────────
 // Our guild has changed names over time. Collapse all past names to the current
@@ -65,7 +67,7 @@ app.use('/api', (req, res, next) => {
 
 // ── ADMIN AREA (requires admin role) ─────────────────────────────────────────
 const createAdminRouter = require('./admin');
-app.use('/api/admin', requireAdmin, createAdminRouter(supabase, gateway));
+app.use('/api/admin', requireAdmin, createAdminRouter(supabase, gateway, lootCatalog));
 
 // ── MEMBERS AREA: Archboss shard tracker ─────────────────────────────────────
 // Any logged-in member sees the full tally. Editing a row is restricted to its
@@ -106,15 +108,22 @@ app.put('/api/shards/:discordId', async (req, res) => {
 
 // ── MEMBERS AREA: Loot wishlist ──────────────────────────────────────────────
 // Serve the loot catalog so the frontend doesn't need a static import.
-app.get('/api/loot/catalog', (req, res) => {
-  res.json(lootCatalog.catalog);
+app.get('/api/loot/catalog', async (req, res) => {
+  if (!lootCatalog) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    res.json(await lootCatalog.getCatalog());
+  } catch (err) {
+    console.error('Catalog error:', err.message);
+    res.status(500).json({ error: 'Failed to load loot catalog.' });
+  }
 });
 
 // Members set a priority (PvP / Second Build / PvE) on items they want. Everyone
 // sees per-item demand counts; admins additionally see who wants what.
 app.get('/api/loot', async (req, res) => {
-  if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+  if (!supabase || !lootCatalog) return res.status(503).json({ error: 'Database not configured.' });
   try {
+    const validKeys = await lootCatalog.getKeys();
     const { data, error } = await supabase.from('loot_wishlists').select('discord_id, display_name, picks');
     if (error) throw error;
     const counts = {};
@@ -124,7 +133,7 @@ app.get('/api/loot', async (req, res) => {
       const picks = r.picks || {};
       if (r.discord_id === req.user.id) mine = picks;
       Object.entries(picks).forEach(([k, prio]) => {
-        if (!lootCatalog.keys.has(k)) return;
+        if (!validKeys.has(k)) return;
         counts[k] = (counts[k] || 0) + 1;
         if (req.user.isAdmin) (tally[k] = tally[k] || []).push({ name: r.display_name || 'Member', priority: prio, discord_id: r.discord_id });
       });
@@ -144,11 +153,12 @@ app.put('/api/loot/:discordId', async (req, res) => {
   if (req.user.id !== target && !req.user.isAdmin) {
     return res.status(403).json({ error: 'You can only edit your own wishlist.' });
   }
-  if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+  if (!supabase || !lootCatalog) return res.status(503).json({ error: 'Database not configured.' });
+  const validKeys = await lootCatalog.getKeys();
   const incoming = req.body?.picks || {};
   const picks = {};
   Object.entries(incoming).forEach(([k, prio]) => {
-    if (lootCatalog.keys.has(k) && lootCatalog.priorities.has(prio)) picks[k] = prio;
+    if (validKeys.has(k) && lootCatalog.priorities.has(prio)) picks[k] = prio;
   });
   const display_name = (req.body?.display_name || req.user.username || '').slice(0, 120);
   const { error } = await supabase.from('loot_wishlists')
