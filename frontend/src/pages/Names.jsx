@@ -20,7 +20,7 @@ export default function Names() {
     setLoading(true); setError('');
     axios.get('/api/admin/unmapped-names')
       .then((res) => {
-        const um = res.data.unmapped || [];
+        const um = (res.data.unmapped || []).sort((a, b) => a.name.localeCompare(b.name));
         setUnmapped(um);
         setIdentities(res.data.identities || []);
         // pre-select the suggested identity, else "new"
