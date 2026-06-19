@@ -373,10 +373,9 @@ module.exports = function createAdminRouter(supabase, gateway) {
       res.json({ players: players || [] });
     } catch (err) {
       const msg = err.message || 'Could not read that file.';
-      // Gemini overloaded / rate-limited / timed out → mark retryable so the UI
-      // can offer a re-upload without redoing the others.
+      console.error('Parse-one error:', msg);
       const busy = /overload|rate.?limit|429|503|busy|unavailable|timeout|temporar/i.test(msg);
-      res.status(busy ? 503 : 502).json({ error: busy ? 'The reader is busy right now — retry this screenshot.' : msg, retryable: busy });
+      res.status(busy ? 503 : 502).json({ error: busy ? `The reader is busy — ${msg}` : msg, retryable: busy });
     }
   });
 
