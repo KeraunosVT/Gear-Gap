@@ -108,22 +108,19 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
       if (supabase) {
         const [{ data: roleData }, { data: idData }] = await Promise.all([
           supabase.from('member_roles').select('discord_id, role'),
-          supabase.from('player_identities').select('display_name, ingame_names'),
+          supabase.from('player_identities').select('display_name, discord_id'),
         ]);
         const roleMap = {};
         (roleData || []).forEach((r) => { roleMap[r.discord_id] = r.role; });
 
-        const identities = idData || [];
-        const nameMap = {};
-        identities.forEach((it) => {
-          const all = [it.display_name, ...(Array.isArray(it.ingame_names) ? it.ingame_names : [])].filter(Boolean);
-          all.forEach((n) => { nameMap[n.trim().toLowerCase()] = it.display_name; });
+        const discordMap = {};
+        (idData || []).forEach((it) => {
+          if (it.discord_id) discordMap[it.discord_id] = it.display_name;
         });
 
         members.forEach((m) => {
           m.role = roleMap[m.id] || '';
-          const identity = nameMap[(m.name || '').trim().toLowerCase()];
-          if (identity) m.name = identity;
+          if (discordMap[m.id]) m.name = discordMap[m.id];
         });
       }
       res.json({ members });
@@ -221,7 +218,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
   router.get('/identities', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
     const { data, error } = await supabase.from('player_identities')
-      .select('id, display_name, ingame_names').order('display_name');
+      .select('id, display_name, ingame_names, discord_id').order('display_name');
     if (error) return res.status(500).json({ error: 'Failed to load identities.' });
     res.json({ identities: data || [] });
   });
@@ -295,6 +292,17 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
     const { error } = await supabase.from('player_identities')
       .update({ ingame_names: arr, updated_at: new Date().toISOString() }).eq('id', req.params.id);
     if (error) return res.status(500).json({ error: 'Failed to remove alias.' });
+    res.json({ ok: true });
+  });
+
+  // Link a Discord ID to an identity.
+  router.put('/identities/:id/discord', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const { discord_id } = req.body || {};
+    const { error } = await supabase.from('player_identities')
+      .update({ discord_id: discord_id || null, updated_at: new Date().toISOString() })
+      .eq('id', req.params.id);
+    if (error) return res.status(500).json({ error: 'Failed to link Discord account.' });
     res.json({ ok: true });
   });
 

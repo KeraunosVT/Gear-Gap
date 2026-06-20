@@ -10,6 +10,7 @@ export default function Names() {
   const { user } = useAuth();
   const [unmapped, setUnmapped] = useState([]);
   const [identities, setIdentities] = useState([]);
+  const [members, setMembers] = useState([]);
   const [choice, setChoice] = useState({});       // name -> identityId | '__new__'
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -18,12 +19,15 @@ export default function Names() {
 
   const load = () => {
     setLoading(true); setError('');
-    axios.get('/api/admin/unmapped-names')
-      .then((res) => {
-        const um = (res.data.unmapped || []).sort((a, b) => a.name.localeCompare(b.name));
+    Promise.all([
+      axios.get('/api/admin/unmapped-names'),
+      axios.get('/api/admin/members'),
+    ])
+      .then(([namesRes, membersRes]) => {
+        const um = (namesRes.data.unmapped || []).sort((a, b) => a.name.localeCompare(b.name));
         setUnmapped(um);
-        setIdentities(res.data.identities || []);
-        // pre-select the suggested identity, else "new"
+        setIdentities(namesRes.data.identities || []);
+        setMembers(membersRes.data.members || []);
         const c = {};
         um.forEach((u) => { c[u.name] = u.suggestion ? u.suggestion.id : NEW; });
         setChoice(c);
@@ -76,6 +80,17 @@ export default function Names() {
       flash(`Removed "${name}".`);
     } catch (err) { flash(err.response?.data?.error || 'Failed.', false); }
   };
+
+  const linkDiscord = async (identity, discordId) => {
+    try {
+      await axios.put(`/api/admin/identities/${identity.id}/discord`, { discord_id: discordId || null });
+      setIdentities((prev) => prev.map((i) => i.id === identity.id ? { ...i, discord_id: discordId || null } : i));
+      const member = members.find((m) => m.id === discordId);
+      flash(discordId ? `Linked to ${member?.name || discordId}.` : 'Discord link removed.');
+    } catch (err) { flash(err.response?.data?.error || 'Failed.', false); }
+  };
+
+  const linkedDiscordIds = useMemo(() => new Set(identities.map((i) => i.discord_id).filter(Boolean)), [identities]);
 
   const sortedIdentities = useMemo(
     () => [...identities].sort((a, b) => (a.display_name || '').localeCompare(b.display_name || '')),
@@ -162,6 +177,16 @@ export default function Names() {
                       </span>
                     ))}
                 </div>
+                <select
+                  value={i.discord_id || ''}
+                  onChange={(e) => linkDiscord(i, e.target.value)}
+                  className={`bg-hall border rounded px-2 py-1 text-xs focus:outline-none focus:border-brass w-40 shrink-0 ${i.discord_id ? 'border-brass/40 text-brass' : 'border-line text-ash'}`}
+                >
+                  <option value="">No Discord link</option>
+                  {members
+                    .filter((m) => m.id === i.discord_id || !linkedDiscordIds.has(m.id))
+                    .map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                </select>
               </div>
             ))}
           </div>
