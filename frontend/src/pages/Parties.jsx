@@ -23,6 +23,108 @@ const initItems = () => ({ pool: [], ...Object.fromEntries(PARTY_IDS.map((id) =>
 const initNames = () => Object.fromEntries(PARTY_IDS.map((id, i) => [id, `Party ${i + 1}`]));
 const findContainer = (id, src) => (id in src ? id : Object.keys(src).find((k) => src[k].includes(id)));
 
+const ROLE_COLOR = { Tank: '#38bdf8', DPS: '#b33a3a', Healer: '#4ade80' };
+const ROLE_SYMBOL = { Tank: '🛡️', DPS: '⚔️', Healer: '💚' };
+
+function renderRosterImage(partyIds, items, partyNames, roles, byId) {
+  const parties = partyIds.filter((pid) => items[pid].length > 0);
+  if (parties.length === 0) return null;
+
+  const cols = Math.min(parties.length, 4);
+  const rows = Math.ceil(parties.length / cols);
+  const colW = 260;
+  const rowH = 32;
+  const headerH = 36;
+  const padX = 20;
+  const padY = 20;
+  const gapX = 16;
+  const gapY = 16;
+  const titleH = 48;
+
+  const maxMembers = Math.max(...parties.map((pid) => items[pid].length));
+  const cardH = headerH + maxMembers * rowH + 12;
+  const w = padX * 2 + cols * colW + (cols - 1) * gapX;
+  const h = padY + titleH + rows * cardH + (rows - 1) * gapY + padY;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = w * 2;
+  canvas.height = h * 2;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(2, 2);
+
+  // Background
+  ctx.fillStyle = '#121210';
+  ctx.fillRect(0, 0, w, h);
+
+  // Title
+  ctx.fillStyle = '#c9973a';
+  ctx.font = 'bold 11px sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('ROSTER', w / 2, padY + 14);
+  ctx.fillStyle = '#e8dcc8';
+  ctx.font = 'bold 20px sans-serif';
+  ctx.fillText(partyNames[parties[0]]?.replace(/Party \d+/, '').trim() ? '' : 'Parties', w / 2, padY + 36);
+
+  parties.forEach((pid, idx) => {
+    const col = idx % cols;
+    const row = Math.floor(idx / cols);
+    const x = padX + col * (colW + gapX);
+    const y = padY + titleH + row * (cardH + gapY);
+
+    // Card background
+    ctx.fillStyle = '#1a1a18';
+    ctx.strokeStyle = '#2a2a26';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(x, y, colW, cardH, 4);
+    ctx.fill();
+    ctx.stroke();
+
+    // Party name header
+    ctx.fillStyle = '#c9973a';
+    ctx.font = 'bold 13px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(partyNames[pid] || `Party ${idx + 1}`, x + 10, y + 22);
+
+    // Count
+    ctx.fillStyle = '#6b6b60';
+    ctx.font = '11px monospace';
+    ctx.textAlign = 'right';
+    ctx.fillText(`${items[pid].length}/${PARTY_SIZE}`, x + colW - 10, y + 22);
+
+    // Members
+    items[pid].forEach((memberId, mi) => {
+      const member = byId[memberId] || { name: 'Unknown' };
+      const role = roles[memberId] || '';
+      const my = y + headerH + mi * rowH;
+
+      // Role color bar
+      if (ROLE_COLOR[role]) {
+        ctx.fillStyle = ROLE_COLOR[role];
+        ctx.fillRect(x + 8, my + 2, 3, rowH - 6);
+      }
+
+      // Role symbol
+      ctx.font = '12px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.fillStyle = '#6b6b60';
+      if (ROLE_SYMBOL[role]) {
+        ctx.fillText(ROLE_SYMBOL[role], x + 16, my + 20);
+      }
+
+      // Name
+      ctx.fillStyle = '#e8dcc8';
+      ctx.font = '13px sans-serif';
+      ctx.textAlign = 'left';
+      const nameX = x + (role ? 36 : 16);
+      const maxW = colW - nameX + x - 10;
+      ctx.fillText(member.name || 'Unknown', nameX, my + 20, maxW);
+    });
+  });
+
+  return canvas;
+}
+
 export default function Parties() {
   const { user } = useAuth();
 
@@ -235,7 +337,13 @@ export default function Parties() {
   const post = async () => {
     setBusy(true);
     try {
-      await axios.post('/api/admin/rosters/post', { name: rosterName || 'Roster', parties: buildPayloadParties() });
+      const canvas = renderRosterImage(PARTY_IDS, items, partyNames, roles, byId);
+      if (!canvas) { flash('No parties to post.', false); setBusy(false); return; }
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+      const form = new FormData();
+      form.append('image', blob, 'roster.png');
+      form.append('name', rosterName || 'Roster');
+      await axios.post('/api/admin/rosters/post', form);
       flash('Posted to Discord.');
     } catch (err) { flash(err.response?.data?.error || 'Post failed.', false); }
     finally { setBusy(false); }

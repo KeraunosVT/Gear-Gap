@@ -61,4 +61,19 @@ async function postEmbed(embed, content) {
   );
 }
 
-module.exports = { listMembers, postEmbed, botConfigured };
+// Post an image file to the configured roster channel.
+async function postImage(buffer, filename, content) {
+  if (!botConfigured) throw new Error('Discord bot is not configured.');
+  if (!ROSTER_CHANNEL_ID) throw new Error('DISCORD_ROSTER_CHANNEL_ID is not set.');
+  const FormData = require('form-data');
+  const form = new FormData();
+  form.append('file', buffer, { filename: filename || 'roster.png', contentType: 'image/png' });
+  if (content) form.append('payload_json', JSON.stringify({ content }));
+  await axios.post(
+    `${API}/channels/${ROSTER_CHANNEL_ID}/messages`,
+    form,
+    { headers: { ...authHeaders(), ...form.getHeaders() } }
+  );
+}
+
+module.exports = { listMembers, postEmbed, postImage, botConfigured };

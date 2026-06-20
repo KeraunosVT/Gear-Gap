@@ -3,7 +3,7 @@ const express = require('express');
 const crypto = require('crypto');
 const multer = require('multer');
 const { parseScreenshot, parseCsv, WEAPONS } = require('./ingest');
-const { listMembers, postEmbed } = require('./discord');
+const { listMembers, postEmbed, postImage } = require('./discord');
 
 const ROLE_EMOJI = { Tank: '🛡️', DPS: '⚔️', Healer: '💚' };
 
@@ -345,11 +345,16 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
   });
 
   // ── Post a roster to Discord ────────────────────────────────────────────────
-  router.post('/rosters/post', async (req, res) => {
-    const { name, parties } = req.body || {};
-    if (!Array.isArray(parties)) return res.status(400).json({ error: 'Nothing to post.' });
+  router.post('/rosters/post', upload.single('image'), async (req, res) => {
     try {
-      await postEmbed(rosterEmbed(name, parties));
+      if (req.file) {
+        const name = req.body?.name || 'Roster';
+        await postImage(req.file.buffer, 'roster.png', name);
+      } else {
+        const { name, parties } = req.body || {};
+        if (!Array.isArray(parties)) return res.status(400).json({ error: 'Nothing to post.' });
+        await postEmbed(rosterEmbed(name, parties));
+      }
       res.json({ ok: true });
     } catch (err) {
       console.error('Discord post error:', err.response?.data?.message || err.message);
