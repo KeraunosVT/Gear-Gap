@@ -105,12 +105,26 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
   router.get('/members', async (req, res) => {
     try {
       const members = await listMembers();
-      // Apply each member's saved default role, if any.
       if (supabase) {
-        const { data } = await supabase.from('member_roles').select('discord_id, role');
+        const [{ data: roleData }, { data: idData }] = await Promise.all([
+          supabase.from('member_roles').select('discord_id, role'),
+          supabase.from('player_identities').select('display_name, ingame_names'),
+        ]);
         const roleMap = {};
-        (data || []).forEach((r) => { roleMap[r.discord_id] = r.role; });
-        members.forEach((m) => { m.role = roleMap[m.id] || ''; });
+        (roleData || []).forEach((r) => { roleMap[r.discord_id] = r.role; });
+
+        const identities = idData || [];
+        const nameMap = {};
+        identities.forEach((it) => {
+          const all = [it.display_name, ...(Array.isArray(it.ingame_names) ? it.ingame_names : [])].filter(Boolean);
+          all.forEach((n) => { nameMap[n.trim().toLowerCase()] = it.display_name; });
+        });
+
+        members.forEach((m) => {
+          m.role = roleMap[m.id] || '';
+          const identity = nameMap[(m.name || '').trim().toLowerCase()];
+          if (identity) m.name = identity;
+        });
       }
       res.json({ members });
     } catch (err) {
