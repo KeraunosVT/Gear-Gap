@@ -94,7 +94,7 @@ export default function Roster() {
         <div className="py-20 text-center text-ash">No members on record yet.</div>
       ) : (
         <div className="panel rounded-sm overflow-auto">
-          <table className="w-full min-w-[960px] text-sm">
+          <table className="w-full min-w-[1100px] text-sm">
             <thead className="border-b border-line">
               <tr className="eyebrow text-[10px] text-ash">
                 <th className="p-4 text-center font-normal w-12">#</th>
