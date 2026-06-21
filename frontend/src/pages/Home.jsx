@@ -18,7 +18,7 @@ export default function Home() {
       const [statsRes, matchesRes, last10Res] = await Promise.all([
         axios.get('/api/stats/summary'),
         axios.get('/api/matches/recent?limit=6'),
-        axios.get('/api/matches/recent?limit=10'),
+        axios.get('/api/matches/recent?limit=20'),
       ]);
       setStats(statsRes.data);
       setRecentMatches(matchesRes.data);
@@ -118,7 +118,7 @@ export default function Home() {
             <h2 className="font-display text-2xl text-bone tracking-[0.1em]">War Record</h2>
             {wdl && (
               <span className="text-sm text-ash font-mono">
-                Last 10: <span className="text-emerald-400">{wdl.w}</span>/<span className="text-amber-400">{wdl.d}</span>/<span className="text-oxblood">{wdl.l}</span>
+                Last 20: <span className="text-emerald-400">{wdl.w}</span>/<span className="text-amber-400">{wdl.d}</span>/<span className="text-oxblood">{wdl.l}</span>
               </span>
             )}
           </div>
