@@ -149,10 +149,13 @@ export default function MatchStats() {
           </p>
 
           {/* Team cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-16">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
             <TeamStatCard color="Red" stats={teamStats.Red || {}} />
             <TeamStatCard color="Yellow" stats={teamStats.Yellow || {}} />
           </div>
+
+          {/* Differentials */}
+          <DifferentialCard red={teamStats.Red || {}} yellow={teamStats.Yellow || {}} />
 
           {/* Top 10 */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-16">
@@ -287,6 +290,41 @@ function Top10Card({ title, icon, data, field, unit = '' }) {
         )) : (
           <p className="text-ash text-center py-4 font-sans">—</p>
         )}
+      </div>
+    </div>
+  );
+}
+
+function DifferentialCard({ red, yellow }) {
+  const stats = [
+    { label: 'Kills', r: red.kills || 0, y: yellow.kills || 0, fmt: (v) => v.toLocaleString() },
+    { label: 'Damage Dealt', r: red.damage_dealt || 0, y: yellow.damage_dealt || 0, fmt: (v) => (v / 1e6).toFixed(1) + 'M' },
+    { label: 'Damage Taken', r: red.damage_taken || 0, y: yellow.damage_taken || 0, fmt: (v) => (v / 1e6).toFixed(1) + 'M' },
+    { label: 'Healing', r: red.healing || 0, y: yellow.healing || 0, fmt: (v) => (v / 1e6).toFixed(1) + 'M' },
+  ];
+
+  return (
+    <div className="panel rounded-sm p-6 mb-16">
+      <h3 className="eyebrow text-[10px] text-brass mb-5 text-center">Differentials</h3>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {stats.map((s) => {
+          const diff = s.r - s.y;
+          const redWins = diff > 0;
+          const even = diff === 0;
+          return (
+            <div key={s.label} className="text-center">
+              <div className="eyebrow text-[10px] text-ash mb-2">{s.label}</div>
+              <div className="flex items-center justify-center gap-3 font-mono">
+                <span className={`text-sm ${redWins ? 'text-oxblood font-semibold' : 'text-ash'}`}>{s.fmt(s.r)}</span>
+                <span className="text-ash/40">vs</span>
+                <span className={`text-sm ${!redWins && !even ? 'text-brassbright font-semibold' : 'text-ash'}`}>{s.fmt(s.y)}</span>
+              </div>
+              <div className={`font-mono text-xs mt-1 ${even ? 'text-ash/50' : redWins ? 'text-oxblood' : 'text-brassbright'}`}>
+                {even ? '—' : `${redWins ? red.guildName || 'Red' : yellow.guildName || 'Yellow'} +${s.fmt(Math.abs(diff))}`}
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
