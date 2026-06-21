@@ -155,9 +155,9 @@ function EngagementRow({ match }) {
   const decided = result ? result !== 'Draw' : match.killDifference > 0;
 
   const date = match.match_date
-    ? new Date(match.match_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    ? new Date(match.match_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
     : '—';
-  const year = match.match_date ? new Date(match.match_date).getFullYear() : '';
+  const year = match.match_date ? new Date(match.match_date + 'T12:00:00').getFullYear() : '';
 
   return (
     <Link

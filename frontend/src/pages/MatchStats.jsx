@@ -81,7 +81,7 @@ export default function MatchStats() {
             <option value="">— choose —</option>
             {matches.map(m => (
               <option key={m.id} value={m.id}>
-                {new Date(m.match_date).toLocaleDateString()} — {m.title}
+                {new Date(m.match_date + 'T12:00:00').toLocaleDateString()} — {m.title}
               </option>
             ))}
           </select>
@@ -143,7 +143,7 @@ export default function MatchStats() {
             )}
           </div>
           <p className="text-ash mb-12">
-            {new Date(selectedMatch.match_date).toLocaleDateString('en-US', {
+            {new Date(selectedMatch.match_date + 'T12:00:00').toLocaleDateString('en-US', {
               weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
             })}
           </p>

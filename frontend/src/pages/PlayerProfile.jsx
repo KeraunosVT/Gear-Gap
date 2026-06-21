@@ -161,7 +161,7 @@ export default function PlayerProfile() {
               {p.matchHistory.map((h, i) => (
                 <tr key={i} className="border-b border-line/60 hover:bg-panelup transition-colors">
                   <td className="p-4 font-sans text-ash">
-                    {h.match_date ? new Date(h.match_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}
+                    {h.match_date ? new Date(h.match_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—'}
                   </td>
                   <td className="p-4 font-sans text-bone">
                     <Link to={`/war-record?match=${h.match_id}`} className="hover:text-brassbright transition-colors">
@@ -234,8 +234,8 @@ function TrendSection({ history }) {
               </div>
               <Sparkline values={values} avg={avg} color={t.color} />
               <div className="flex justify-between text-[10px] text-ash mt-1.5 font-mono">
-                <span>{chronological[0]?.match_date ? new Date(chronological[0].match_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}</span>
-                <span>{chronological[chronological.length - 1]?.match_date ? new Date(chronological[chronological.length - 1].match_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}</span>
+                <span>{chronological[0]?.match_date ? new Date(chronological[0].match_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}</span>
+                <span>{chronological[chronological.length - 1]?.match_date ? new Date(chronological[chronological.length - 1].match_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : ''}</span>
               </div>
             </div>
           );
