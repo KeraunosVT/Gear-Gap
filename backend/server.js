@@ -393,7 +393,7 @@ app.get('/api/matches/recent', async (req, res) => {
     const matchIds = matches.map(m => m.id);
     const { data: allPlayers, error: pError } = await supabase
       .from('player_match_stats')
-      .select('match_id, guild_name, kills, damage_dealt, healing')
+      .select('match_id, guild_name, team_color, kills, damage_dealt, healing')
       .in('match_id', matchIds);
 
     if (pError) throw pError;
@@ -406,30 +406,44 @@ app.get('/api/matches/recent', async (req, res) => {
 
     const enriched = matches.map(match => {
       const players = playersByMatch[match.id] || [];
-      const guildStats = {};
 
+      // Determine which team color is ours by finding the team with the most
+      // FTP-aliased players (handles subs from other guilds correctly).
+      const teamGuildCount = { Red: {}, Yellow: {} };
       players.forEach(p => {
+        const color = (p.team_color || '').toLowerCase();
+        const teamKey = color === 'red' ? 'Red' : color === 'yellow' ? 'Yellow' : null;
+        if (!teamKey) return;
         const g = canonicalGuild(p.guild_name);
-        if (!guildStats[g]) guildStats[g] = { kills: 0, damage: 0, healing: 0 };
-        guildStats[g].kills += Number(p.kills) || 0;
-        guildStats[g].damage += Number(p.damage_dealt) || 0;
-        guildStats[g].healing += Number(p.healing) || 0;
+        teamGuildCount[teamKey][g] = (teamGuildCount[teamKey][g] || 0) + 1;
+      });
+      const myRedCount = teamGuildCount.Red[MY_GUILD] || 0;
+      const myYellowCount = teamGuildCount.Yellow[MY_GUILD] || 0;
+      const ourColor = myRedCount >= myYellowCount ? 'Red' : 'Yellow';
+
+      // Sum kills by team color
+      const teamKills = { Red: 0, Yellow: 0 };
+      let totalKills = 0, totalDamage = 0, totalHealing = 0;
+      players.forEach(p => {
+        const k = Number(p.kills) || 0;
+        const color = (p.team_color || '').toLowerCase();
+        if (color === 'red') teamKills.Red += k;
+        else if (color === 'yellow') teamKills.Yellow += k;
+        totalKills += k;
+        totalDamage += Number(p.damage_dealt) || 0;
+        totalHealing += Number(p.healing) || 0;
       });
 
-      // Our guild vs. everyone else (handles matches with 2+ enemy guilds)
-      const myKills = guildStats[MY_GUILD]?.kills || 0;
-      const enemyKills = Object.entries(guildStats)
-        .filter(([g]) => g !== MY_GUILD)
-        .reduce((sum, [, s]) => sum + s.kills, 0);
-
+      const myKills = teamKills[ourColor];
+      const enemyKills = teamKills[ourColor === 'Red' ? 'Yellow' : 'Red'];
       const killDifference = Math.abs(myKills - enemyKills);
       const winningGuild = myKills >= enemyKills ? MY_GUILD : 'Enemy';
 
       return {
         ...match,
-        kills: Object.values(guildStats).reduce((sum, g) => sum + g.kills, 0),
-        damage: Object.values(guildStats).reduce((sum, g) => sum + g.damage, 0),
-        healing: Object.values(guildStats).reduce((sum, g) => sum + g.healing, 0),
+        kills: totalKills,
+        damage: totalDamage,
+        healing: totalHealing,
         killDifference,
         winningGuild
       };
