@@ -68,7 +68,7 @@ export default function Roster() {
   }, [players, filter, sortKey, sortDir]);
 
   return (
-    <div className="max-w-6xl mx-auto px-6 py-12">
+    <div className="max-w-7xl mx-auto px-6 py-12">
       <div className="eyebrow text-brass text-[11px] mb-3">The Roll</div>
       <h1 className="font-display text-4xl md:text-5xl text-bone tracking-[0.08em]">Roster of the House</h1>
       <p className="text-ash mt-2">Every member's all-time record across every engagement.</p>
@@ -94,9 +94,9 @@ export default function Roster() {
         <div className="py-20 text-center text-ash">No members on record yet.</div>
       ) : (
         <div className="panel rounded-sm overflow-auto">
-          <table className="w-full min-w-[1100px] text-sm">
+          <table className="w-full min-w-[1200px] text-sm">
             <thead className="border-b border-line">
-              <tr className="eyebrow text-[10px] text-ash">
+              <tr className="eyebrow text-[10px] text-ash whitespace-nowrap">
                 <th className="p-4 text-center font-normal w-12">#</th>
                 {COLUMNS.map((c) => (
                   <th key={c.key} className={`p-4 font-normal cursor-pointer hover:text-bone select-none ${c.align === 'right' ? 'text-right' : 'text-left'}`} onClick={() => sortBy(c.key)}>
@@ -113,7 +113,7 @@ export default function Roster() {
                 <tr key={p.player_name + i} className="border-b border-line/60 hover:bg-panelup transition-colors">
                   <td className="p-4 text-center font-mono text-ash">{i + 1}</td>
                   {COLUMNS.map((c) => (
-                    <td key={c.key} className={`p-4 ${c.align === 'right' ? 'text-right font-mono' : ''} ${c.cls || 'text-bone'}`}>
+                    <td key={c.key} className={`p-4 whitespace-nowrap ${c.align === 'right' ? 'text-right font-mono' : ''} ${c.cls || 'text-bone'}`}>
                       {c.render(p)}
                     </td>
                   ))}
