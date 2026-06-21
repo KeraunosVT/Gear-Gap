@@ -12,6 +12,7 @@ const COLUMNS = [
   { key: 'matches',      label: 'Matches',      align: 'right', render: (p) => fmt(p.matches) },
   { key: 'kills',        label: 'Kills',        align: 'right', render: (p) => fmt(p.kills), cls: 'text-brassbright' },
   { key: 'assists',      label: 'Assists',      align: 'right', render: (p) => fmt(p.assists) },
+  { key: 'ka',           label: 'K+A',          align: 'right', render: (p) => fmt(p.ka), cls: 'text-brassbright' },
   { key: 'damage_dealt', label: 'Dmg Dealt',    align: 'right', render: (p) => fmtM(p.damage_dealt) },
   { key: 'damage_taken', label: 'Dmg Taken',    align: 'right', render: (p) => fmtM(p.damage_taken) },
   { key: 'healing',      label: 'Healing',      align: 'right', render: (p) => fmtM(p.healing) },
@@ -37,6 +38,7 @@ export default function Roster() {
         const per = (v) => (m ? (Number(v) || 0) / m : 0);
         return {
           ...p,
+          ka: (Number(p.kills) || 0) + (Number(p.assists) || 0),
           avg_kills: per(p.kills),
           avg_assists: per(p.assists),
           avg_dealt: per(p.damage_dealt),

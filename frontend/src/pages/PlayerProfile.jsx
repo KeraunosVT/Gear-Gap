@@ -49,9 +49,12 @@ export default function PlayerProfile() {
   const p = player;
   const m = p.matches || 1;
 
+  const ka = (Number(p.kills) || 0) + (Number(p.assists) || 0);
+
   const ledger = [
     { label: 'Matches', value: fmt(p.matches), icon: <Trophy className="w-4 h-4" /> },
     { label: 'Kills', value: fmt(p.kills), icon: <Sword className="w-4 h-4" /> },
+    { label: 'K+A', value: fmt(ka), icon: <Sword className="w-4 h-4" /> },
     { label: 'Damage Dealt', value: fmtM(p.damage_dealt), icon: <Target className="w-4 h-4" /> },
     { label: 'Healing', value: fmtM(p.healing), icon: <Heart className="w-4 h-4" /> },
   ];
@@ -83,7 +86,7 @@ export default function PlayerProfile() {
       <div className="rule-fade my-8" />
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-10">
         {ledger.map((item) => (
           <div key={item.label} className="panel rounded-sm p-5 text-center">
             <div className="flex items-center justify-center gap-2 text-brass mb-3">{item.icon}</div>
