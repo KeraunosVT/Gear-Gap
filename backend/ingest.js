@@ -15,7 +15,7 @@ const LEGEND_PATH = process.env.WEAPON_LEGEND_PATH || path.join(__dirname, 'asse
 
 // The exact weapon tokens our class map understands ("Unknown" is allowed when
 // the icon can't be identified, and gets flagged for review).
-const WEAPONS = ['SnS', 'Greatsword', 'Dagger', 'Crossbow', 'Longbow', 'Staff', 'Wand', 'Spear', 'Orb'];
+const WEAPONS = ['SnS', 'Greatsword', 'Dagger', 'Crossbow', 'Longbow', 'Staff', 'Wand', 'Spear', 'Orb', 'Gauntlet'];
 
 // ── Legend image (cached) ────────────────────────────────────────────────────
 let _legendPart; // undefined = not checked, null = absent
@@ -64,11 +64,12 @@ CRITICAL WEAPON IDENTIFICATION RULES:
 - Crossbow: a horizontal bow mounted on a vertical stock, forming a cross/T shape.
 - Staff: a single tall straight rod with a small ornament at the top.
 - Wand: a DARK SQUARE icon showing a tall rectangular tome/book standing upright, with a thin wand rod leaning against or attached to it. The tome is the dominant shape — it looks like a book standing on its side. NOT a shield.
+- Gauntlet: a fist or glove icon, sometimes showing knuckle spikes or a clenched armored hand.
 - DO NOT default to SnS when uncertain — Greatsword is far more likely for any single sword icon.
 - DO NOT confuse Wand and Longbow — Longbow has two lines, Wand has a rod attached to a tome.
 - DO NOT confuse Spear and Dagger — Spear is a single long pole, Dagger are two crossed short blades.
 ${hasLegend ? '- Compare each scoreboard icon against the legend in Image 1 before deciding.\n' : ''}- If still uncertain about a weapon, use "Unknown" rather than guessing.
-- The ONLY valid weapon names are: Wand, Longbow, Orb, Greatsword, Spear, Dagger, Crossbow, SnS, Staff, Unknown.
+- The ONLY valid weapon names are: Wand, Longbow, Orb, Greatsword, Spear, Dagger, Crossbow, SnS, Staff, Gauntlet, Unknown.
 
 OTHER RULES:
 - EXCLUDE the pinned "My Rank" summary row at the very top of the board — it duplicates that player's own ranked line and must NOT appear in the output.
