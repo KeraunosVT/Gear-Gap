@@ -55,23 +55,26 @@ export default function LootTally() {
   }, [awards]);
   const awardFor = (itemKey, discordId) => (awardsByItem[itemKey] || []).find((a) => a.discord_id === discordId);
 
-  const rows = useMemo(() => {
+  const groupedRows = useMemo(() => {
     if (!catalog) return [];
     const f = filter.toLowerCase();
-    return allItems
-      .map((it) => {
-        const watchers = [...(tally[it.key] || [])].sort((a, b) =>
-          (PRIO_INDEX[a.priority] - PRIO_INDEX[b.priority]) || (a.name || '').localeCompare(b.name || ''));
-        const byPrio = {};
-        catalog.priorities.forEach((p) => { byPrio[p] = 0; });
-        watchers.forEach((w) => { if (byPrio[w.priority] != null) byPrio[w.priority]++; });
-        return { ...it, total: counts[it.key] || 0, watchers, byPrio, awarded: awardsByItem[it.key] || [] };
+    return catalog.categories
+      .map((cat) => {
+        const items = (cat.items || [])
+          .map((it) => {
+            const watchers = [...(tally[it.key] || [])].sort((a, b) =>
+              (PRIO_INDEX[a.priority] - PRIO_INDEX[b.priority]) || (a.name || '').localeCompare(b.name || ''));
+            const byPrio = {};
+            catalog.priorities.forEach((p) => { byPrio[p] = 0; });
+            watchers.forEach((w) => { if (byPrio[w.priority] != null) byPrio[w.priority]++; });
+            return { ...it, category: cat.label, total: counts[it.key] || 0, watchers, byPrio, awarded: awardsByItem[it.key] || [] };
+          })
+          .filter((it) => (showZero || it.total > 0 || it.awarded.length > 0)
+            && (it.name.toLowerCase().includes(f) || cat.label.toLowerCase().includes(f)));
+        return { ...cat, items };
       })
-      .filter((it) => (showZero || it.total > 0 || it.awarded.length > 0)
-        && (!category || it.category === category)
-        && (it.name.toLowerCase().includes(f) || it.category.toLowerCase().includes(f)))
-      .sort((a, b) => (b.total - a.total) || a.name.localeCompare(b.name));
-  }, [counts, tally, awardsByItem, filter, category, showZero, catalog, allItems, PRIO_INDEX]);
+      .filter((cat) => cat.items.length > 0 && (!category || cat.label === category));
+  }, [counts, tally, awardsByItem, filter, category, showZero, catalog, PRIO_INDEX]);
 
   const toggle = (key) => setOpen((prev) => {
     const next = new Set(prev);
@@ -260,11 +263,15 @@ export default function LootTally() {
 
           {loading ? (
             <div className="py-20 text-center text-ash">Counting the claims…</div>
-          ) : rows.length === 0 ? (
+          ) : groupedRows.length === 0 ? (
             <div className="py-20 text-center text-ash">{showZero ? 'No items.' : 'No one has wishlisted anything yet.'}</div>
           ) : (
-            <div className="panel rounded-sm divide-y divide-line">
-              {rows.map((it) => {
+            <div className="space-y-8">
+              {groupedRows.map((cat) => (
+                <section key={cat.key}>
+                  <h2 className="font-display text-lg text-bone tracking-[0.08em] mb-3">{cat.label}</h2>
+                  <div className="panel rounded-sm divide-y divide-line">
+              {cat.items.map((it) => {
                 const isOpen = open.has(it.key);
                 const canOpen = it.watchers.length > 0;
                 return (
@@ -280,7 +287,6 @@ export default function LootTally() {
                             </span>
                           )}
                         </div>
-                        <div className="eyebrow text-[10px] text-ash mt-0.5">{it.category}</div>
                       </div>
                       <div className="hidden sm:flex items-center gap-2 shrink-0">
                         {(catalog?.priorities || []).map((p) => (
@@ -322,6 +328,9 @@ export default function LootTally() {
                   </div>
                 );
               })}
+                  </div>
+                </section>
+              ))}
             </div>
           )}
         </div>
