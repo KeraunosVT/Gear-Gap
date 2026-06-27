@@ -107,11 +107,15 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
       const members = await listMembers();
       if (supabase) {
         const [{ data: roleData }, { data: idData }] = await Promise.all([
-          supabase.from('member_roles').select('discord_id, role'),
+          supabase.from('member_roles').select('discord_id, role, pvp_class, pve_class'),
           supabase.from('player_identities').select('display_name, discord_id'),
         ]);
         const roleMap = {};
-        (roleData || []).forEach((r) => { roleMap[r.discord_id] = r.role; });
+        const classMap = {};
+        (roleData || []).forEach((r) => {
+          roleMap[r.discord_id] = r.role;
+          classMap[r.discord_id] = { pvp_class: r.pvp_class || '', pve_class: r.pve_class || '' };
+        });
 
         const discordMap = {};
         (idData || []).forEach((it) => {
@@ -120,6 +124,8 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
 
         members.forEach((m) => {
           m.role = roleMap[m.id] || '';
+          m.pvp_class = classMap[m.id]?.pvp_class || '';
+          m.pve_class = classMap[m.id]?.pve_class || '';
           if (discordMap[m.id]) m.name = discordMap[m.id];
         });
       }

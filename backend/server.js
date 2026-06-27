@@ -69,6 +69,27 @@ app.use('/api', (req, res, next) => {
 const createAdminRouter = require('./admin');
 app.use('/api/admin', requireAdmin, createAdminRouter(supabase, gateway, lootCatalog));
 
+// ── MEMBERS AREA: Class builds ───────────────────────────────────────────────
+app.get('/api/my-classes', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+  const { data } = await supabase.from('member_roles').select('pvp_class, pve_class').eq('discord_id', req.user.id).single();
+  res.json({ pvp_class: data?.pvp_class || '', pve_class: data?.pve_class || '' });
+});
+
+app.put('/api/my-classes', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+  const { pvp_class, pve_class } = req.body || {};
+  const { error } = await supabase.from('member_roles')
+    .upsert({
+      discord_id: req.user.id,
+      pvp_class: pvp_class || null,
+      pve_class: pve_class || null,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'discord_id', ignoreDuplicates: false });
+  if (error) return res.status(500).json({ error: 'Failed to save classes.' });
+  res.json({ ok: true });
+});
+
 // ── MEMBERS AREA: Archboss shard tracker ─────────────────────────────────────
 // Any logged-in member sees the full tally. Editing a row is restricted to its
 // owner (matched by Discord id) or an admin — enforced here, not just in the UI.

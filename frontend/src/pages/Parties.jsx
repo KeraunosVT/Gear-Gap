@@ -146,6 +146,7 @@ export default function Parties() {
   const [loaEvent, setLoaEvent] = useState('');
   const [loaSet, setLoaSet] = useState(new Set());
   const [schedule, setSchedule] = useState([]);
+  const [classMode, setClassMode] = useState('pvp');
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -383,6 +384,14 @@ export default function Parties() {
           </select>
           {loaSet.size > 0 && <span className="text-oxblood font-mono">{loaSet.size} out</span>}
         </div>
+        <div className="flex items-center gap-1 text-sm">
+          {['pvp', 'pve'].map((m) => (
+            <button key={m} onClick={() => setClassMode(m)}
+              className={`px-3 py-1.5 rounded-sm font-medium transition-colors ${classMode === m ? 'bg-panel text-brassbright' : 'text-ash hover:text-bone'}`}>
+              {m.toUpperCase()}
+            </button>
+          ))}
+        </div>
         <div className="flex-1" />
         <button onClick={post} disabled={busy} className="inline-flex items-center gap-2 px-5 py-2 border border-brass/50 text-brassbright hover:bg-panelup rounded-sm transition-colors disabled:opacity-40"><Send className="w-4 h-4" /> Post to Discord</button>
       </div>
@@ -409,7 +418,7 @@ export default function Parties() {
                     {membersError}<button onClick={loadMembers} className="block mt-2 text-brass hover:text-brassbright">Retry</button>
                   </div>
                 ) : poolView.length === 0 ? <div className="text-ash text-sm py-6 text-center">Everyone's assigned.</div>
-                : poolView.map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} isLoa={loaSet.has(id)} />)}
+                : poolView.map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} isLoa={loaSet.has(id)} classMode={classMode} />)}
             </div>
           </DroppableColumn>
 
@@ -425,7 +434,7 @@ export default function Parties() {
                 <div className="space-y-2 min-h-[120px]">
                   {items[pid].length === 0
                     ? <div className="text-ash/50 text-xs text-center py-8 border border-dashed border-line rounded">Drop members here</div>
-                    : items[pid].map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} inParty isLoa={loaSet.has(id)} />)}
+                    : items[pid].map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} inParty isLoa={loaSet.has(id)} classMode={classMode} />)}
                 </div>
               </DroppableColumn>
             ))}
@@ -456,8 +465,9 @@ function SortableMember(props) {
   return <MemberCardBase ref={setNodeRef} style={style} handle={{ ...attributes, ...listeners }} isDragging={isDragging} {...props} />;
 }
 
-const MemberCardBase = forwardRef(function MemberCardBase({ member, role, onRole, inParty, overlay, style, handle, isDragging, isLoa }, ref) {
+const MemberCardBase = forwardRef(function MemberCardBase({ member, role, onRole, inParty, overlay, style, handle, isDragging, isLoa, classMode }, ref) {
   const rs = ROLE_STYLE[role];
+  const cls = classMode === 'pve' ? member.pve_class : member.pvp_class;
   return (
     <div
       ref={ref} style={style} {...handle}
@@ -466,7 +476,10 @@ const MemberCardBase = forwardRef(function MemberCardBase({ member, role, onRole
       {member.avatar
         ? <img src={member.avatar} alt="" className="w-6 h-6 rounded-full border border-line shrink-0" />
         : <span className="w-6 h-6 rounded-full bg-panelup border border-line shrink-0 flex items-center justify-center text-[10px] text-brass">{(member.name || '?').slice(0, 1).toUpperCase()}</span>}
-      <span className={`text-sm truncate flex-1 ${member.missing ? 'text-ash italic' : isLoa ? 'text-oxblood' : 'text-bone'}`} title={isLoa ? 'On leave of absence' : member.missing ? 'No longer in the server' : member.name}>{member.name}</span>
+      <div className="min-w-0 flex-1">
+        <span className={`text-sm truncate block ${member.missing ? 'text-ash italic' : isLoa ? 'text-oxblood' : 'text-bone'}`} title={isLoa ? 'On leave of absence' : member.missing ? 'No longer in the server' : member.name}>{member.name}</span>
+        {cls && <span className="text-[10px] text-brass truncate block">{cls}</span>}
+      </div>
       {isLoa && <CalendarOff className="w-3.5 h-3.5 text-oxblood shrink-0" title="LOA" />}
       {onRole && (
         <div className="flex gap-1 opacity-60 group-hover:opacity-100 transition-opacity" onPointerDown={(e) => e.stopPropagation()}>
