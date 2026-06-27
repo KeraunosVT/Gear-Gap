@@ -28,6 +28,13 @@ export default function LootTally() {
   const [newItemCat, setNewItemCat] = useState('');
   const [editingItem, setEditingItem] = useState(null);
   const [editName, setEditName] = useState('');
+  const [collapsed, setCollapsed] = useState(() => new Set());
+
+  const toggleCat = (key) => setCollapsed((prev) => {
+    const next = new Set(prev);
+    next.has(key) ? next.delete(key) : next.add(key);
+    return next;
+  });
 
   const load = () => {
     setLoading(true); setError('');
@@ -269,8 +276,12 @@ export default function LootTally() {
             <div className="space-y-8">
               {groupedRows.map((cat) => (
                 <section key={cat.key}>
-                  <h2 className="font-display text-lg text-bone tracking-[0.08em] mb-3">{cat.label}</h2>
-                  <div className="panel rounded-sm divide-y divide-line">
+                  <button onClick={() => toggleCat(cat.key)} className="flex items-center gap-2 mb-3 group w-full text-left">
+                    <ChevronDown className={`w-4 h-4 text-ash transition-transform ${collapsed.has(cat.key) ? '-rotate-90' : ''}`} />
+                    <h2 className="font-display text-lg text-bone tracking-[0.08em] group-hover:text-brassbright transition-colors">{cat.label}</h2>
+                    <span className="text-xs text-ash font-mono">{cat.items.length}</span>
+                  </button>
+                  {!collapsed.has(cat.key) && <div className="panel rounded-sm divide-y divide-line">
               {cat.items.map((it) => {
                 const isOpen = open.has(it.key);
                 const canOpen = it.watchers.length > 0;
@@ -328,7 +339,7 @@ export default function LootTally() {
                   </div>
                 );
               })}
-                  </div>
+                  </div>}
                 </section>
               ))}
             </div>
