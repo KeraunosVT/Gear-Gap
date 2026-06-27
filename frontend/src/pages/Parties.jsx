@@ -353,7 +353,7 @@ export default function Parties() {
   const activeMember = activeId ? byId[activeId] : null;
 
   return (
-    <div className="max-w-[1400px] mx-auto px-6 py-12">
+    <div className="max-w-[1600px] mx-auto px-6 py-12">
       <div className="eyebrow text-brass text-[11px] mb-3">War Table</div>
       <h1 className="font-display text-4xl md:text-5xl text-bone tracking-[0.08em]">Parties</h1>
       <p className="text-ash mt-2">Drag members between and within parties, set roles, save rosters, and post to Discord.</p>
@@ -384,14 +384,11 @@ export default function Parties() {
           </select>
           {loaSet.size > 0 && <span className="text-oxblood font-mono">{loaSet.size} out</span>}
         </div>
-        <div className="flex items-center gap-1 text-sm">
-          {['pvp', 'pve'].map((m) => (
-            <button key={m} onClick={() => setClassMode(m)}
-              className={`px-3 py-1.5 rounded-sm font-medium transition-colors ${classMode === m ? 'bg-panel text-brassbright' : 'text-ash hover:text-bone'}`}>
-              {m.toUpperCase()}
-            </button>
-          ))}
-        </div>
+        <button onClick={() => setClassMode((m) => m === 'pvp' ? 'pve' : 'pvp')}
+          className="inline-flex items-center gap-0 rounded-full border border-line bg-hall p-0.5 cursor-pointer shrink-0" title="Toggle PvP / PvE classes">
+          <span className={`px-3 py-1 rounded-full text-xs font-bold tracking-wide transition-all ${classMode === 'pvp' ? 'bg-oxblood text-bone' : 'text-ash'}`}>PVP</span>
+          <span className={`px-3 py-1 rounded-full text-xs font-bold tracking-wide transition-all ${classMode === 'pve' ? 'bg-emerald-500 text-ink' : 'text-ash'}`}>PVE</span>
+        </button>
         <div className="flex-1" />
         <button onClick={post} disabled={busy} className="inline-flex items-center gap-2 px-5 py-2 border border-brass/50 text-brassbright hover:bg-panelup rounded-sm transition-colors disabled:opacity-40"><Send className="w-4 h-4" /> Post to Discord</button>
       </div>
