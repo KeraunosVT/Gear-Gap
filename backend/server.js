@@ -263,9 +263,26 @@ app.delete('/api/loa/:id', async (req, res) => {
 app.get('/api/players', async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
   try {
-    const { data, error } = await supabase.rpc('get_player_stats');
+    const [{ data, error }, { data: idData }, members] = await Promise.all([
+      supabase.rpc('get_player_stats'),
+      supabase.from('player_identities').select('display_name, ingame_names, discord_id'),
+      listMembers().catch(() => []),
+    ]);
     if (error) throw error;
-    res.json({ players: data || [] });
+
+    const memberIds = new Set(members.map((m) => m.id));
+    const nameToDiscord = {};
+    (idData || []).forEach((it) => {
+      const names = [it.display_name, ...(Array.isArray(it.ingame_names) ? it.ingame_names : [])].filter(Boolean);
+      names.forEach((n) => { if (it.discord_id) nameToDiscord[n.trim().toLowerCase()] = it.discord_id; });
+    });
+
+    const players = (data || []).map((p) => {
+      const did = nameToDiscord[(p.player_name || '').trim().toLowerCase()];
+      return { ...p, is_member: did ? memberIds.has(did) : false };
+    });
+
+    res.json({ players });
   } catch (err) {
     console.error('Player stats error:', err.message);
     res.status(500).json({ error: 'Failed to load player stats.' });

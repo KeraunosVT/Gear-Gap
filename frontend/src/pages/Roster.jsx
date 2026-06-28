@@ -7,7 +7,7 @@ const fmt = (n) => (Number(n) || 0).toLocaleString();
 const fmtM = (n) => ((Number(n) || 0) / 1e6).toFixed(1) + 'M';
 const fmtAvg = (n) => (Number(n) || 0).toLocaleString(undefined, { maximumFractionDigits: 1 });
 
-const PLAYER_COL = { key: 'player_name', label: 'Player', align: 'left', render: (p) => <Link to={`/roster/${encodeURIComponent(p.player_name)}`} className="hover:text-brassbright transition-colors">{p.player_name}</Link>, cls: 'font-semibold text-bone' };
+const PLAYER_COL = { key: 'player_name', label: 'Player', align: 'left', render: (p) => <Link to={`/roster/${encodeURIComponent(p.player_name)}`} className={`hover:text-brassbright transition-colors ${p.is_member ? 'text-emerald-400' : 'text-ash'}`}>{p.player_name}</Link>, cls: 'font-semibold' };
 const MATCHES_COL = { key: 'matches', label: 'Matches', align: 'right', render: (p) => fmt(p.matches) };
 
 const TABS = {
