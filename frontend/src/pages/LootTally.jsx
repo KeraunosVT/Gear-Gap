@@ -69,12 +69,15 @@ export default function LootTally() {
       .map((cat) => {
         const items = (cat.items || [])
           .map((it) => {
-            const watchers = [...(tally[it.key] || [])].sort((a, b) =>
-              (PRIO_INDEX[a.priority] - PRIO_INDEX[b.priority]) || (a.name || '').localeCompare(b.name || ''));
+            const awarded = awardsByItem[it.key] || [];
+            const awardedIds = new Set(awarded.map((a) => a.discord_id));
+            const watchers = [...(tally[it.key] || [])]
+              .filter((w) => !awardedIds.has(w.discord_id))
+              .sort((a, b) => (PRIO_INDEX[a.priority] - PRIO_INDEX[b.priority]) || (a.name || '').localeCompare(b.name || ''));
             const byPrio = {};
             catalog.priorities.forEach((p) => { byPrio[p] = 0; });
             watchers.forEach((w) => { if (byPrio[w.priority] != null) byPrio[w.priority]++; });
-            return { ...it, category: cat.label, total: counts[it.key] || 0, watchers, byPrio, awarded: awardsByItem[it.key] || [] };
+            return { ...it, category: cat.label, total: watchers.length, watchers, byPrio, awarded };
           })
           .filter((it) => (showZero || it.total > 0 || it.awarded.length > 0)
             && (it.name.toLowerCase().includes(f) || cat.label.toLowerCase().includes(f)));
