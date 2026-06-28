@@ -269,12 +269,46 @@ app.delete('/api/loa/:id', async (req, res) => {
 app.get('/api/players', async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
   try {
-    const [{ data, error }, { data: idData }, members] = await Promise.all([
-      supabase.rpc('get_player_stats'),
+    const lastN = parseInt(req.query.last, 10);
+
+    let data;
+    if (lastN > 0) {
+      const { data: recentMatches } = await supabase
+        .from('wargame_matches').select('id')
+        .order('match_date', { ascending: false }).limit(lastN);
+      const matchIds = (recentMatches || []).map((m) => m.id);
+      if (matchIds.length === 0) return res.json({ players: [] });
+
+      const guildNames = Object.keys(GUILD_ALIASES);
+      const { data: rows, error: rErr } = await supabase
+        .from('player_match_stats')
+        .select('player_name, kills, assists, damage_dealt, damage_taken, healing')
+        .in('match_id', matchIds)
+        .in('guild_name', guildNames);
+      if (rErr) throw rErr;
+
+      const agg = {};
+      (rows || []).forEach((r) => {
+        const name = r.player_name;
+        if (!agg[name]) agg[name] = { player_name: name, matches: 0, kills: 0, assists: 0, damage_dealt: 0, damage_taken: 0, healing: 0 };
+        agg[name].matches++;
+        agg[name].kills += Number(r.kills) || 0;
+        agg[name].assists += Number(r.assists) || 0;
+        agg[name].damage_dealt += Number(r.damage_dealt) || 0;
+        agg[name].damage_taken += Number(r.damage_taken) || 0;
+        agg[name].healing += Number(r.healing) || 0;
+      });
+      data = Object.values(agg);
+    } else {
+      const result = await supabase.rpc('get_player_stats');
+      if (result.error) throw result.error;
+      data = result.data;
+    }
+
+    const [{ data: idData }, members] = await Promise.all([
       supabase.from('player_identities').select('display_name, ingame_names, discord_id'),
       listMembers().catch(() => []),
     ]);
-    if (error) throw error;
 
     const memberIds = new Set(members.map((m) => m.id));
     const nameToDiscord = {};

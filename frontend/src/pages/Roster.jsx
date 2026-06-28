@@ -47,13 +47,14 @@ export default function Roster() {
   const [error, setError] = useState(false);
   const [filter, setFilter] = useState('');
   const [membersOnly, setMembersOnly] = useState(true);
+  const [lastTen, setLastTen] = useState(false);
   const [tab, setTab] = useState('totals');
   const [sortKey, setSortKey] = useState('kills');
   const [sortDir, setSortDir] = useState('desc');
 
   const fetchPlayers = () => {
     setLoading(true); setError(false);
-    axios.get('/api/players')
+    axios.get(`/api/players${lastTen ? '?last=10' : ''}`)
       .then((res) => setPlayers((res.data.players || []).map((p) => {
         const m = Number(p.matches) || 0;
         const per = (v) => (m ? (Number(v) || 0) / m : 0);
@@ -72,7 +73,7 @@ export default function Roster() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { fetchPlayers(); }, []);
+  useEffect(() => { fetchPlayers(); }, [lastTen]);
 
   const switchTab = (key) => {
     setTab(key);
@@ -115,6 +116,11 @@ export default function Roster() {
             className="inline-flex items-center gap-0 rounded-full border border-line bg-hall p-0.5 cursor-pointer shrink-0" title="Toggle current members only">
             <span className={`px-3 py-1 rounded-full text-xs font-bold tracking-wide transition-all ${membersOnly ? 'bg-emerald-500 text-ink' : 'text-ash'}`}>Members</span>
             <span className={`px-3 py-1 rounded-full text-xs font-bold tracking-wide transition-all ${!membersOnly ? 'bg-brass text-ink' : 'text-ash'}`}>All</span>
+          </button>
+          <button onClick={() => setLastTen((v) => !v)}
+            className="inline-flex items-center gap-0 rounded-full border border-line bg-hall p-0.5 cursor-pointer shrink-0" title="Toggle last 10 matches">
+            <span className={`px-3 py-1 rounded-full text-xs font-bold tracking-wide transition-all ${!lastTen ? 'bg-brass text-ink' : 'text-ash'}`}>All Time</span>
+            <span className={`px-3 py-1 rounded-full text-xs font-bold tracking-wide transition-all ${lastTen ? 'bg-oxblood text-bone' : 'text-ash'}`}>Last 10</span>
           </button>
           <div className="flex gap-1">
             {Object.entries(TABS).map(([key, t]) => (
