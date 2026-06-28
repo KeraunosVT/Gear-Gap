@@ -2,8 +2,9 @@ import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../auth';
 import Sigil from '../components/Sigil';
-import { ChevronDown, RefreshCw, Gavel, X, ScrollText, Plus, Pencil, Trash2 } from 'lucide-react';
+import { ChevronDown, RefreshCw, Gavel, X, ScrollText, Plus, Pencil, Trash2, Upload } from 'lucide-react';
 import { fmtDatetime } from '../timeUtils';
+import ItemTooltip from '../components/ItemTooltip';
 
 const PRIO_SHORT = { 'PvP': 'PvP', 'Second Build': '2nd', 'PvE': 'PvE' };
 const PRIO_DOT = { 'PvP': 'bg-oxblood', 'Second Build': 'bg-brass', 'PvE': 'bg-emerald-500' };
@@ -29,7 +30,12 @@ export default function LootTally() {
   const [newItemCat, setNewItemCat] = useState('');
   const [editingItem, setEditingItem] = useState(null);
   const [editName, setEditName] = useState('');
+  const [editDesc, setEditDesc] = useState('');
   const [collapsed, setCollapsed] = useState(() => new Set());
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [importCat, setImportCat] = useState('');
 
   const toggleCat = (key) => setCollapsed((prev) => {
     const next = new Set(prev);
@@ -187,6 +193,78 @@ export default function LootTally() {
             </div>
           </div>
 
+          {/* Import from Questlog.gg */}
+          <div>
+            <label className="eyebrow text-[10px] text-ash block mb-2">Import from Questlog.gg</label>
+            <div className="flex gap-2 mb-3">
+              <input value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Search items…"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && searchQuery.trim()) {
+                    setSearching(true);
+                    axios.get('/api/admin/loot/search', { params: { q: searchQuery.trim() } })
+                      .then((res) => setSearchResults(res.data.items || []))
+                      .catch(() => setSearchResults([]))
+                      .finally(() => setSearching(false));
+                  }
+                }}
+                className="bg-hall border border-line rounded-sm px-3 py-2 text-bone focus:outline-none focus:border-brass flex-1" />
+              <select value={importCat} onChange={(e) => setImportCat(e.target.value)}
+                className="bg-hall border border-line rounded-sm px-3 py-2 text-bone focus:outline-none focus:border-brass">
+                <option value="">— category —</option>
+                {catalog.categories.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+              </select>
+              <button
+                onClick={() => {
+                  if (!searchQuery.trim()) return;
+                  setSearching(true);
+                  axios.get('/api/admin/loot/search', { params: { q: searchQuery.trim() } })
+                    .then((res) => setSearchResults(res.data.items || []))
+                    .catch(() => setSearchResults([]))
+                    .finally(() => setSearching(false));
+                }}
+                disabled={searching || !searchQuery.trim()}
+                className="px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors disabled:opacity-40">
+                {searching ? '…' : 'Search'}
+              </button>
+            </div>
+            {searchResults.length > 0 && (
+              <div className="space-y-1 max-h-[300px] overflow-auto">
+                {searchResults.map((it) => (
+                  <div key={it.id} className="flex items-center gap-2 bg-hall border border-line rounded-sm px-3 py-2">
+                    {it.icon && <img src={it.icon} alt="" className="w-8 h-8 rounded border border-line object-cover shrink-0" />}
+                    <div className="flex-1 min-w-0">
+                      <div className="text-bone text-sm truncate">{it.name}</div>
+                      <div className="text-[10px] text-ash">{it.category}</div>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        if (!importCat) { setError('Select a category first.'); return; }
+                        try {
+                          const detail = await axios.get(`/api/admin/loot/lookup/${it.id}`);
+                          const d = detail.data;
+                          const item = await axios.post('/api/admin/loot/items', { category: importCat, name: d.name });
+                          if (item.data.key) {
+                            await axios.put(`/api/admin/loot/items/${item.data.key}`, {
+                              description: d.description || '',
+                              image_url: d.icon || '',
+                            });
+                          }
+                          load();
+                          flash(`Imported "${d.name}".`);
+                        } catch (err) {
+                          setError(err.response?.data?.error || 'Import failed.');
+                        }
+                      }}
+                      disabled={!importCat}
+                      className="px-3 py-1 text-xs bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors disabled:opacity-40 shrink-0">
+                      Import
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Existing items by category */}
           <div className="space-y-4">
             {catalog.categories.map((cat) => (
@@ -207,32 +285,43 @@ export default function LootTally() {
                 </div>
                 <div className="space-y-1">
                   {cat.items.map((item) => (
-                    <div key={item.key} className="flex items-center gap-2 bg-hall border border-line rounded-sm px-3 py-1.5">
+                    <div key={item.key} className="bg-hall border border-line rounded-sm px-3 py-1.5">
                       {editingItem === item.key ? (
-                        <>
-                          <input value={editName} onChange={(e) => setEditName(e.target.value)}
-                            className="bg-panel border border-line rounded px-2 py-1 text-bone focus:outline-none focus:border-brass flex-1 text-sm"
-                            autoFocus onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                axios.put(`/api/admin/loot/items/${item.key}`, { name: editName.trim() })
-                                  .then(() => { setEditingItem(null); load(); })
-                                  .catch((err) => setError(err.response?.data?.error || 'Failed to rename.'));
-                              }
-                              if (e.key === 'Escape') setEditingItem(null);
-                            }}
-                          />
-                          <button onClick={() => {
-                            axios.put(`/api/admin/loot/items/${item.key}`, { name: editName.trim() })
-                              .then(() => { setEditingItem(null); load(); })
-                              .catch((err) => setError(err.response?.data?.error || 'Failed to rename.'));
-                          }} className="text-emerald-400 hover:text-emerald-300 text-xs font-semibold">Save</button>
-                          <button onClick={() => setEditingItem(null)} className="text-ash hover:text-bone text-xs">Cancel</button>
-                        </>
+                        <div className="space-y-2 py-1">
+                          <input value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="Item name"
+                            className="bg-panel border border-line rounded px-2 py-1 text-bone focus:outline-none focus:border-brass w-full text-sm" />
+                          <textarea value={editDesc} onChange={(e) => setEditDesc(e.target.value)} placeholder="Description (optional)" rows={2}
+                            className="bg-panel border border-line rounded px-2 py-1 text-bone focus:outline-none focus:border-brass w-full text-sm resize-none" />
+                          <div className="flex items-center gap-2">
+                            <label className="inline-flex items-center gap-1.5 text-xs text-brass hover:text-brassbright cursor-pointer">
+                              <Upload className="w-3.5 h-3.5" /> Upload icon
+                              <input type="file" accept="image/*" className="hidden" onChange={(e) => {
+                                const f = e.target.files[0];
+                                if (!f) return;
+                                const form = new FormData();
+                                form.append('image', f);
+                                axios.post(`/api/admin/loot/items/${item.key}/image`, form)
+                                  .then(() => load())
+                                  .catch((err) => setError(err.response?.data?.error || 'Upload failed.'));
+                              }} />
+                            </label>
+                            {item.image_url && <img src={item.image_url} alt="" className="w-6 h-6 rounded border border-line object-cover" />}
+                            <div className="flex-1" />
+                            <button onClick={() => {
+                              axios.put(`/api/admin/loot/items/${item.key}`, { name: editName.trim(), description: editDesc })
+                                .then(() => { setEditingItem(null); load(); })
+                                .catch((err) => setError(err.response?.data?.error || 'Failed to save.'));
+                            }} className="text-emerald-400 hover:text-emerald-300 text-xs font-semibold">Save</button>
+                            <button onClick={() => setEditingItem(null)} className="text-ash hover:text-bone text-xs">Cancel</button>
+                          </div>
+                        </div>
                       ) : (
-                        <>
+                        <div className="flex items-center gap-2">
+                          {item.image_url && <img src={item.image_url} alt="" className="w-6 h-6 rounded border border-line object-cover shrink-0" />}
                           <span className="text-bone text-sm flex-1">{item.name}</span>
-                          <button onClick={() => { setEditingItem(item.key); setEditName(item.name); }}
-                            className="text-ash hover:text-brass" title="Rename">
+                          {item.description && <span className="text-ash text-[10px] shrink-0">has desc</span>}
+                          <button onClick={() => { setEditingItem(item.key); setEditName(item.name); setEditDesc(item.description || ''); }}
+                            className="text-ash hover:text-brass" title="Edit">
                             <Pencil className="w-3.5 h-3.5" />
                           </button>
                           <button onClick={() => {
@@ -294,9 +383,9 @@ export default function LootTally() {
                     <button onClick={() => canOpen && toggle(it.key)}
                       className={`w-full flex items-center gap-3 px-4 py-3 text-left ${canOpen ? 'hover:bg-panelup' : 'cursor-default'} transition-colors`}>
                       <div className="min-w-0 flex-1">
-                        <div className="text-bone truncate">
-                          {it.name}
-                        </div>
+                        <ItemTooltip item={it}>
+                          <span className="text-bone truncate">{it.name}</span>
+                        </ItemTooltip>
                       </div>
                       <div className="hidden sm:flex items-center gap-2 shrink-0">
                         {(catalog?.priorities || []).map((p) => (

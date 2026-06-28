@@ -12,12 +12,14 @@ module.exports = function createLootCatalog(supabase) {
       .from('loot_categories').select('key, label, sort_order')
       .order('sort_order').order('label');
     const { data: items } = await supabase
-      .from('loot_items').select('key, category_key, name, sort_order')
+      .from('loot_items').select('key, category_key, name, sort_order, image_url, description')
       .order('sort_order').order('name');
     const categories = (cats || []).map((c) => ({
       key: c.key,
       label: c.label,
-      items: (items || []).filter((i) => i.category_key === c.key).map((i) => ({ key: i.key, name: i.name })),
+      items: (items || []).filter((i) => i.category_key === c.key).map((i) => ({
+        key: i.key, name: i.name, image_url: i.image_url || null, description: i.description || null,
+      })),
     }));
     return { priorities: PRIORITIES, categories };
   }
@@ -68,8 +70,13 @@ module.exports = function createLootCatalog(supabase) {
       return { key: itemKey, name };
     },
 
-    async editItem(itemKey, newName) {
-      const { error } = await supabase.from('loot_items').update({ name: newName }).eq('key', itemKey);
+    async editItem(itemKey, updates) {
+      const patch = {};
+      if (updates.name !== undefined) patch.name = updates.name;
+      if (updates.image_url !== undefined) patch.image_url = updates.image_url || null;
+      if (updates.description !== undefined) patch.description = updates.description || null;
+      if (Object.keys(patch).length === 0) return false;
+      const { error } = await supabase.from('loot_items').update(patch).eq('key', itemKey);
       return !error;
     },
 

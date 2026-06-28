@@ -218,15 +218,79 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
   });
 
   router.put('/loot/items/:key', async (req, res) => {
-    const { name } = req.body || {};
-    if (!name) return res.status(400).json({ error: 'Item name required.' });
-    if (!(await lootCatalog.editItem(req.params.key, name))) return res.status(404).json({ error: 'Item not found.' });
+    const { name, description, image_url } = req.body || {};
+    const updates = {};
+    if (name !== undefined) updates.name = name;
+    if (description !== undefined) updates.description = description;
+    if (image_url !== undefined) updates.image_url = image_url;
+    if (Object.keys(updates).length === 0) return res.status(400).json({ error: 'Nothing to update.' });
+    if (!(await lootCatalog.editItem(req.params.key, updates))) return res.status(404).json({ error: 'Item not found.' });
     res.json({ ok: true });
+  });
+
+  router.post('/loot/items/:key/image', upload.single('image'), async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const f = req.file;
+    if (!f) return res.status(400).json({ error: 'No image uploaded.' });
+    const ext = f.mimetype === 'image/png' ? 'png' : f.mimetype === 'image/webp' ? 'webp' : 'jpg';
+    const path = `loot-icons/${req.params.key}.${ext}`;
+    const { error: upErr } = await supabase.storage.from('assets').upload(path, f.buffer, {
+      contentType: f.mimetype, upsert: true,
+    });
+    if (upErr) { console.error('Image upload error:', upErr.message); return res.status(500).json({ error: 'Failed to upload image.' }); }
+    const { data: urlData } = supabase.storage.from('assets').getPublicUrl(path);
+    const image_url = urlData.publicUrl;
+    await lootCatalog.editItem(req.params.key, { image_url });
+    res.json({ image_url });
   });
 
   router.delete('/loot/items/:key', async (req, res) => {
     if (!(await lootCatalog.deleteItem(req.params.key))) return res.status(404).json({ error: 'Item not found.' });
     res.json({ ok: true });
+  });
+
+  // ── Questlog.gg item lookup (proxy to avoid CORS) ──────────────────────────
+  const axios = require('axios');
+  const QUESTLOG_BASE = 'https://questlog.gg/throne-and-liberty/api/trpc';
+
+  router.get('/loot/search', async (req, res) => {
+    const q = req.query.q || '';
+    if (!q.trim()) return res.json({ items: [] });
+    try {
+      const input = JSON.stringify({ language: 'en', page: 1, mainCategory: '', subCategory: '', searchTerm: q.trim() });
+      const { data } = await axios.get(`${QUESTLOG_BASE}/database.getItems`, { params: { input } });
+      const items = (data?.result?.data?.pageData || []).map((it) => ({
+        id: it.id,
+        name: it.name,
+        icon: it.icon ? `https://questlog.gg${it.icon}.webp` : null,
+        grade: it.grade,
+        category: it.subCategory,
+      }));
+      res.json({ items });
+    } catch (err) {
+      console.error('Questlog search error:', err.message);
+      res.status(502).json({ error: 'Item search failed.' });
+    }
+  });
+
+  router.get('/loot/lookup/:id', async (req, res) => {
+    try {
+      const input = JSON.stringify({ language: 'en', id: req.params.id });
+      const { data } = await axios.get(`${QUESTLOG_BASE}/database.getItem`, { params: { input } });
+      const it = data?.result?.data;
+      if (!it) return res.status(404).json({ error: 'Item not found.' });
+      res.json({
+        id: it.id,
+        name: it.name,
+        icon: it.icon ? `https://questlog.gg${it.icon}.webp` : null,
+        description: it.description || '',
+        grade: it.grade,
+        category: it.subCategory,
+      });
+    } catch (err) {
+      console.error('Questlog lookup error:', err.message);
+      res.status(502).json({ error: 'Item lookup failed.' });
+    }
   });
 
   // ── Player identities / name merging ────────────────────────────────────────

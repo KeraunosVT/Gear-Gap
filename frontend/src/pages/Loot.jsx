@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../auth';
 import { Users, Check, Loader2, ChevronDown, Gavel } from 'lucide-react';
+import ItemTooltip from '../components/ItemTooltip';
 
 const PRIO_SHORT = { 'PvP': 'PvP', 'Second Build': '2nd', 'PvE': 'PvE' };
 const PRIO_STYLE = {
@@ -113,7 +114,9 @@ export default function Loot() {
                   return (
                     <div key={item.key}>
                       <div className="flex items-center gap-3 px-4 py-2.5">
-                        <span className={`flex-1 min-w-0 truncate ${mine ? 'text-bone' : 'text-ash'}`}>{item.name}</span>
+                        <ItemTooltip item={{ ...item, category: cat.label }}>
+                          <span className={`truncate ${mine ? 'text-bone' : 'text-ash'}`}>{item.name}</span>
+                        </ItemTooltip>
 
                         {/* demand badge (admins can expand) */}
                         {n > 0 && (
