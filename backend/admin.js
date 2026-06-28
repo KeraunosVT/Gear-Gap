@@ -258,8 +258,8 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
       const result = await runImport(supabase);
       res.json(result);
     } catch (err) {
-      console.error('Questlog import error:', err.message);
-      res.status(500).json({ error: 'Import failed: ' + err.message });
+      console.error('Questlog import error:', err.stack || err.message);
+      res.status(500).json({ error: 'Import failed: ' + (err.response?.data?.message || err.message) });
     }
   });
 
