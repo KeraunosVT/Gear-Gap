@@ -231,7 +231,7 @@ export default function LootTally() {
               <span className="text-ash text-xs">{importing ? 'This may take a few minutes' : 'Pull latest Epic+ items from game data'}</span>
               {importResult && (
                 <span className="text-emerald-400 text-xs">
-                  {importResult.imported} items synced ({(importResult.duration_ms / 1000).toFixed(0)}s)
+                  {importResult.imported} new, {importResult.skipped || 0} existing ({(importResult.duration_ms / 1000).toFixed(0)}s)
                 </span>
               )}
             </div>

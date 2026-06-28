@@ -6,7 +6,7 @@ const MIN_GRADE = 41;
 const BUCKET = 'assets';
 const ICON_PREFIX = 'loot-icons/';
 
-const CATEGORIES = ['weapons', 'armor', 'accessories'];
+const CATEGORIES = ['weapons', 'armor', 'accessories', 'misc'];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -70,6 +70,9 @@ module.exports = async function runImport(supabase) {
   const errors = [];
   let imported = 0;
 
+  const { data: existingRows } = await supabase.from('questlog_items').select('id');
+  const existingIds = new Set((existingRows || []).map((r) => r.id));
+
   const allListItems = [];
   for (const main of CATEGORIES) {
     try {
@@ -81,9 +84,10 @@ module.exports = async function runImport(supabase) {
     }
   }
 
-  await supabase.from('questlog_items').delete().neq('id', '');
+  const newItems = allListItems.filter((it) => !existingIds.has(it.id));
+  let skipped = allListItems.length - newItems.length;
 
-  for (const it of allListItems) {
+  for (const it of newItems) {
     try {
       await sleep(DELAY);
       const detail = await fetchDetail(it.id);
@@ -105,5 +109,5 @@ module.exports = async function runImport(supabase) {
     }
   }
 
-  return { imported, errors, duration_ms: Date.now() - start };
+  return { imported, skipped, errors, duration_ms: Date.now() - start };
 };
