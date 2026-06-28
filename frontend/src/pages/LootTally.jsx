@@ -18,6 +18,7 @@ export default function LootTally() {
   const [awards, setAwards] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [msg, setMsg] = useState(null);
   const [filter, setFilter] = useState('');
   const [category, setCategory] = useState('');
   const [showZero, setShowZero] = useState(false);
@@ -95,6 +96,8 @@ export default function LootTally() {
       .filter((cat) => cat.items.length > 0 && (!category || cat.label === category));
   }, [counts, tally, awardsByItem, filter, category, showZero, catalog, PRIO_INDEX]);
 
+  const flash = (text, ok = true) => { setMsg({ text, ok }); setTimeout(() => setMsg(null), 3500); };
+
   const toggle = (key) => setOpen((prev) => {
     const next = new Set(prev);
     next.has(key) ? next.delete(key) : next.add(key);
@@ -134,6 +137,7 @@ export default function LootTally() {
       <div className="rule-fade my-8" />
 
       {error && <div className="mb-6 px-5 py-3 rounded-sm border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
+      {msg && <div className={`mb-6 px-5 py-3 rounded-sm border text-sm ${msg.ok ? 'border-brass/40 bg-panel text-bone' : 'border-oxblood/50 bg-oxblooddeep/20 text-bone'}`}>{msg.text}</div>}
 
       <div className="mb-8">
         <button
