@@ -122,10 +122,10 @@ export default function Roster() {
             <span className={`px-3 py-1 rounded-full text-xs font-bold tracking-wide transition-all ${!lastTen ? 'bg-brass text-ink' : 'text-ash'}`}>All Time</span>
             <span className={`px-3 py-1 rounded-full text-xs font-bold tracking-wide transition-all ${lastTen ? 'bg-oxblood text-bone' : 'text-ash'}`}>Last 10</span>
           </button>
-          <div className="flex gap-1">
+          <div className="inline-flex items-center gap-0 rounded-full border border-line bg-hall p-0.5 shrink-0">
             {Object.entries(TABS).map(([key, t]) => (
               <button key={key} onClick={() => switchTab(key)}
-                className={`px-4 py-2 rounded-sm text-sm font-medium transition-colors ${tab === key ? 'bg-panel text-brassbright' : 'text-ash hover:text-bone'}`}>
+                className={`px-3 py-1 rounded-full text-xs font-bold tracking-wide transition-all cursor-pointer ${tab === key ? 'bg-brass text-ink' : 'text-ash'}`}>
                 {t.label}
               </button>
             ))}
