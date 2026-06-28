@@ -195,9 +195,9 @@ export default function LootTally() {
             </div>
           </div>
 
-          {/* Questlog.gg reference data */}
+          {/* Item database */}
           <div>
-            <label className="eyebrow text-[10px] text-ash block mb-2">Questlog.gg Database</label>
+            <label className="eyebrow text-[10px] text-ash block mb-2">Item Database</label>
 
             {/* Sync reference data */}
             <div className="flex items-center gap-3 mb-4">
@@ -212,9 +212,9 @@ export default function LootTally() {
                 disabled={importing}
                 className="px-4 py-2 border border-brass/50 text-brassbright hover:bg-panelup rounded-sm text-sm transition-colors disabled:opacity-40"
               >
-                {importing ? 'Syncing… (~60s)' : 'Sync Reference Data'}
+                {importing ? 'Syncing… (~60s)' : 'Sync Item Database'}
               </button>
-              <span className="text-ash text-xs">Pull latest Epic+ items from questlog.gg</span>
+              <span className="text-ash text-xs">Pull latest Epic+ items from game data</span>
               {importResult && (
                 <span className="text-emerald-400 text-xs">
                   {importResult.imported} items synced ({(importResult.duration_ms / 1000).toFixed(0)}s)
@@ -330,12 +330,12 @@ export default function LootTally() {
                                 axios.get('/api/admin/loot/questlog-search', { params: { q: name } })
                                   .then((res) => {
                                     const match = (res.data.items || []).find((r) => r.name.toLowerCase() === name.toLowerCase()) || res.data.items?.[0];
-                                    if (!match) { setError('No match found in questlog data. Sync first.'); return; }
+                                    if (!match) { setError('No match found. Sync the item database first.'); return; }
                                     axios.put(`/api/admin/loot/link-questlog/${item.key}`, { questlog_id: match.id })
-                                      .then(() => { load(); flash(`Linked to "${match.name}".`); })
+                                      .then(() => { load(); flash(`Linked "${match.name}".`); })
                                       .catch((err) => setError(err.response?.data?.error || 'Link failed.'));
                                   });
-                              }} className="text-brass hover:text-brassbright text-xs">Link Questlog</button>
+                              }} className="text-brass hover:text-brassbright text-xs">Auto-link</button>
                             )}
                             {item.questlog_data && <span className="text-emerald-400 text-[10px]">linked</span>}
                             <div className="flex-1" />
