@@ -255,7 +255,7 @@ export default function Attendance() {
                         <div className="flex items-center gap-3 text-xs text-ash mt-1">
                           <span className="inline-flex items-center gap-1">
                             <CalendarDays className="w-3 h-3" />
-                            {ev.event_date ? new Date(ev.event_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No date'}
+                            {ev.event_date ? new Date(ev.event_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No date'}
                           </span>
                           <span className="inline-flex items-center gap-1">
                             <Users className="w-3 h-3" /> {ev.attendees}

@@ -3,6 +3,7 @@ import axios from 'axios';
 import { useAuth } from '../auth';
 import Sigil from '../components/Sigil';
 import { ChevronDown, RefreshCw, Gavel, X, ScrollText, Plus, Pencil, Trash2 } from 'lucide-react';
+import { fmtDatetime } from '../timeUtils';
 
 const PRIO_SHORT = { 'PvP': 'PvP', 'Second Build': '2nd', 'PvE': 'PvE' };
 const PRIO_DOT = { 'PvP': 'bg-oxblood', 'Second Build': 'bg-brass', 'PvE': 'bg-emerald-500' };
@@ -357,7 +358,7 @@ export default function LootTally() {
                     <div className="min-w-0 flex-1">
                       <div className="text-sm text-bone truncate">{itemByKey[a.item_key]?.name || a.item_key}</div>
                       <div className="text-xs text-brass truncate">{a.display_name || 'Member'}</div>
-                      <div className="text-[10px] text-ash mt-0.5">{a.awarded_at ? new Date(a.awarded_at).toLocaleDateString() : ''}{a.awarded_by ? ` · by ${a.awarded_by}` : ''}</div>
+                      <div className="text-[10px] text-ash mt-0.5">{fmtDatetime(a.awarded_at)}{a.awarded_by ? ` · by ${a.awarded_by}` : ''}</div>
                     </div>
                     <button onClick={() => revoke(a.id)} className="text-ash hover:text-oxblood shrink-0" title="Revoke"><X className="w-4 h-4" /></button>
                   </div>
