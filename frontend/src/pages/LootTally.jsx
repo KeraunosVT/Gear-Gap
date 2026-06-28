@@ -31,6 +31,9 @@ export default function LootTally() {
   const [editingItem, setEditingItem] = useState(null);
   const [editName, setEditName] = useState('');
   const [editDesc, setEditDesc] = useState('');
+  const [editSearch, setEditSearch] = useState('');
+  const [editSearchResults, setEditSearchResults] = useState([]);
+  const [editSearching, setEditSearching] = useState(false);
   const [collapsed, setCollapsed] = useState(() => new Set());
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
@@ -292,6 +295,54 @@ export default function LootTally() {
                             className="bg-panel border border-line rounded px-2 py-1 text-bone focus:outline-none focus:border-brass w-full text-sm" />
                           <textarea value={editDesc} onChange={(e) => setEditDesc(e.target.value)} placeholder="Description (optional)" rows={2}
                             className="bg-panel border border-line rounded px-2 py-1 text-bone focus:outline-none focus:border-brass w-full text-sm resize-none" />
+                          {/* Questlog.gg link */}
+                          <div className="flex gap-2">
+                            <input value={editSearch} onChange={(e) => setEditSearch(e.target.value)} placeholder="Search Questlog.gg…"
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && editSearch.trim()) {
+                                  setEditSearching(true);
+                                  axios.get('/api/admin/loot/search', { params: { q: editSearch.trim() } })
+                                    .then((res) => setEditSearchResults(res.data.items || []))
+                                    .catch(() => setEditSearchResults([]))
+                                    .finally(() => setEditSearching(false));
+                                }
+                              }}
+                              className="bg-panel border border-line rounded px-2 py-1 text-bone focus:outline-none focus:border-brass flex-1 text-sm" />
+                            <button onClick={() => {
+                              if (!editSearch.trim()) return;
+                              setEditSearching(true);
+                              axios.get('/api/admin/loot/search', { params: { q: editSearch.trim() } })
+                                .then((res) => setEditSearchResults(res.data.items || []))
+                                .catch(() => setEditSearchResults([]))
+                                .finally(() => setEditSearching(false));
+                            }} disabled={editSearching || !editSearch.trim()}
+                              className="px-2 py-1 text-xs text-brass hover:text-brassbright disabled:opacity-40">
+                              {editSearching ? '…' : 'Search'}
+                            </button>
+                          </div>
+                          {editSearchResults.length > 0 && (
+                            <div className="space-y-1 max-h-[160px] overflow-auto">
+                              {editSearchResults.map((sr) => (
+                                <button key={sr.id} onClick={async () => {
+                                  try {
+                                    const detail = await axios.get(`/api/admin/loot/lookup/${sr.id}`);
+                                    const d = detail.data;
+                                    await axios.put(`/api/admin/loot/items/${item.key}`, {
+                                      name: editName.trim() || d.name,
+                                      description: d.description || '',
+                                      image_url: d.icon || '',
+                                    });
+                                    setEditingItem(null); setEditSearchResults([]); setEditSearch(''); load();
+                                    flash(`Linked "${d.name}".`);
+                                  } catch (err) { setError(err.response?.data?.error || 'Link failed.'); }
+                                }} className="w-full flex items-center gap-2 bg-panel border border-line rounded px-2 py-1.5 hover:border-brass/40 transition-colors text-left">
+                                  {sr.icon && <img src={sr.icon} alt="" className="w-6 h-6 rounded border border-line object-cover shrink-0" />}
+                                  <span className="text-bone text-xs truncate">{sr.name}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+
                           <div className="flex items-center gap-2">
                             <label className="inline-flex items-center gap-1.5 text-xs text-brass hover:text-brassbright cursor-pointer">
                               <Upload className="w-3.5 h-3.5" /> Upload icon
@@ -312,7 +363,7 @@ export default function LootTally() {
                                 .then(() => { setEditingItem(null); load(); })
                                 .catch((err) => setError(err.response?.data?.error || 'Failed to save.'));
                             }} className="text-emerald-400 hover:text-emerald-300 text-xs font-semibold">Save</button>
-                            <button onClick={() => setEditingItem(null)} className="text-ash hover:text-bone text-xs">Cancel</button>
+                            <button onClick={() => { setEditingItem(null); setEditSearchResults([]); setEditSearch(''); }} className="text-ash hover:text-bone text-xs">Cancel</button>
                           </div>
                         </div>
                       ) : (
@@ -320,7 +371,7 @@ export default function LootTally() {
                           {item.image_url && <img src={item.image_url} alt="" className="w-6 h-6 rounded border border-line object-cover shrink-0" />}
                           <span className="text-bone text-sm flex-1">{item.name}</span>
                           {item.description && <span className="text-ash text-[10px] shrink-0">has desc</span>}
-                          <button onClick={() => { setEditingItem(item.key); setEditName(item.name); setEditDesc(item.description || ''); }}
+                          <button onClick={() => { setEditingItem(item.key); setEditName(item.name); setEditDesc(item.description || ''); setEditSearch(''); setEditSearchResults([]); }}
                             className="text-ash hover:text-brass" title="Edit">
                             <Pencil className="w-3.5 h-3.5" />
                           </button>
