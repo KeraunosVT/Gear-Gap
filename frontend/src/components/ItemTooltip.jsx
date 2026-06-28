@@ -1,11 +1,14 @@
 import { useState, useRef } from 'react';
 
+const SUPABASE_ASSETS = 'https://yukrxjxaedioymfpaseu.supabase.co/storage/v1/object/public/assets';
+const ICON_BG = `${SUPABASE_ASSETS}/loot-icons/bgs/BG_ItemGrade_04.webp`;
+
 const GRADE = {
   11: { label: 'Common',    color: 'text-gray-400',   border: 'border-gray-500/50',  bg: 'bg-gray-500/10' },
   21: { label: 'Uncommon',  color: 'text-green-400',  border: 'border-green-500/50',  bg: 'bg-green-500/10' },
   31: { label: 'Rare',      color: 'text-blue-400',   border: 'border-blue-500/50',   bg: 'bg-blue-500/10' },
-  41: { label: 'Epic',      color: 'text-purple-400', border: 'border-purple-500/50', bg: 'bg-purple-500/10' },
-  51: { label: 'Legendary', color: 'text-amber-400',  border: 'border-amber-500/50',  bg: 'bg-amber-500/10' },
+  41: { label: 'Epic',      color: 'text-purple-400', border: 'border-purple-500/50', bg: 'bg-purple-500/10', iconBg: true },
+  51: { label: 'Legendary', color: 'text-amber-400',  border: 'border-amber-500/50',  bg: 'bg-amber-500/10', iconBg: true },
 };
 
 const STAT_LABELS = {
@@ -55,8 +58,7 @@ export default function ItemTooltip({ item, children }) {
       className="inline-flex items-center gap-2"
     >
       {item?.image_url && (
-        <img src={item.image_url} alt=""
-          className={`w-9 h-9 rounded object-cover shrink-0 border ${g ? g.border : 'border-line'}`} />
+        <GradeIcon src={item.image_url} grade={item.grade} size={36} />
       )}
       {children}
       {show && hasTooltip && (
@@ -86,8 +88,7 @@ function TooltipContent({ item, g }) {
       {/* Header */}
       <div className={`flex items-start gap-3 p-4 ${g ? g.bg : ''}`}>
         {item.image_url && (
-          <img src={item.image_url} alt=""
-            className={`w-12 h-12 rounded object-cover shrink-0 border ${g ? g.border : 'border-line'}`} />
+          <GradeIcon src={item.image_url} grade={item.grade} size={48} />
         )}
         <div className="min-w-0">
           <div className={`font-display tracking-wide text-sm ${g ? g.color : 'text-brassbright'}`}>{item.name}</div>
@@ -211,14 +212,21 @@ function ExtraStatBlock({ stats, minLvl, maxLvl }) {
   );
 }
 
+function GradeIcon({ src, grade, size = 36 }) {
+  const g = GRADE[grade];
+  const showBg = g?.iconBg;
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      {showBg && (
+        <img src={ICON_BG} alt="" className="absolute inset-0 w-full h-full rounded object-cover" />
+      )}
+      <img src={src} alt=""
+        className={`relative z-10 w-full h-full rounded object-cover border ${g ? g.border : 'border-line'}`} />
+    </div>
+  );
+}
+
 export function ItemIcon({ item, size = 36 }) {
   if (!item?.image_url) return null;
-  const g = GRADE[item?.grade];
-  return (
-    <img
-      src={item.image_url} alt={item.name || ''}
-      className={`rounded object-cover shrink-0 border ${g ? g.border : 'border-line'}`}
-      style={{ width: size, height: size }}
-    />
-  );
+  return <GradeIcon src={item.image_url} grade={item.grade} size={size} />;
 }
