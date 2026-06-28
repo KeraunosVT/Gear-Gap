@@ -3,6 +3,8 @@ const axios = require('axios');
 const BASE = 'https://questlog.gg/throne-and-liberty/api/trpc';
 const DELAY = 300;
 const MIN_GRADE = 41;
+const BUCKET = 'assets';
+const ICON_PREFIX = 'loot-icons/';
 
 const CATEGORIES = ['weapons', 'armor', 'accessories'];
 
@@ -29,6 +31,26 @@ async function fetchDetail(id) {
   const input = JSON.stringify({ language: 'en', id });
   const { data } = await axios.get(`${BASE}/database.getItem`, { params: { input } });
   return data?.result?.data || null;
+}
+
+async function downloadAndUploadIcon(supabase, itemId, iconPath) {
+  if (!iconPath) return null;
+  try {
+    const url = `https://questlog.gg${iconPath}.webp`;
+    const res = await axios.get(url, { responseType: 'arraybuffer' });
+    const buffer = Buffer.from(res.data);
+    const storagePath = `${ICON_PREFIX}${itemId}.webp`;
+
+    await supabase.storage.from(BUCKET).upload(storagePath, buffer, {
+      contentType: 'image/webp', upsert: true,
+    });
+
+    const { data } = supabase.storage.from(BUCKET).getPublicUrl(storagePath);
+    return data.publicUrl;
+  } catch (err) {
+    console.error(`Icon download failed for ${itemId}:`, err.message);
+    return null;
+  }
 }
 
 function trimDetail(d) {
@@ -64,7 +86,7 @@ module.exports = async function runImport(supabase) {
     try {
       await sleep(DELAY);
       const detail = await fetchDetail(it.id);
-      const icon = it.icon ? `https://questlog.gg${it.icon}.webp` : null;
+      const icon = await downloadAndUploadIcon(supabase, it.id, it.icon);
 
       await supabase.from('questlog_items').upsert({
         id: it.id,
