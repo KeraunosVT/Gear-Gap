@@ -36,7 +36,7 @@ async function fetchDetail(id) {
 async function downloadAndUploadIcon(supabase, itemId, iconPath) {
   if (!iconPath) return null;
   try {
-    const url = `https://questlog.gg${iconPath}.webp`;
+    const url = `https://cdn.questlog.gg/throne-and-liberty${iconPath}.webp`;
     const res = await axios.get(url, { responseType: 'arraybuffer' });
     const buffer = Buffer.from(res.data);
     const storagePath = `${ICON_PREFIX}${itemId}.webp`;
