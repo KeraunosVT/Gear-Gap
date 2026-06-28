@@ -293,13 +293,8 @@ export default function LootTally() {
                     <button onClick={() => canOpen && toggle(it.key)}
                       className={`w-full flex items-center gap-3 px-4 py-3 text-left ${canOpen ? 'hover:bg-panelup' : 'cursor-default'} transition-colors`}>
                       <div className="min-w-0 flex-1">
-                        <div className="text-bone truncate flex items-center gap-2">
+                        <div className="text-bone truncate">
                           {it.name}
-                          {it.awarded.length > 0 && (
-                            <span className="inline-flex items-center gap-1 text-[10px] eyebrow text-brass border border-brass/40 rounded-full px-2 py-0.5 shrink-0">
-                              <Gavel className="w-3 h-3" /> Loot Counciled
-                            </span>
-                          )}
                         </div>
                       </div>
                       <div className="hidden sm:flex items-center gap-2 shrink-0">
