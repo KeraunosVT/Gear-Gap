@@ -383,7 +383,7 @@ export default function LootTally() {
                           }} className="text-ash hover:text-oxblood" title="Delete">
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
-                        </>
+                        </div>
                       )}
                     </div>
                   ))}
