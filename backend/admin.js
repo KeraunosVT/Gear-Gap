@@ -249,47 +249,17 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
     res.json({ ok: true });
   });
 
-  // ── Questlog.gg item lookup (proxy to avoid CORS) ──────────────────────────
-  const axios = require('axios');
-  const QUESTLOG_BASE = 'https://questlog.gg/throne-and-liberty/api/trpc';
+  // ── Questlog.gg bulk import ─────────────────────────────────────────────────
+  const runImport = require('./questlogImport');
 
-  router.get('/loot/search', async (req, res) => {
-    const q = req.query.q || '';
-    if (!q.trim()) return res.json({ items: [] });
+  router.post('/loot/import-questlog', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
     try {
-      const input = JSON.stringify({ language: 'en', page: 1, mainCategory: '', subCategory: '', searchTerm: q.trim() });
-      const { data } = await axios.get(`${QUESTLOG_BASE}/database.getItems`, { params: { input } });
-      const items = (data?.result?.data?.pageData || []).map((it) => ({
-        id: it.id,
-        name: it.name,
-        icon: it.icon ? `https://questlog.gg${it.icon}.webp` : null,
-        grade: it.grade,
-        category: it.subCategory,
-      }));
-      res.json({ items });
+      const result = await runImport(supabase);
+      res.json(result);
     } catch (err) {
-      console.error('Questlog search error:', err.message);
-      res.status(502).json({ error: 'Item search failed.' });
-    }
-  });
-
-  router.get('/loot/lookup/:itemId', async (req, res) => {
-    try {
-      const input = JSON.stringify({ language: 'en', id: req.params.itemId });
-      const { data } = await axios.get(`${QUESTLOG_BASE}/database.getItem`, { params: { input } });
-      const it = data?.result?.data;
-      if (!it) return res.status(404).json({ error: 'Item not found.' });
-      res.json({
-        id: it.id,
-        name: it.name,
-        icon: it.icon ? `https://questlog.gg${it.icon}.webp` : null,
-        description: it.description || '',
-        grade: it.grade,
-        category: it.subCategory,
-      });
-    } catch (err) {
-      console.error('Questlog lookup error:', err.message);
-      res.status(502).json({ error: 'Item lookup failed.' });
+      console.error('Questlog import error:', err.message);
+      res.status(500).json({ error: 'Import failed: ' + err.message });
     }
   });
 
