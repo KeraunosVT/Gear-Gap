@@ -263,6 +263,69 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
     }
   });
 
+  router.get('/loot/questlog-search', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const q = req.query.q || '';
+    const cat = req.query.category || '';
+    let query = supabase.from('questlog_items').select('*').order('name');
+    if (q.trim()) query = query.ilike('name', `%${q.trim()}%`);
+    if (cat) query = query.eq('sub_category', cat);
+    query = query.limit(50);
+    const { data, error } = await query;
+    if (error) return res.status(500).json({ error: 'Search failed.' });
+    res.json({ items: data || [] });
+  });
+
+  router.post('/loot/add-from-questlog', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const { questlog_id, category } = req.body || {};
+    if (!questlog_id || !category) return res.status(400).json({ error: 'Questlog ID and category required.' });
+
+    const { data: ref } = await supabase.from('questlog_items').select('*').eq('id', questlog_id).single();
+    if (!ref) return res.status(404).json({ error: 'Item not found in reference data. Run import first.' });
+
+    const itemKey = `${category}__${questlog_id}`;
+    const { data: existing } = await supabase.from('loot_items').select('key').eq('questlog_id', questlog_id).single();
+    if (existing) return res.status(409).json({ error: 'Item already in catalog.' });
+
+    const { data: maxRow } = await supabase.from('loot_items').select('sort_order').eq('category_key', category)
+      .order('sort_order', { ascending: false }).limit(1).single();
+    const sort_order = (maxRow?.sort_order ?? -1) + 1;
+
+    const { error } = await supabase.from('loot_items').insert({
+      key: itemKey,
+      category_key: category,
+      name: ref.name,
+      sort_order,
+      image_url: ref.icon,
+      description: ref.description,
+      questlog_id: ref.id,
+      grade: ref.grade,
+      questlog_data: ref.data,
+    });
+    if (error) return res.status(500).json({ error: 'Failed to add item.' });
+    res.json({ key: itemKey, name: ref.name });
+  });
+
+  router.put('/loot/link-questlog/:key', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const { questlog_id } = req.body || {};
+    if (!questlog_id) return res.status(400).json({ error: 'Questlog ID required.' });
+
+    const { data: ref } = await supabase.from('questlog_items').select('*').eq('id', questlog_id).single();
+    if (!ref) return res.status(404).json({ error: 'Item not found in reference data.' });
+
+    const { error } = await supabase.from('loot_items').update({
+      image_url: ref.icon,
+      description: ref.description,
+      questlog_id: ref.id,
+      grade: ref.grade,
+      questlog_data: ref.data,
+    }).eq('key', req.params.key);
+    if (error) return res.status(500).json({ error: 'Failed to link item.' });
+    res.json({ ok: true });
+  });
+
   // ── Player identities / name merging ────────────────────────────────────────
   router.get('/identities', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });

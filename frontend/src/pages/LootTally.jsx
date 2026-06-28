@@ -34,6 +34,10 @@ export default function LootTally() {
   const [collapsed, setCollapsed] = useState(() => new Set());
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
+  const [qlSearch, setQlSearch] = useState('');
+  const [qlResults, setQlResults] = useState([]);
+  const [qlSearching, setQlSearching] = useState(false);
+  const [qlAddCat, setQlAddCat] = useState('');
 
   const toggleCat = (key) => setCollapsed((prev) => {
     const next = new Set(prev);
@@ -191,31 +195,92 @@ export default function LootTally() {
             </div>
           </div>
 
-          {/* Bulk import from Questlog.gg */}
+          {/* Questlog.gg reference data */}
           <div>
-            <label className="eyebrow text-[10px] text-ash block mb-2">Import from Questlog.gg</label>
-            <p className="text-ash text-xs mb-3">Pull all Epic and Legendary weapons, armor, and accessories. This replaces all existing items and categories.</p>
-            <div className="flex items-center gap-3">
+            <label className="eyebrow text-[10px] text-ash block mb-2">Questlog.gg Database</label>
+
+            {/* Sync reference data */}
+            <div className="flex items-center gap-3 mb-4">
               <button
                 onClick={() => {
-                  if (!confirm('This will replace all existing loot items and categories. Existing wishlists will need to be re-selected. Continue?')) return;
                   setImporting(true); setImportResult(null); setError('');
                   axios.post('/api/admin/loot/import-questlog', {}, { timeout: 300000 })
-                    .then((res) => { setImportResult(res.data); load(); })
-                    .catch((err) => setError(err.response?.data?.error || 'Import failed.'))
+                    .then((res) => setImportResult(res.data))
+                    .catch((err) => setError(err.response?.data?.error || 'Sync failed.'))
                     .finally(() => setImporting(false));
                 }}
                 disabled={importing}
-                className="px-5 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors disabled:opacity-40"
+                className="px-4 py-2 border border-brass/50 text-brassbright hover:bg-panelup rounded-sm text-sm transition-colors disabled:opacity-40"
               >
-                {importing ? 'Importing… (this takes ~60s)' : 'Import All Items'}
+                {importing ? 'Syncing… (~60s)' : 'Sync Reference Data'}
               </button>
+              <span className="text-ash text-xs">Pull latest Epic+ items from questlog.gg</span>
               {importResult && (
-                <span className="text-emerald-400 text-sm">
-                  {importResult.imported} items imported{importResult.errors?.length ? `, ${importResult.errors.length} errors` : ''} ({(importResult.duration_ms / 1000).toFixed(0)}s)
+                <span className="text-emerald-400 text-xs">
+                  {importResult.imported} items synced ({(importResult.duration_ms / 1000).toFixed(0)}s)
                 </span>
               )}
             </div>
+
+            {/* Search and add */}
+            <div className="flex gap-2 mb-3">
+              <input value={qlSearch} onChange={(e) => setQlSearch(e.target.value)} placeholder="Search items…"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && qlSearch.trim()) {
+                    setQlSearching(true);
+                    axios.get('/api/admin/loot/questlog-search', { params: { q: qlSearch.trim() } })
+                      .then((res) => setQlResults(res.data.items || []))
+                      .catch(() => setQlResults([]))
+                      .finally(() => setQlSearching(false));
+                  }
+                }}
+                className="bg-hall border border-line rounded-sm px-3 py-2 text-bone focus:outline-none focus:border-brass flex-1" />
+              <select value={qlAddCat} onChange={(e) => setQlAddCat(e.target.value)}
+                className="bg-hall border border-line rounded-sm px-3 py-2 text-bone focus:outline-none focus:border-brass">
+                <option value="">— category —</option>
+                {(catalog?.categories || []).map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+              </select>
+              <button
+                onClick={() => {
+                  if (!qlSearch.trim()) return;
+                  setQlSearching(true);
+                  axios.get('/api/admin/loot/questlog-search', { params: { q: qlSearch.trim() } })
+                    .then((res) => setQlResults(res.data.items || []))
+                    .catch(() => setQlResults([]))
+                    .finally(() => setQlSearching(false));
+                }}
+                disabled={qlSearching || !qlSearch.trim()}
+                className="px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors disabled:opacity-40">
+                {qlSearching ? '…' : 'Search'}
+              </button>
+            </div>
+            {qlResults.length > 0 && (
+              <div className="space-y-1 max-h-[300px] overflow-auto">
+                {qlResults.map((it) => {
+                  const g = it.grade >= 51 ? 'text-amber-400' : it.grade >= 41 ? 'text-purple-400' : 'text-bone';
+                  return (
+                    <div key={it.id} className="flex items-center gap-2 bg-hall border border-line rounded-sm px-3 py-2">
+                      {it.icon && <img src={it.icon} alt="" className="w-8 h-8 rounded border border-line object-cover shrink-0" />}
+                      <div className="flex-1 min-w-0">
+                        <div className={`text-sm truncate ${g}`}>{it.name}</div>
+                        <div className="text-[10px] text-ash">{it.sub_category}</div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          if (!qlAddCat) { setError('Select a category first.'); return; }
+                          axios.post('/api/admin/loot/add-from-questlog', { questlog_id: it.id, category: qlAddCat })
+                            .then(() => { load(); flash(`Added "${it.name}".`); })
+                            .catch((err) => setError(err.response?.data?.error || 'Failed to add.'));
+                        }}
+                        disabled={!qlAddCat}
+                        className="px-3 py-1 text-xs bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors disabled:opacity-40 shrink-0">
+                        Add
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Existing items by category */}
@@ -259,6 +324,20 @@ export default function LootTally() {
                               }} />
                             </label>
                             {item.image_url && <img src={item.image_url} alt="" className="w-6 h-6 rounded border border-line object-cover" />}
+                            {!item.questlog_data && (
+                              <button onClick={() => {
+                                const name = item.name || editName;
+                                axios.get('/api/admin/loot/questlog-search', { params: { q: name } })
+                                  .then((res) => {
+                                    const match = (res.data.items || []).find((r) => r.name.toLowerCase() === name.toLowerCase()) || res.data.items?.[0];
+                                    if (!match) { setError('No match found in questlog data. Sync first.'); return; }
+                                    axios.put(`/api/admin/loot/link-questlog/${item.key}`, { questlog_id: match.id })
+                                      .then(() => { load(); flash(`Linked to "${match.name}".`); })
+                                      .catch((err) => setError(err.response?.data?.error || 'Link failed.'));
+                                  });
+                              }} className="text-brass hover:text-brassbright text-xs">Link Questlog</button>
+                            )}
+                            {item.questlog_data && <span className="text-emerald-400 text-[10px]">linked</span>}
                             <div className="flex-1" />
                             <button onClick={() => {
                               axios.put(`/api/admin/loot/items/${item.key}`, { name: editName.trim(), description: editDesc })
