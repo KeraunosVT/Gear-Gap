@@ -150,9 +150,18 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
   // ── Loot council: awards ────────────────────────────────────────────────────
   router.get('/loot/awards', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-    const { data, error } = await supabase.from('loot_awards').select('*').order('awarded_at', { ascending: false });
+    const [{ data, error }, { data: idData }] = await Promise.all([
+      supabase.from('loot_awards').select('*').order('awarded_at', { ascending: false }),
+      supabase.from('player_identities').select('display_name, discord_id'),
+    ]);
     if (error) return res.status(500).json({ error: 'Failed to load awards.' });
-    res.json({ awards: data || [] });
+    const discordNameMap = {};
+    (idData || []).forEach((it) => { if (it.discord_id) discordNameMap[it.discord_id] = it.display_name; });
+    const awards = (data || []).map((a) => ({
+      ...a,
+      display_name: discordNameMap[a.discord_id] || a.display_name,
+    }));
+    res.json({ awards });
   });
 
   router.post('/loot/awards', async (req, res) => {

@@ -145,18 +145,24 @@ app.get('/api/loot', async (req, res) => {
   if (!supabase || !lootCatalog) return res.status(503).json({ error: 'Database not configured.' });
   try {
     const validKeys = await lootCatalog.getKeys();
-    const { data, error } = await supabase.from('loot_wishlists').select('discord_id, display_name, picks');
+    const [{ data, error }, { data: idData }] = await Promise.all([
+      supabase.from('loot_wishlists').select('discord_id, display_name, picks'),
+      supabase.from('player_identities').select('display_name, discord_id'),
+    ]);
     if (error) throw error;
+    const discordNameMap = {};
+    (idData || []).forEach((it) => { if (it.discord_id) discordNameMap[it.discord_id] = it.display_name; });
     const counts = {};
     const tally = {};
     let mine = {};
     (data || []).forEach((r) => {
       const picks = r.picks || {};
       if (r.discord_id === req.user.id) mine = picks;
+      const memberName = discordNameMap[r.discord_id] || r.display_name || 'Member';
       Object.entries(picks).forEach(([k, prio]) => {
         if (!validKeys.has(k)) return;
         counts[k] = (counts[k] || 0) + 1;
-        if (req.user.isAdmin) (tally[k] = tally[k] || []).push({ name: r.display_name || 'Member', priority: prio, discord_id: r.discord_id });
+        if (req.user.isAdmin) (tally[k] = tally[k] || []).push({ name: memberName, priority: prio, discord_id: r.discord_id });
       });
     });
     // Items already awarded to the current member (shown as "Loot Counciled").
