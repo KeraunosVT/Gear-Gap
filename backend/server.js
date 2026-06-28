@@ -280,23 +280,31 @@ app.get('/api/players', async (req, res) => {
       if (matchIds.length === 0) return res.json({ players: [] });
 
       const guildNames = Object.keys(GUILD_ALIASES);
-      const { data: rows, error: rErr } = await supabase
-        .from('player_match_stats')
-        .select('player_name, kills, assists, damage_dealt, damage_taken, healing')
-        .in('match_id', matchIds)
-        .in('guild_name', guildNames);
+      const [{ data: rows, error: rErr }, { data: idRows }] = await Promise.all([
+        supabase.from('player_match_stats')
+          .select('player_name, kills, assists, damage_dealt, damage_taken, healing')
+          .in('match_id', matchIds)
+          .in('guild_name', guildNames),
+        supabase.from('player_identities').select('display_name, ingame_names'),
+      ]);
       if (rErr) throw rErr;
+
+      const nameToIdentity = {};
+      (idRows || []).forEach((it) => {
+        const all = [it.display_name, ...(Array.isArray(it.ingame_names) ? it.ingame_names : [])].filter(Boolean);
+        all.forEach((n) => { nameToIdentity[n.trim().toLowerCase()] = it.display_name; });
+      });
 
       const agg = {};
       (rows || []).forEach((r) => {
-        const name = r.player_name;
-        if (!agg[name]) agg[name] = { player_name: name, matches: 0, kills: 0, assists: 0, damage_dealt: 0, damage_taken: 0, healing: 0 };
-        agg[name].matches++;
-        agg[name].kills += Number(r.kills) || 0;
-        agg[name].assists += Number(r.assists) || 0;
-        agg[name].damage_dealt += Number(r.damage_dealt) || 0;
-        agg[name].damage_taken += Number(r.damage_taken) || 0;
-        agg[name].healing += Number(r.healing) || 0;
+        const resolved = nameToIdentity[(r.player_name || '').trim().toLowerCase()] || r.player_name;
+        if (!agg[resolved]) agg[resolved] = { player_name: resolved, matches: 0, kills: 0, assists: 0, damage_dealt: 0, damage_taken: 0, healing: 0 };
+        agg[resolved].matches++;
+        agg[resolved].kills += Number(r.kills) || 0;
+        agg[resolved].assists += Number(r.assists) || 0;
+        agg[resolved].damage_dealt += Number(r.damage_dealt) || 0;
+        agg[resolved].damage_taken += Number(r.damage_taken) || 0;
+        agg[resolved].healing += Number(r.healing) || 0;
       });
       data = Object.values(agg);
     } else {
