@@ -339,12 +339,13 @@ export default function LootTally() {
                                 const name = item.name || editName;
                                 axios.get('/api/admin/loot/questlog-search', { params: { q: name } })
                                   .then((res) => {
-                                    const match = (res.data.items || []).find((r) => r.name.toLowerCase() === name.toLowerCase()) || res.data.items?.[0];
-                                    if (!match) { setError('No match found. Sync the item database first.'); return; }
-                                    axios.put(`/api/admin/loot/link-questlog/${item.key}`, { questlog_id: match.id })
-                                      .then(() => { load(); flash(`Linked "${match.name}".`); })
-                                      .catch((err) => setError(err.response?.data?.error || 'Link failed.'));
-                                  });
+                                    const items = res.data.items || [];
+                                    if (items.length === 0) { setError(`No match for "${name}". Sync the item database first.`); return; }
+                                    const match = items.find((r) => r.name.toLowerCase() === name.toLowerCase()) || items[0];
+                                    return axios.put(`/api/admin/loot/link-questlog/${item.key}`, { questlog_id: match.id })
+                                      .then(() => { load(); flash(`Linked "${match.name}".`); });
+                                  })
+                                  .catch((err) => setError(err.response?.data?.error || err.message || 'Link failed.'));
                               }} className="text-brass hover:text-brassbright text-xs">Auto-link</button>
                             )}
                             {item.questlog_data && (
