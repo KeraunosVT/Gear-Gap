@@ -19,7 +19,10 @@ const STAT_LABELS = {
   stun_accuracy: 'Stun Accuracy', bind_accuracy: 'Bind Accuracy', weaken_accuracy: 'Weaken Accuracy',
   collide_amplification: 'Collision Amp', skill_power_amplification: 'Skill Power',
   buff_given_duration_modifier: 'Buff Duration', magic_armor: 'Magic Defense',
-  physical_armor: 'Physical Defense',
+  physical_armor: 'Physical Defense', attack_range: 'Attack Range',
+  attack_range_main_hand: 'Attack Range', attack_speed_main_hand: 'Attack Speed',
+  off_hand_attack_chance: 'Off-Hand Chance', min_damage: 'Min Damage', max_damage: 'Max Damage',
+  min: 'Min Damage', max: 'Max Damage',
 };
 
 function fmtStat(key, val) {
@@ -147,23 +150,37 @@ function TooltipContent({ item, g }) {
   );
 }
 
-function StatBlock({ stats, minLvl, maxLvl }) {
-  const minStats = stats[minLvl] || {};
-  const maxStats = stats[maxLvl] || {};
-  const allKeys = new Set([...Object.keys(minStats), ...Object.keys(maxStats)]);
-
+function extractStats(levelData) {
   const rows = [];
-  allKeys.forEach((group) => {
-    const minGroup = minStats[group] || {};
-    const maxGroup = maxStats[group] || {};
-    const keys = new Set([...Object.keys(minGroup), ...Object.keys(maxGroup)]);
-    keys.forEach((key) => {
-      const lo = minGroup[key];
-      const hi = maxGroup[key];
-      const s = fmtStat(key, hi ?? lo);
-      rows.push({ label: s.label, lo, hi });
-    });
+  if (!levelData || typeof levelData !== 'object') return rows;
+  Object.entries(levelData).forEach(([group, val]) => {
+    if (val === null || val === undefined) return;
+    if (typeof val === 'number') {
+      rows.push({ key: group, value: val });
+    } else if (typeof val === 'object' && !Array.isArray(val)) {
+      Object.entries(val).forEach(([k, v]) => {
+        if (k === 'statId' || v === null || v === undefined) return;
+        if (typeof v === 'number') rows.push({ key: k, value: v });
+      });
+    }
   });
+  return rows;
+}
+
+function StatBlock({ stats, minLvl, maxLvl }) {
+  const loRows = extractStats(stats[minLvl]);
+  const hiRows = extractStats(stats[maxLvl]);
+  const loMap = {};
+  loRows.forEach((r) => { loMap[r.key] = r.value; });
+  const hiMap = {};
+  hiRows.forEach((r) => { hiMap[r.key] = r.value; });
+  const allKeys = [...new Set([...Object.keys(loMap), ...Object.keys(hiMap)])];
+
+  const rows = allKeys.map((key) => ({
+    label: STAT_LABELS[key] || key.replace(/_/g, ' '),
+    lo: loMap[key] ?? null,
+    hi: hiMap[key] ?? null,
+  }));
 
   if (rows.length === 0) return null;
   return (
