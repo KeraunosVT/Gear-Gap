@@ -46,6 +46,7 @@ export default function Roster() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [filter, setFilter] = useState('');
+  const [membersOnly, setMembersOnly] = useState(true);
   const [tab, setTab] = useState('totals');
   const [sortKey, setSortKey] = useState('kills');
   const [sortDir, setSortDir] = useState('desc');
@@ -88,14 +89,14 @@ export default function Roster() {
 
   const rows = useMemo(() => {
     const f = filter.toLowerCase();
-    const list = players.filter((p) => (p.player_name || '').toLowerCase().includes(f));
+    const list = players.filter((p) => (p.player_name || '').toLowerCase().includes(f) && (!membersOnly || p.is_member));
     const dir = sortDir === 'asc' ? 1 : -1;
     return [...list].sort((a, b) => {
       const va = a[sortKey], vb = b[sortKey];
       if (typeof va === 'string' || typeof vb === 'string') return String(va || '').localeCompare(String(vb || '')) * dir;
       return ((Number(va) || 0) - (Number(vb) || 0)) * dir;
     });
-  }, [players, filter, sortKey, sortDir]);
+  }, [players, filter, sortKey, sortDir, membersOnly]);
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-12">
@@ -110,6 +111,11 @@ export default function Roster() {
             value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search members…"
             className="bg-panel border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass w-full max-w-xs"
           />
+          <button onClick={() => setMembersOnly((v) => !v)}
+            className="inline-flex items-center gap-0 rounded-full border border-line bg-hall p-0.5 cursor-pointer shrink-0" title="Toggle current members only">
+            <span className={`px-3 py-1 rounded-full text-xs font-bold tracking-wide transition-all ${membersOnly ? 'bg-emerald-500 text-ink' : 'text-ash'}`}>Members</span>
+            <span className={`px-3 py-1 rounded-full text-xs font-bold tracking-wide transition-all ${!membersOnly ? 'bg-brass text-ink' : 'text-ash'}`}>All</span>
+          </button>
           <div className="flex gap-1">
             {Object.entries(TABS).map(([key, t]) => (
               <button key={key} onClick={() => switchTab(key)}
