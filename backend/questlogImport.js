@@ -6,16 +6,21 @@ const MIN_GRADE = 41;
 const BUCKET = 'assets';
 const ICON_PREFIX = 'loot-icons/';
 
-const CATEGORIES = ['weapons', 'armor', 'accessories', 'misc'];
+const CATEGORIES = [
+  { main: 'weapons', sub: '' },
+  { main: 'armor', sub: '' },
+  { main: 'accessories', sub: '' },
+  { main: 'misc', sub: 'perk', filter: (it) => it.id.startsWith('Perk_EA') },
+];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-async function fetchList(mainCategory) {
+async function fetchList(mainCategory, subCategory = '') {
   const all = [];
   let page = 1;
   let pageCount = 1;
   while (page <= pageCount) {
-    const input = JSON.stringify({ language: 'en', page, mainCategory, subCategory: '' });
+    const input = JSON.stringify({ language: 'en', page, mainCategory, subCategory });
     const { data } = await axios.get(`${BASE}/database.getItems`, { params: { input } });
     const result = data?.result?.data;
     pageCount = result?.pageCount || 1;
@@ -74,13 +79,14 @@ module.exports = async function runImport(supabase) {
   const existingIds = new Set((existingRows || []).map((r) => r.id));
 
   const allListItems = [];
-  for (const main of CATEGORIES) {
+  for (const cat of CATEGORIES) {
     try {
-      const items = await fetchList(main);
-      items.forEach((it) => { it._mainCategory = main; });
+      let items = await fetchList(cat.main, cat.sub);
+      if (cat.filter) items = items.filter(cat.filter);
+      items.forEach((it) => { it._mainCategory = cat.main; });
       allListItems.push(...items);
     } catch (err) {
-      errors.push(`Failed to list ${main}: ${err.message}`);
+      errors.push(`Failed to list ${cat.main}/${cat.sub}: ${err.message}`);
     }
   }
 
