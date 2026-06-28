@@ -4,7 +4,8 @@ import { useAuth } from '../auth';
 import weaponToClass from '../../../shared/weaponClasses.json';
 import { Check, Loader2 } from 'lucide-react';
 
-const CLASS_LIST = [...new Set(Object.values(weaponToClass))].sort();
+const EXTRA_CLASSES = ['Oracle (DPS)'];
+const CLASS_LIST = [...new Set([...Object.values(weaponToClass), ...EXTRA_CLASSES])].sort();
 
 export default function Classes() {
   const { user } = useAuth();
