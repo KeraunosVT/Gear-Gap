@@ -204,17 +204,27 @@ export default function LootTally() {
               <button
                 onClick={() => {
                   setImporting(true); setImportResult(null); setError('');
-                  axios.post('/api/admin/loot/import-questlog', {}, { timeout: 300000 })
-                    .then((res) => setImportResult(res.data))
-                    .catch((err) => setError(err.response?.data?.error || 'Sync failed.'))
-                    .finally(() => setImporting(false));
+                  axios.post('/api/admin/loot/import-questlog')
+                    .then(() => {
+                      const poll = setInterval(() => {
+                        axios.get('/api/admin/loot/import-status').then((res) => {
+                          if (!res.data.running) {
+                            clearInterval(poll);
+                            setImporting(false);
+                            if (res.data.error) setError('Sync failed: ' + res.data.error);
+                            else setImportResult(res.data.result);
+                          }
+                        }).catch(() => {});
+                      }, 3000);
+                    })
+                    .catch((err) => { setError(err.response?.data?.error || 'Failed to start sync.'); setImporting(false); });
                 }}
                 disabled={importing}
                 className="px-4 py-2 border border-brass/50 text-brassbright hover:bg-panelup rounded-sm text-sm transition-colors disabled:opacity-40"
               >
-                {importing ? 'Syncing… (~60s)' : 'Sync Item Database'}
+                {importing ? 'Syncing…' : 'Sync Item Database'}
               </button>
-              <span className="text-ash text-xs">Pull latest Epic+ items from game data</span>
+              <span className="text-ash text-xs">{importing ? 'This may take a few minutes' : 'Pull latest Epic+ items from game data'}</span>
               {importResult && (
                 <span className="text-emerald-400 text-xs">
                   {importResult.imported} items synced ({(importResult.duration_ms / 1000).toFixed(0)}s)

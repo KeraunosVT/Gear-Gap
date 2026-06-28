@@ -252,15 +252,23 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
   // ── Questlog.gg bulk import ─────────────────────────────────────────────────
   const runImport = require('./questlogImport');
 
-  router.post('/loot/import-questlog', async (req, res) => {
+  let importStatus = { running: false, result: null, error: null };
+
+  router.post('/loot/import-questlog', (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-    try {
-      const result = await runImport(supabase);
-      res.json(result);
-    } catch (err) {
-      console.error('Questlog import error:', err.stack || err.message);
-      res.status(500).json({ error: 'Import failed: ' + (err.response?.data?.message || err.message) });
-    }
+    if (importStatus.running) return res.status(409).json({ error: 'Import already running.' });
+    importStatus = { running: true, result: null, error: null };
+    res.json({ ok: true, message: 'Import started.' });
+    runImport(supabase)
+      .then((result) => { importStatus = { running: false, result, error: null }; })
+      .catch((err) => {
+        console.error('Questlog import error:', err.stack || err.message);
+        importStatus = { running: false, result: null, error: err.message };
+      });
+  });
+
+  router.get('/loot/import-status', (req, res) => {
+    res.json(importStatus);
   });
 
   router.get('/loot/questlog-search', async (req, res) => {
