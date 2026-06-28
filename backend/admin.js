@@ -334,6 +334,15 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
     res.json({ ok: true });
   });
 
+  router.put('/loot/unlink-questlog/:key', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const { error } = await supabase.from('loot_items').update({
+      image_url: null, description: null, questlog_id: null, grade: null, questlog_data: null,
+    }).eq('key', req.params.key);
+    if (error) return res.status(500).json({ error: 'Failed to unlink item.' });
+    res.json({ ok: true });
+  });
+
   // ── Player identities / name merging ────────────────────────────────────────
   router.get('/identities', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });

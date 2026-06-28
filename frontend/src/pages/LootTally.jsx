@@ -347,7 +347,13 @@ export default function LootTally() {
                                   });
                               }} className="text-brass hover:text-brassbright text-xs">Auto-link</button>
                             )}
-                            {item.questlog_data && <span className="text-emerald-400 text-[10px]">linked</span>}
+                            {item.questlog_data && (
+                              <button onClick={() => {
+                                axios.put(`/api/admin/loot/unlink-questlog/${item.key}`)
+                                  .then(() => { load(); flash('Unlinked.'); })
+                                  .catch((err) => setError(err.response?.data?.error || 'Unlink failed.'));
+                              }} className="text-emerald-400 hover:text-oxblood text-[10px]">linked ✕</button>
+                            )}
                             <div className="flex-1" />
                             <button onClick={() => {
                               axios.put(`/api/admin/loot/items/${item.key}`, { name: editName.trim(), description: editDesc })
