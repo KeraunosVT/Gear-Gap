@@ -273,9 +273,9 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
     }
   });
 
-  router.get('/loot/lookup/:id', async (req, res) => {
+  router.get('/loot/lookup/:itemId', async (req, res) => {
     try {
-      const input = JSON.stringify({ language: 'en', id: req.params.id });
+      const input = JSON.stringify({ language: 'en', id: req.params.itemId });
       const { data } = await axios.get(`${QUESTLOG_BASE}/database.getItem`, { params: { input } });
       const it = data?.result?.data;
       if (!it) return res.status(404).json({ error: 'Item not found.' });

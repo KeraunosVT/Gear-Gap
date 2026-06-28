@@ -77,6 +77,7 @@ module.exports = function createLootCatalog(supabase) {
       if (updates.description !== undefined) patch.description = updates.description || null;
       if (Object.keys(patch).length === 0) return false;
       const { error } = await supabase.from('loot_items').update(patch).eq('key', itemKey);
+      if (error) console.error('lootCatalog editItem error:', error.message);
       return !error;
     },
 
