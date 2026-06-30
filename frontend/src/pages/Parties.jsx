@@ -464,19 +464,33 @@ function SortableMember(props) {
 
 const MemberCardBase = forwardRef(function MemberCardBase({ member, role, onRole, inParty, overlay, style, handle, isDragging, isLoa, classMode }, ref) {
   const rs = ROLE_STYLE[role];
-  const cls = classMode === 'pve' ? member.pve_class : member.pvp_class;
+  const classes = (classMode === 'pve' ? member.pve_classes : member.pvp_classes) || [];
+  const primary = classes[0];
+  const secondaries = classes.slice(1).filter(Boolean);
   return (
     <div
       ref={ref} style={style} {...handle}
-      className={`group flex items-center gap-2 bg-hall border border-line ${rs ? `border-l-2 ${rs.ring}` : ''} rounded px-2.5 py-2 cursor-grab active:cursor-grabbing select-none ${isDragging ? 'opacity-30' : ''} ${overlay ? 'shadow-xl ring-1 ring-brass/40' : ''} ${isLoa ? 'opacity-50' : ''}`}
+      className={`group relative flex items-center gap-2 bg-hall border border-line ${rs ? `border-l-2 ${rs.ring}` : ''} rounded px-2.5 py-2 cursor-grab active:cursor-grabbing select-none ${isDragging ? 'opacity-30' : ''} ${overlay ? 'shadow-xl ring-1 ring-brass/40' : ''} ${isLoa ? 'opacity-50' : ''}`}
     >
       {member.avatar
         ? <img src={member.avatar} alt="" className="w-6 h-6 rounded-full border border-line shrink-0" />
         : <span className="w-6 h-6 rounded-full bg-panelup border border-line shrink-0 flex items-center justify-center text-[10px] text-brass">{(member.name || '?').slice(0, 1).toUpperCase()}</span>}
       <div className="min-w-0 flex-1">
         <span className={`text-sm truncate block ${member.missing ? 'text-ash italic' : isLoa ? 'text-oxblood' : 'text-bone'}`} title={isLoa ? 'On leave of absence' : member.missing ? 'No longer in the server' : member.name}>{member.name}</span>
-        {cls && <span className="text-[10px] text-brass truncate block">{cls}</span>}
+        {primary && (
+          <span className="text-[10px] text-brass truncate block">
+            {primary}{secondaries.length > 0 && <span className="text-ash"> +{secondaries.length}</span>}
+          </span>
+        )}
       </div>
+      {secondaries.length > 0 && (
+        <div className="absolute left-0 bottom-full mb-1 hidden group-hover:block z-20 bg-panelup border border-line rounded px-2.5 py-1.5 shadow-xl whitespace-nowrap">
+          <div className="text-[9px] text-ash uppercase tracking-wide mb-1">Also plays</div>
+          {secondaries.map((c, i) => (
+            <div key={c} className="text-xs text-bone">{i === 0 ? 'Secondary' : 'Tertiary'}: {c}</div>
+          ))}
+        </div>
+      )}
       {isLoa && <CalendarOff className="w-3.5 h-3.5 text-oxblood shrink-0" title="LOA" />}
       {onRole && (
         <div className="flex gap-1 opacity-60 group-hover:opacity-100 transition-opacity" onPointerDown={(e) => e.stopPropagation()}>

@@ -107,14 +107,17 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
       const members = await listMembers();
       if (supabase) {
         const [{ data: roleData }, { data: idData }] = await Promise.all([
-          supabase.from('member_roles').select('discord_id, role, pvp_class, pve_class'),
+          supabase.from('member_roles').select('discord_id, role, pvp_classes, pve_classes'),
           supabase.from('player_identities').select('display_name, discord_id'),
         ]);
         const roleMap = {};
         const classMap = {};
         (roleData || []).forEach((r) => {
           roleMap[r.discord_id] = r.role;
-          classMap[r.discord_id] = { pvp_class: r.pvp_class || '', pve_class: r.pve_class || '' };
+          classMap[r.discord_id] = {
+            pvp_classes: Array.isArray(r.pvp_classes) ? r.pvp_classes : [],
+            pve_classes: Array.isArray(r.pve_classes) ? r.pve_classes : [],
+          };
         });
 
         const discordMap = {};
@@ -124,8 +127,8 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
 
         members.forEach((m) => {
           m.role = roleMap[m.id] || '';
-          m.pvp_class = classMap[m.id]?.pvp_class || '';
-          m.pve_class = classMap[m.id]?.pve_class || '';
+          m.pvp_classes = classMap[m.id]?.pvp_classes || [];
+          m.pve_classes = classMap[m.id]?.pve_classes || [];
           if (discordMap[m.id]) m.name = discordMap[m.id];
         });
       }

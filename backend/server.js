@@ -72,18 +72,22 @@ app.use('/api/admin', requireAdmin, createAdminRouter(supabase, gateway, lootCat
 // ── MEMBERS AREA: Class builds ───────────────────────────────────────────────
 app.get('/api/my-classes', async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-  const { data } = await supabase.from('member_roles').select('pvp_class, pve_class').eq('discord_id', req.user.id).single();
-  res.json({ pvp_class: data?.pvp_class || '', pve_class: data?.pve_class || '' });
+  const { data } = await supabase.from('member_roles').select('pvp_classes, pve_classes').eq('discord_id', req.user.id).single();
+  res.json({
+    pvp_classes: Array.isArray(data?.pvp_classes) ? data.pvp_classes : [],
+    pve_classes: Array.isArray(data?.pve_classes) ? data.pve_classes : [],
+  });
 });
 
 app.put('/api/my-classes', async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-  const { pvp_class, pve_class } = req.body || {};
+  const { pvp_classes, pve_classes } = req.body || {};
+  const clean = (arr) => (Array.isArray(arr) ? arr.filter(Boolean).slice(0, 3) : []);
   const { error } = await supabase.from('member_roles')
     .upsert({
       discord_id: req.user.id,
-      pvp_class: pvp_class || null,
-      pve_class: pve_class || null,
+      pvp_classes: clean(pvp_classes),
+      pve_classes: clean(pve_classes),
       updated_at: new Date().toISOString(),
     }, { onConflict: 'discord_id', ignoreDuplicates: false });
   if (error) return res.status(500).json({ error: 'Failed to save classes.' });
