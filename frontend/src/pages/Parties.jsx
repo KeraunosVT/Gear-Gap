@@ -147,6 +147,7 @@ export default function Parties() {
   const [loaSet, setLoaSet] = useState(new Set());
   const [schedule, setSchedule] = useState([]);
   const [classMode, setClassMode] = useState('pvp');
+  const [classAssignments, setClassAssignments] = useState({ pvp: {}, pve: {} });
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -277,6 +278,9 @@ export default function Parties() {
 
   const renameParty = (id, name) => setPartyNames((n) => ({ ...n, [id]: name }));
 
+  const setMemberClass = (mode, id, cls) =>
+    setClassAssignments((prev) => ({ ...prev, [mode]: { ...prev[mode], [id]: cls } }));
+
   const buildPayloadParties = () =>
     PARTY_IDS.map((pid) => ({
       id: pid,
@@ -287,12 +291,13 @@ export default function Parties() {
   const resetBoard = () => {
     setItems({ ...initItems(), pool: members.map((m) => m.id) });
     setPartyNames(initNames()); setRoles((r) => r); setRosterId(null); setRosterName(''); setExtra({});
+    setClassAssignments({ pvp: {}, pve: {} });
   };
 
   const save = async () => {
     if (!rosterName.trim()) return flash('Name the roster first.', false);
     setBusy(true);
-    const layout = { parties: buildPayloadParties() };
+    const layout = { parties: buildPayloadParties(), classAssignments };
     try {
       if (rosterId) await axios.put(`/api/admin/rosters/${rosterId}`, { name: rosterName, layout });
       else { const res = await axios.post('/api/admin/rosters', { name: rosterName, layout }); setRosterId(res.data.id); }
@@ -323,6 +328,7 @@ export default function Parties() {
       nextItems.pool = members.map((m) => m.id).filter((mid) => !assigned.has(mid));
       setItems(nextItems); setPartyNames(nextNames);
       setRoles((prev) => ({ ...prev, ...nextRoles })); setExtra(nextExtra);
+      setClassAssignments(r.layout?.classAssignments || { pvp: {}, pve: {} });
       setRosterId(r.id); setRosterName(r.name);
       flash(`Loaded "${r.name}".`);
     } catch (err) { flash(err.response?.data?.error || 'Load failed.', false); }
@@ -415,7 +421,7 @@ export default function Parties() {
                     {membersError}<button onClick={loadMembers} className="block mt-2 text-brass hover:text-brassbright">Retry</button>
                   </div>
                 ) : poolView.length === 0 ? <div className="text-ash text-sm py-6 text-center">Everyone's assigned.</div>
-                : poolView.map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} isLoa={loaSet.has(id)} classMode={classMode} />)}
+                : poolView.map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} isLoa={loaSet.has(id)} classMode={classMode} assignedClass={classAssignments[classMode][id]} onClassChange={(cls) => setMemberClass(classMode, id, cls)} />)}
             </div>
           </DroppableColumn>
 
@@ -431,7 +437,7 @@ export default function Parties() {
                 <div className="space-y-2 min-h-[120px]">
                   {items[pid].length === 0
                     ? <div className="text-ash/50 text-xs text-center py-8 border border-dashed border-line rounded">Drop members here</div>
-                    : items[pid].map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} inParty isLoa={loaSet.has(id)} classMode={classMode} />)}
+                    : items[pid].map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} inParty isLoa={loaSet.has(id)} classMode={classMode} assignedClass={classAssignments[classMode][id]} onClassChange={(cls) => setMemberClass(classMode, id, cls)} />)}
                 </div>
               </DroppableColumn>
             ))}
@@ -462,11 +468,10 @@ function SortableMember(props) {
   return <MemberCardBase ref={setNodeRef} style={style} handle={{ ...attributes, ...listeners }} isDragging={isDragging} {...props} />;
 }
 
-const MemberCardBase = forwardRef(function MemberCardBase({ member, role, onRole, inParty, overlay, style, handle, isDragging, isLoa, classMode }, ref) {
+const MemberCardBase = forwardRef(function MemberCardBase({ member, role, onRole, inParty, overlay, style, handle, isDragging, isLoa, classMode, assignedClass, onClassChange }, ref) {
   const rs = ROLE_STYLE[role];
-  const classes = (classMode === 'pve' ? member.pve_classes : member.pvp_classes) || [];
-  const primary = classes[0];
-  const secondaries = classes.slice(1).filter(Boolean);
+  const classes = ((classMode === 'pve' ? member.pve_classes : member.pvp_classes) || []).filter(Boolean);
+  const current = assignedClass || classes[0];
   return (
     <div
       ref={ref} style={style} {...handle}
@@ -477,20 +482,19 @@ const MemberCardBase = forwardRef(function MemberCardBase({ member, role, onRole
         : <span className="w-6 h-6 rounded-full bg-panelup border border-line shrink-0 flex items-center justify-center text-[10px] text-brass">{(member.name || '?').slice(0, 1).toUpperCase()}</span>}
       <div className="min-w-0 flex-1">
         <span className={`text-sm truncate block ${member.missing ? 'text-ash italic' : isLoa ? 'text-oxblood' : 'text-bone'}`} title={isLoa ? 'On leave of absence' : member.missing ? 'No longer in the server' : member.name}>{member.name}</span>
-        {primary && (
-          <span className="text-[10px] text-brass truncate block">
-            {primary}{secondaries.length > 0 && <span className="text-ash"> +{secondaries.length}</span>}
-          </span>
+        {classes.length === 1 && (
+          <span className="text-[10px] text-brass truncate block">{classes[0]}</span>
+        )}
+        {classes.length > 1 && onClassChange && (
+          <select
+            value={current} onChange={(e) => onClassChange(e.target.value)}
+            onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}
+            className="text-[10px] bg-transparent text-brass border-none focus:outline-none cursor-pointer truncate w-full -ml-px"
+          >
+            {classes.map((c, i) => <option key={c} value={c} className="bg-panelup text-bone">{c}{i === 0 ? ' ★' : ''}</option>)}
+          </select>
         )}
       </div>
-      {secondaries.length > 0 && (
-        <div className="absolute left-0 bottom-full mb-1 hidden group-hover:block z-20 bg-panelup border border-line rounded px-2.5 py-1.5 shadow-xl whitespace-nowrap">
-          <div className="text-[9px] text-ash uppercase tracking-wide mb-1">Also plays</div>
-          {secondaries.map((c, i) => (
-            <div key={c} className="text-xs text-bone">{i === 0 ? 'Secondary' : 'Tertiary'}: {c}</div>
-          ))}
-        </div>
-      )}
       {isLoa && <CalendarOff className="w-3.5 h-3.5 text-oxblood shrink-0" title="LOA" />}
       {onRole && (
         <div className="flex gap-1 opacity-60 group-hover:opacity-100 transition-opacity" onPointerDown={(e) => e.stopPropagation()}>
