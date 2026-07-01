@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../auth';
 import Sigil from '../components/Sigil';
-import { RefreshCw, UserPlus, Check, X } from 'lucide-react';
+import { RefreshCw, UserPlus, Check, X, Trash2 } from 'lucide-react';
 
 const NEW = '__new__';
 
@@ -114,6 +114,15 @@ export default function Names() {
       const member = members.find((m) => m.id === discordId);
       flash(discordId ? `Linked to ${member?.name || discordId}.` : 'Discord link removed.');
     } catch (err) { flash(err.response?.data?.error || 'Failed.', false); }
+  };
+
+  const deleteIdentity = async (identity) => {
+    if (!window.confirm(`Delete "${identity.display_name}"? Its in-game names will become unmapped again.`)) return;
+    try {
+      await axios.delete(`/api/admin/identities/${identity.id}`);
+      setIdentities((prev) => prev.filter((i) => i.id !== identity.id));
+      flash(`Deleted "${identity.display_name}".`);
+    } catch (err) { flash(err.response?.data?.error || 'Delete failed.', false); }
   };
 
   const linkedDiscordIds = useMemo(() => new Set(identities.map((i) => i.discord_id).filter(Boolean)), [identities]);
@@ -230,6 +239,9 @@ export default function Names() {
                     .filter((m) => m.id === i.discord_id || !linkedDiscordIds.has(m.id))
                     .map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
                 </select>
+                <button onClick={() => deleteIdentity(i)} className="text-ash hover:text-oxblood shrink-0" aria-label={`Delete ${i.display_name}`} title="Delete player">
+                  <Trash2 className="w-4 h-4" />
+                </button>
               </div>
             ))}
           </div>

@@ -450,6 +450,14 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
     res.json({ ok: true });
   });
 
+  // Delete an identity entirely (its in-game names fall back to unmapped).
+  router.delete('/identities/:id', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const { error } = await supabase.from('player_identities').delete().eq('id', req.params.id);
+    if (error) return res.status(500).json({ error: 'Failed to delete identity.' });
+    res.json({ ok: true });
+  });
+
   // Create a new identity (optionally seeded with a first in-game name).
   router.post('/identities', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
