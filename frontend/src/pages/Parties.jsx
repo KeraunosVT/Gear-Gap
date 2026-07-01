@@ -26,7 +26,7 @@ const findContainer = (id, src) => (id in src ? id : Object.keys(src).find((k) =
 const ROLE_COLOR = { Tank: '#38bdf8', DPS: '#b33a3a', Healer: '#4ade80' };
 const ROLE_SYMBOL = { Tank: '🛡️', DPS: '⚔️', Healer: '💚' };
 
-function renderRosterImage(partyIds, items, partyNames, roles, byId) {
+function renderRosterImage(partyIds, items, partyNames, roles, byId, classMode, classAssignments) {
   const parties = partyIds.filter((pid) => items[pid].length > 0);
   if (parties.length === 0) return null;
 
@@ -98,6 +98,9 @@ function renderRosterImage(partyIds, items, partyNames, roles, byId) {
       const role = roles[memberId] || '';
       const my = y + headerH + mi * rowH;
 
+      const classes = ((classMode === 'pve' ? member.pve_classes : member.pvp_classes) || []).filter(Boolean);
+      const cls = classAssignments?.[classMode]?.[memberId] || classes[0] || '';
+
       // Role color bar
       if (ROLE_COLOR[role]) {
         ctx.fillStyle = ROLE_COLOR[role];
@@ -112,12 +115,21 @@ function renderRosterImage(partyIds, items, partyNames, roles, byId) {
         ctx.fillText(ROLE_SYMBOL[role], x + 16, my + 20);
       }
 
+      // Class (right-aligned)
+      const classW = 78;
+      if (cls) {
+        ctx.fillStyle = '#c9973a';
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'right';
+        ctx.fillText(cls, x + colW - 10, my + 20, classW);
+      }
+
       // Name
       ctx.fillStyle = '#e8dcc8';
       ctx.font = '13px sans-serif';
       ctx.textAlign = 'left';
       const nameX = x + (role ? 36 : 16);
-      const maxW = colW - nameX + x - 10;
+      const maxW = colW - nameX + x - 10 - (cls ? classW + 6 : 0);
       ctx.fillText(member.name || 'Unknown', nameX, my + 20, maxW);
     });
   });
@@ -344,7 +356,7 @@ export default function Parties() {
   const post = async () => {
     setBusy(true);
     try {
-      const canvas = renderRosterImage(PARTY_IDS, items, partyNames, roles, byId);
+      const canvas = renderRosterImage(PARTY_IDS, items, partyNames, roles, byId, classMode, classAssignments);
       if (!canvas) { flash('No parties to post.', false); setBusy(false); return; }
       const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
       const form = new FormData();
