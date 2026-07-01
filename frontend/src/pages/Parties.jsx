@@ -407,7 +407,7 @@ export default function Parties() {
         onDragStart={({ active }) => setActiveId(active.id)} onDragOver={onDragOver} onDragEnd={onDragEnd}>
         <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
           {/* Pool */}
-          <DroppableColumn id="pool" itemIds={poolView} className="panel rounded-sm p-4 lg:sticky lg:top-20">
+          <DroppableColumn id="pool" itemIds={poolView} className="panel rounded-sm p-4 lg:sticky lg:top-20 lg:self-start">
             <div className="flex items-center justify-between mb-3">
               <div className="eyebrow text-[10px] text-brass flex items-center gap-2"><Users className="w-3.5 h-3.5" /> Pool ({items.pool.length})</div>
               <button onClick={loadMembers} className="text-ash hover:text-brass" title="Reload members"><RefreshCw className="w-3.5 h-3.5" /></button>
