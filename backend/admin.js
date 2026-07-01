@@ -438,6 +438,18 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
     res.json({ ok: true });
   });
 
+  // Rename an identity's display name.
+  router.put('/identities/:id', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const { display_name } = req.body || {};
+    if (!display_name || !display_name.trim()) return res.status(400).json({ error: 'Display name required.' });
+    const { error } = await supabase.from('player_identities')
+      .update({ display_name: String(display_name).trim().slice(0, 120), updated_at: new Date().toISOString() })
+      .eq('id', req.params.id);
+    if (error) return res.status(500).json({ error: 'Failed to rename identity.' });
+    res.json({ ok: true });
+  });
+
   // Create a new identity (optionally seeded with a first in-game name).
   router.post('/identities', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });

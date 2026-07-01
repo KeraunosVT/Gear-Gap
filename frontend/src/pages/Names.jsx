@@ -12,6 +12,7 @@ export default function Names() {
   const [identities, setIdentities] = useState([]);
   const [members, setMembers] = useState([]);
   const [choice, setChoice] = useState({});       // name -> identityId | '__new__'
+  const [nameDraft, setNameDraft] = useState({}); // identityId -> in-progress display name edit
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState(null);
@@ -79,6 +80,31 @@ export default function Names() {
         ? { ...i, ingame_names: (i.ingame_names || []).filter((n) => n !== name) } : i));
       flash(`Removed "${name}".`);
     } catch (err) { flash(err.response?.data?.error || 'Failed.', false); }
+  };
+
+  const moveAlias = async (fromIdentity, name, toId) => {
+    try {
+      await axios.delete(`/api/admin/identities/${fromIdentity.id}/aliases`, { data: { name } });
+      await axios.post(`/api/admin/identities/${toId}/aliases`, { name });
+      setIdentities((prev) => prev.map((i) => {
+        if (i.id === fromIdentity.id) return { ...i, ingame_names: (i.ingame_names || []).filter((n) => n !== name) };
+        if (i.id === toId) return { ...i, ingame_names: [...(i.ingame_names || []), name] };
+        return i;
+      }));
+      const target = identities.find((i) => i.id === toId);
+      flash(`Moved "${name}" → ${target?.display_name}.`);
+    } catch (err) { flash(err.response?.data?.error || 'Move failed.', false); }
+  };
+
+  const renameIdentity = async (identity, name) => {
+    setNameDraft((d) => { const { [identity.id]: _, ...rest } = d; return rest; });
+    const trimmed = (name || '').trim();
+    if (!trimmed || trimmed === identity.display_name) return;
+    try {
+      await axios.put(`/api/admin/identities/${identity.id}`, { display_name: trimmed });
+      setIdentities((prev) => prev.map((i) => i.id === identity.id ? { ...i, display_name: trimmed } : i));
+      flash(`Renamed to "${trimmed}".`);
+    } catch (err) { flash(err.response?.data?.error || 'Rename failed.', false); }
   };
 
   const linkDiscord = async (identity, discordId) => {
@@ -166,13 +192,30 @@ export default function Names() {
           <div className="panel rounded-sm divide-y divide-line">
             {sortedIdentities.map((i) => (
               <div key={i.id} className="flex flex-wrap items-center gap-3 px-5 py-3">
-                <span className="font-semibold text-bone w-40 truncate">{i.display_name}</span>
+                <input
+                  value={nameDraft[i.id] ?? i.display_name}
+                  onChange={(e) => setNameDraft((d) => ({ ...d, [i.id]: e.target.value }))}
+                  onBlur={(e) => renameIdentity(i, e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+                  className="bg-transparent font-semibold text-bone w-40 truncate border-b border-transparent focus:outline-none focus:border-brass"
+                />
                 <div className="flex flex-wrap gap-2 flex-1">
                   {(i.ingame_names || []).length === 0
                     ? <span className="text-xs text-ash/60">no aliases</span>
                     : (i.ingame_names || []).map((n) => (
                       <span key={n} className="inline-flex items-center gap-1 text-xs bg-hall border border-line rounded-full pl-3 pr-1.5 py-1 text-ash">
                         {n}
+                        <select
+                          value=""
+                          onChange={(e) => { if (e.target.value) moveAlias(i, n, e.target.value); e.target.value = ''; }}
+                          className="bg-transparent text-ash text-[10px] border-none focus:outline-none cursor-pointer"
+                          title={`Move "${n}" to another player`}
+                        >
+                          <option value="" disabled>⇄</option>
+                          {sortedIdentities.filter((o) => o.id !== i.id).map((o) => (
+                            <option key={o.id} value={o.id} className="bg-panelup text-bone">{o.display_name}</option>
+                          ))}
+                        </select>
                         <button onClick={() => removeAlias(i, n)} className="text-ash hover:text-oxblood" aria-label={`Remove ${n}`}><X className="w-3 h-3" /></button>
                       </span>
                     ))}
