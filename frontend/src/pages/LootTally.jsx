@@ -90,7 +90,7 @@ export default function LootTally() {
   const picksByMember = useMemo(() => {
     const m = {};
     Object.entries(tally).forEach(([itemKey, watchers]) => {
-      watchers.forEach((w) => { (m[w.discord_id] = m[w.discord_id] || {})[itemKey] = w.priority; });
+      watchers.forEach((w) => { (m[w.discord_id] = m[w.discord_id] || {})[itemKey] = { priority: w.priority, added_at: w.added_at }; });
     });
     return m;
   }, [tally]);
@@ -153,9 +153,14 @@ export default function LootTally() {
     finally { setWlBusy(false); }
   };
 
+  // Flatten a member's picks back to { itemKey: priority } for the save payload —
+  // sending plain strings tells the backend to leave each item's existing added_at alone.
+  const flatPicks = (discordId) =>
+    Object.fromEntries(Object.entries(picksByMember[discordId] || {}).map(([k, v]) => [k, v.priority]));
+
   const addToWishlist = () => {
     if (!wlMember || !wlAddItem || !wlAddPrio) return;
-    const current = picksByMember[wlMember] || {};
+    const current = flatPicks(wlMember);
     if (current[wlAddItem] === wlAddPrio) return;
     const item = itemByKey[wlAddItem];
     saveMemberPicks(wlMember, { ...current, [wlAddItem]: wlAddPrio })
@@ -164,8 +169,7 @@ export default function LootTally() {
   };
 
   const removeFromWishlist = (discordId, itemKey) => {
-    const current = picksByMember[discordId] || {};
-    const next = { ...current };
+    const next = flatPicks(discordId);
     delete next[itemKey];
     const item = itemByKey[itemKey];
     saveMemberPicks(discordId, next).then((ok) => { if (ok) flash(`Removed "${item?.name}" from their wishlist.`); });
@@ -231,9 +235,10 @@ export default function LootTally() {
                 <div className="flex flex-wrap gap-2">
                   {Object.keys(picksByMember[wlMember] || {}).length === 0
                     ? <span className="text-ash/60 text-xs">Nothing on their wishlist.</span>
-                    : Object.entries(picksByMember[wlMember]).map(([key, prio]) => (
+                    : Object.entries(picksByMember[wlMember]).map(([key, { priority, added_at }]) => (
                       <span key={key} className="inline-flex items-center gap-1.5 text-xs bg-hall border border-line rounded-full pl-3 pr-1.5 py-1 text-ash">
-                        {itemByKey[key]?.name || key} <span className="text-brass">· {PRIO_SHORT[prio] || prio}</span>
+                        {itemByKey[key]?.name || key} <span className="text-brass">· {PRIO_SHORT[priority] || priority}</span>
+                        {added_at && <span className="text-ash/60 text-[10px]">· added {fmtDatetime(added_at)}</span>}
                         <button onClick={() => removeFromWishlist(wlMember, key)} disabled={wlBusy}
                           className="text-ash hover:text-oxblood disabled:opacity-40" aria-label={`Remove ${itemByKey[key]?.name || key}`}>
                           <X className="w-3 h-3" />
