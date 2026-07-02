@@ -107,7 +107,7 @@ export default function Shards() {
           ? 'Track every member’s shard requests. You can edit any row.'
           : 'Track your shard requests. You can edit your own row; others are read-only.'} Max {MAX} of each.
       </p>
-      <p className="text-bone font-bold uppercase mt-2">Put how many shard you need</p>
+      <p className="text-bone font-bold uppercase mt-2">Put how many you need, not how many you have AND keep it updated</p>
       <div className="rule-fade my-8" />
 
       <div className="flex items-center justify-between mb-5 gap-4">
