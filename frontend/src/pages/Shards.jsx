@@ -128,13 +128,13 @@ export default function Shards() {
         <div className="py-20 text-center text-ash">No members found.</div>
       ) : (
         <div className="panel rounded-sm overflow-auto">
-          <table className="w-full min-w-[980px] text-sm">
+          <table className="w-full min-w-[1160px] text-sm">
             <thead className="border-b border-line">
               <tr className="eyebrow text-[10px] text-ash">
                 <th className="p-4 text-left font-normal">Member</th>
-                <th className="p-4 text-left font-normal">Weapons</th>
                 {TYPES.map((t) => <th key={t.key} className="p-4 text-center font-normal">{t.label}</th>)}
                 <th className="p-4 text-center font-normal">Total</th>
+                <th className="p-4 text-left font-normal">Weapons</th>
                 <th className="p-3 w-8"></th>
               </tr>
             </thead>
@@ -154,22 +154,6 @@ export default function Shards() {
                         {mine && <span className="text-[9px] eyebrow text-brass border border-brass/40 rounded-full px-1.5 py-0.5">You</span>}
                       </div>
                     </td>
-                    <td className="p-3">
-                      <div className="flex flex-wrap items-center gap-1.5 max-w-[280px]">
-                        {weapons.length === 0 && <span className="text-ash/50 text-xs">none set</span>}
-                        {weapons.map((w, i) => (
-                          <span key={i} className="inline-flex items-center gap-1 text-[10px] bg-hall border border-line rounded-full px-2 py-0.5 text-ash" title={w.boss}>
-                            {w.weapon}
-                            {w.build && <span className={w.build === 'PvP' ? 'text-oxblood' : 'text-emerald-400'}>· {w.build}</span>}
-                          </span>
-                        ))}
-                        {editable && (
-                          <button onClick={() => setWeaponModalId(m.id)} className="text-brass hover:text-brassbright shrink-0" title="Edit weapon wishlist">
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </td>
                     {TYPES.map((t) => (
                       <td key={t.key} className="p-3 text-center">
                         {editable ? (
@@ -185,6 +169,22 @@ export default function Shards() {
                       </td>
                     ))}
                     <td className="p-3 text-center font-mono text-brassbright">{rowTotal(m.shards)}</td>
+                    <td className="p-3">
+                      <div className="flex flex-wrap items-center gap-1.5 min-w-[320px] max-w-[420px]">
+                        {weapons.length === 0 && <span className="text-ash/50 text-xs">none set</span>}
+                        {weapons.map((w, i) => (
+                          <span key={i} className="inline-flex items-center gap-1 text-[10px] bg-hall border border-line rounded-full px-2 py-0.5 text-ash" title={w.boss}>
+                            {w.weapon}
+                            {w.build && <span className={w.build === 'PvP' ? 'text-oxblood' : 'text-emerald-400'}>· {w.build}</span>}
+                          </span>
+                        ))}
+                        {editable && (
+                          <button onClick={() => setWeaponModalId(m.id)} className="text-brass hover:text-brassbright shrink-0" title="Edit weapon wishlist">
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
                     <td className="p-3 text-center">
                       {status[m.id] === 'saving' && <Loader2 className="w-4 h-4 text-ash animate-spin inline" />}
                       {status[m.id] === 'saved' && <Check className="w-4 h-4 text-emerald-400 inline" />}
@@ -197,9 +197,9 @@ export default function Shards() {
             <tfoot>
               <tr className="border-t border-line bg-panelup/60">
                 <td className="p-4 eyebrow text-[10px] text-brass">Guild Total</td>
-                <td></td>
                 {TYPES.map((t) => <td key={t.key} className="p-4 text-center font-mono text-brassbright">{totals[t.key]}</td>)}
                 <td className="p-4 text-center font-mono text-brassbright">{TYPES.reduce((a, t) => a + totals[t.key], 0)}</td>
+                <td></td>
                 <td></td>
               </tr>
             </tfoot>
