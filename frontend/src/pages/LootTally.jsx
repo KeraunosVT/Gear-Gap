@@ -3,13 +3,18 @@ import axios from 'axios';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth';
 import Sigil from '../components/Sigil';
-import { ChevronDown, RefreshCw, Gavel, X, ScrollText, Plus, Pencil, Trash2, Upload, History } from 'lucide-react';
+import { ChevronDown, RefreshCw, Gavel, X, ScrollText, Plus, Pencil, Trash2, Upload, History, UserCog } from 'lucide-react';
 import { fmtDatetime } from '../timeUtils';
 import ItemTooltip, { gradeStyle } from '../components/ItemTooltip';
 
 const PRIO_SHORT = { 'PvP': 'PvP', 'Second Build': '2nd', 'PvE': 'PvE' };
 const PRIO_DOT = { 'PvP': 'bg-oxblood', 'Second Build': 'bg-brass', 'PvE': 'bg-emerald-500' };
 const PRIO_TEXT = { 'PvP': 'text-oxblood', 'Second Build': 'text-brass', 'PvE': 'text-emerald-400' };
+const PRIO_ON = {
+  'PvP': 'bg-oxblood text-bone border-transparent',
+  'Second Build': 'bg-brass text-ink border-transparent',
+  'PvE': 'bg-emerald-500 text-ink border-transparent',
+};
 
 export default function LootTally() {
   const { user } = useAuth();
@@ -40,6 +45,12 @@ export default function LootTally() {
   const [qlResults, setQlResults] = useState([]);
   const [qlSearching, setQlSearching] = useState(false);
   const [qlAddCat, setQlAddCat] = useState('');
+  const [members, setMembers] = useState([]);
+  const [managingWishlist, setManagingWishlist] = useState(false);
+  const [wlMember, setWlMember] = useState('');
+  const [wlAddItem, setWlAddItem] = useState('');
+  const [wlAddPrio, setWlAddPrio] = useState('');
+  const [wlBusy, setWlBusy] = useState(false);
 
   const toggleCat = (key) => setCollapsed((prev) => {
     const next = new Set(prev);
@@ -49,12 +60,13 @@ export default function LootTally() {
 
   const load = () => {
     setLoading(true); setError('');
-    Promise.all([axios.get('/api/loot/catalog'), axios.get('/api/loot'), axios.get('/api/admin/loot/awards')])
-      .then(([catRes, loot, aw]) => {
+    Promise.all([axios.get('/api/loot/catalog'), axios.get('/api/loot'), axios.get('/api/admin/loot/awards'), axios.get('/api/admin/members')])
+      .then(([catRes, loot, aw, mem]) => {
         setCatalog(catRes.data);
         setCounts(loot.data.counts || {});
         setTally(loot.data.tally || {});
         setAwards(aw.data.awards || []);
+        setMembers(mem.data.members || []);
       })
       .catch((err) => setError(err.response?.data?.error || 'Could not load the tally.'))
       .finally(() => setLoading(false));
@@ -72,6 +84,16 @@ export default function LootTally() {
     return m;
   }, [awards]);
   const awardFor = (itemKey, discordId) => (awardsByItem[itemKey] || []).find((a) => a.discord_id === discordId);
+
+  // Reverse-index the per-item tally into per-member picks, so the wishlist manager
+  // can show/edit a member's full list without a separate endpoint.
+  const picksByMember = useMemo(() => {
+    const m = {};
+    Object.entries(tally).forEach(([itemKey, watchers]) => {
+      watchers.forEach((w) => { (m[w.discord_id] = m[w.discord_id] || {})[itemKey] = w.priority; });
+    });
+    return m;
+  }, [tally]);
 
   const groupedRows = useMemo(() => {
     if (!catalog) return [];
@@ -120,6 +142,35 @@ export default function LootTally() {
     axios.delete(`/api/admin/loot/awards/${id}`).then(load).catch((err) => setError(err.response?.data?.error || 'Revoke failed.'));
   };
 
+  const saveMemberPicks = async (discordId, picks) => {
+    const member = members.find((m) => m.id === discordId);
+    setWlBusy(true);
+    try {
+      await axios.put(`/api/loot/${discordId}`, { picks, display_name: member?.name });
+      load();
+      return true;
+    } catch (err) { flash(err.response?.data?.error || 'Failed to update wishlist.', false); return false; }
+    finally { setWlBusy(false); }
+  };
+
+  const addToWishlist = () => {
+    if (!wlMember || !wlAddItem || !wlAddPrio) return;
+    const current = picksByMember[wlMember] || {};
+    if (current[wlAddItem] === wlAddPrio) return;
+    const item = itemByKey[wlAddItem];
+    saveMemberPicks(wlMember, { ...current, [wlAddItem]: wlAddPrio })
+      .then((ok) => { if (ok) flash(`Added "${item?.name}" to their wishlist.`); });
+    setWlAddItem(''); setWlAddPrio('');
+  };
+
+  const removeFromWishlist = (discordId, itemKey) => {
+    const current = picksByMember[discordId] || {};
+    const next = { ...current };
+    delete next[itemKey];
+    const item = itemByKey[itemKey];
+    saveMemberPicks(discordId, next).then((ok) => { if (ok) flash(`Removed "${item?.name}" from their wishlist.`); });
+  };
+
   if (!user?.isAdmin) {
     return (
       <div className="max-w-2xl mx-auto px-6 py-24 text-center">
@@ -150,7 +201,76 @@ export default function LootTally() {
         <Link to="/admin/loot/history" className="inline-flex items-center gap-2 text-sm text-brass hover:text-brassbright transition-colors">
           <History className="w-4 h-4" /> Loot History
         </Link>
+        <button
+          onClick={() => setManagingWishlist((v) => !v)}
+          className="inline-flex items-center gap-2 text-sm text-brass hover:text-brassbright transition-colors"
+        >
+          <UserCog className="w-4 h-4" /> {managingWishlist ? 'Close wishlist manager' : 'Manage a member’s wishlist'}
+        </button>
       </div>
+
+      {managingWishlist && catalog && (
+        <div className="mb-10 panel rounded-sm p-6 space-y-5">
+          <div className="eyebrow text-brass text-[10px] mb-2">Wishlist Manager</div>
+
+          <select
+            value={wlMember}
+            onChange={(e) => { setWlMember(e.target.value); setWlAddItem(''); setWlAddPrio(''); }}
+            className="bg-hall border border-line rounded-sm px-3 py-2 text-bone focus:outline-none focus:border-brass"
+          >
+            <option value="">— select member —</option>
+            {[...members].sort((a, b) => (a.name || '').localeCompare(b.name || '')).map((m) => (
+              <option key={m.id} value={m.id}>{m.name}</option>
+            ))}
+          </select>
+
+          {wlMember && (
+            <>
+              <div>
+                <label className="eyebrow text-[10px] text-ash block mb-2">Current wishlist</label>
+                <div className="flex flex-wrap gap-2">
+                  {Object.keys(picksByMember[wlMember] || {}).length === 0
+                    ? <span className="text-ash/60 text-xs">Nothing on their wishlist.</span>
+                    : Object.entries(picksByMember[wlMember]).map(([key, prio]) => (
+                      <span key={key} className="inline-flex items-center gap-1.5 text-xs bg-hall border border-line rounded-full pl-3 pr-1.5 py-1 text-ash">
+                        {itemByKey[key]?.name || key} <span className="text-brass">· {PRIO_SHORT[prio] || prio}</span>
+                        <button onClick={() => removeFromWishlist(wlMember, key)} disabled={wlBusy}
+                          className="text-ash hover:text-oxblood disabled:opacity-40" aria-label={`Remove ${itemByKey[key]?.name || key}`}>
+                          <X className="w-3 h-3" />
+                        </button>
+                      </span>
+                    ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="eyebrow text-[10px] text-ash block mb-2">Add item</label>
+                <div className="flex flex-wrap items-center gap-2">
+                  <select value={wlAddItem} onChange={(e) => setWlAddItem(e.target.value)}
+                    className="bg-hall border border-line rounded-sm px-3 py-2 text-bone focus:outline-none focus:border-brass flex-1 min-w-[200px]">
+                    <option value="">— item —</option>
+                    {catalog.categories.map((c) => (
+                      <optgroup key={c.key} label={c.label}>
+                        {c.items.map((i) => <option key={i.key} value={i.key}>{i.name}</option>)}
+                      </optgroup>
+                    ))}
+                  </select>
+                  {catalog.priorities.map((p) => (
+                    <button key={p} onClick={() => setWlAddPrio(p)}
+                      className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${wlAddPrio === p ? PRIO_ON[p] : 'border-line text-ash hover:text-bone'}`}>
+                      {PRIO_SHORT[p]}
+                    </button>
+                  ))}
+                  <button onClick={addToWishlist} disabled={!wlAddItem || !wlAddPrio || wlBusy}
+                    className="px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm text-sm transition-colors disabled:opacity-40">
+                    Add
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
 
       {managing && catalog && (
         <div className="mb-10 panel rounded-sm p-6 space-y-6">
