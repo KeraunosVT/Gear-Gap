@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, forwardRef } from 'react';
+import { useState, useEffect, useMemo, useRef, forwardRef } from 'react';
 import axios from 'axios';
 import {
   DndContext, DragOverlay, PointerSensor, useSensor, useSensors, useDroppable, closestCorners,
@@ -19,7 +19,7 @@ const ROLE_STYLE = {
 };
 const PARTY_SIZE = 6;
 const PARTY_IDS = Array.from({ length: 12 }, (_, i) => `p${i + 1}`);
-const initItems = () => ({ pool: [], ...Object.fromEntries(PARTY_IDS.map((id) => [id, []])) });
+const initItems = () => ({ pool: [], absent: [], ...Object.fromEntries(PARTY_IDS.map((id) => [id, []])) });
 const initNames = () => Object.fromEntries(PARTY_IDS.map((id, i) => [id, `Party ${i + 1}`]));
 const findContainer = (id, src) => (id in src ? id : Object.keys(src).find((k) => src[k].includes(id)));
 
@@ -163,6 +163,9 @@ export default function Parties() {
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
+  const loaSetRef = useRef(loaSet);
+  useEffect(() => { loaSetRef.current = loaSet; }, [loaSet]);
+
   const byId = useMemo(() => {
     const m = {};
     members.forEach((x) => { m[x.id] = x; });
@@ -186,10 +189,16 @@ export default function Parties() {
           ms.forEach((m) => { if (m.role) seeded[m.id] = m.role; });
           return { ...seeded, ...prev };
         });
-        // Put any members not already assigned to a party into the pool.
+        // Put any members not already placed into the pool, or the absent box if they're on LOA.
         setItems((prev) => {
-          const assigned = new Set(PARTY_IDS.flatMap((p) => prev[p]));
-          return { ...prev, pool: ms.map((m) => m.id).filter((id) => !assigned.has(id)) };
+          const placed = new Set([...PARTY_IDS, 'absent'].flatMap((k) => prev[k]));
+          const unplaced = ms.map((m) => m.id).filter((id) => !placed.has(id));
+          const loa = loaSetRef.current;
+          return {
+            ...prev,
+            pool: unplaced.filter((id) => !loa.has(id)),
+            absent: [...prev.absent, ...unplaced.filter((id) => loa.has(id))],
+          };
         });
       })
       .catch((err) => setMembersError(err.response?.data?.error || 'Could not load members.'))
@@ -224,6 +233,24 @@ export default function Parties() {
   useEffect(() => { loadLoa(loaDate, loaEvent); }, [loaDate, loaEvent]);
   useEffect(() => { setLoaEvent(''); }, [loaDate]);
 
+  // Pull anyone newly marked LOA out of the pool/parties and into the absent box.
+  useEffect(() => {
+    setItems((prev) => {
+      const moving = [];
+      const next = { ...prev };
+      ['pool', ...PARTY_IDS].forEach((key) => {
+        const stay = prev[key].filter((id) => {
+          if (loaSet.has(id)) { moving.push(id); return false; }
+          return true;
+        });
+        next[key] = stay;
+      });
+      if (moving.length === 0) return prev;
+      next.absent = [...prev.absent, ...moving];
+      return next;
+    });
+  }, [loaSet]);
+
   if (!user?.isAdmin) {
     return (
       <div className="max-w-2xl mx-auto px-6 py-24 text-center">
@@ -244,7 +271,7 @@ export default function Parties() {
       const ac = findContainer(activeId, prev);
       const oc = findContainer(overId, prev);
       if (!ac || !oc || ac === oc) return prev;
-      if (oc !== 'pool' && prev[oc].length >= PARTY_SIZE) return prev; // party full
+      if (oc !== 'pool' && oc !== 'absent' && prev[oc].length >= PARTY_SIZE) return prev; // party full
       const activeItems = prev[ac];
       const overItems = prev[oc];
       const overIndex = overItems.indexOf(overId);
@@ -301,7 +328,8 @@ export default function Parties() {
     }));
 
   const resetBoard = () => {
-    setItems({ ...initItems(), pool: members.map((m) => m.id) });
+    const ids = members.map((m) => m.id);
+    setItems({ ...initItems(), pool: ids.filter((id) => !loaSet.has(id)), absent: ids.filter((id) => loaSet.has(id)) });
     setPartyNames(initNames()); setRoles((r) => r); setRosterId(null); setRosterName(''); setExtra({});
     setClassAssignments({ pvp: {}, pve: {} });
   };
@@ -337,7 +365,9 @@ export default function Parties() {
         });
       });
       const assigned = new Set(PARTY_IDS.flatMap((p) => nextItems[p]));
-      nextItems.pool = members.map((m) => m.id).filter((mid) => !assigned.has(mid));
+      const unassigned = members.map((m) => m.id).filter((mid) => !assigned.has(mid));
+      nextItems.pool = unassigned.filter((id) => !loaSet.has(id));
+      nextItems.absent = unassigned.filter((id) => loaSet.has(id));
       setItems(nextItems); setPartyNames(nextNames);
       setRoles((prev) => ({ ...prev, ...nextRoles })); setExtra(nextExtra);
       setClassAssignments(r.layout?.classAssignments || { pvp: {}, pve: {} });
@@ -418,24 +448,37 @@ export default function Parties() {
       <DndContext sensors={sensors} collisionDetection={closestCorners}
         onDragStart={({ active }) => setActiveId(active.id)} onDragOver={onDragOver} onDragEnd={onDragEnd}>
         <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
-          {/* Pool */}
-          <DroppableColumn id="pool" itemIds={poolView} className="panel rounded-sm p-4 lg:sticky lg:top-20 lg:self-start">
-            <div className="flex items-center justify-between mb-3">
-              <div className="eyebrow text-[10px] text-brass flex items-center gap-2"><Users className="w-3.5 h-3.5" /> Pool ({items.pool.length})</div>
-              <button onClick={loadMembers} className="text-ash hover:text-brass" title="Reload members"><RefreshCw className="w-3.5 h-3.5" /></button>
-            </div>
-            <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search…"
-              className="w-full bg-hall border border-line rounded px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass mb-3" />
-            <div className="space-y-2 max-h-[640px] overflow-auto pr-1 min-h-[60px]">
-              {loadingMembers ? <div className="text-ash text-sm py-6 text-center">Loading members…</div>
-                : membersError ? (
-                  <div className="text-sm text-bone border border-oxblood/40 bg-oxblooddeep/20 rounded p-3">
-                    {membersError}<button onClick={loadMembers} className="block mt-2 text-brass hover:text-brassbright">Retry</button>
-                  </div>
-                ) : poolView.length === 0 ? <div className="text-ash text-sm py-6 text-center">Everyone's assigned.</div>
-                : poolView.map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} isLoa={loaSet.has(id)} classMode={classMode} assignedClass={classAssignments[classMode][id]} onClassChange={(cls) => setMemberClass(classMode, id, cls)} />)}
-            </div>
-          </DroppableColumn>
+          {/* Pool + Absent */}
+          <div className="flex flex-col gap-6 lg:sticky lg:top-20 lg:self-start">
+            <DroppableColumn id="pool" itemIds={poolView} className="panel rounded-sm p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="eyebrow text-[10px] text-brass flex items-center gap-2"><Users className="w-3.5 h-3.5" /> Pool ({items.pool.length})</div>
+                <button onClick={loadMembers} className="text-ash hover:text-brass" title="Reload members"><RefreshCw className="w-3.5 h-3.5" /></button>
+              </div>
+              <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search…"
+                className="w-full bg-hall border border-line rounded px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass mb-3" />
+              <div className="space-y-2 max-h-[640px] overflow-auto pr-1 min-h-[60px]">
+                {loadingMembers ? <div className="text-ash text-sm py-6 text-center">Loading members…</div>
+                  : membersError ? (
+                    <div className="text-sm text-bone border border-oxblood/40 bg-oxblooddeep/20 rounded p-3">
+                      {membersError}<button onClick={loadMembers} className="block mt-2 text-brass hover:text-brassbright">Retry</button>
+                    </div>
+                  ) : poolView.length === 0 ? <div className="text-ash text-sm py-6 text-center">Everyone's assigned.</div>
+                  : poolView.map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} isLoa={loaSet.has(id)} classMode={classMode} assignedClass={classAssignments[classMode][id]} onClassChange={(cls) => setMemberClass(classMode, id, cls)} />)}
+              </div>
+            </DroppableColumn>
+
+            <DroppableColumn id="absent" itemIds={items.absent} className="panel rounded-sm p-4">
+              <div className="flex items-center justify-between mb-3">
+                <div className="eyebrow text-[10px] text-oxblood flex items-center gap-2"><CalendarOff className="w-3.5 h-3.5" /> Absent ({items.absent.length})</div>
+              </div>
+              <div className="space-y-2 max-h-[300px] overflow-auto pr-1 min-h-[60px]">
+                {items.absent.length === 0
+                  ? <div className="text-ash/50 text-xs text-center py-6">Drop absent members here</div>
+                  : items.absent.map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} isLoa={loaSet.has(id)} classMode={classMode} assignedClass={classAssignments[classMode][id]} onClassChange={(cls) => setMemberClass(classMode, id, cls)} />)}
+              </div>
+            </DroppableColumn>
+          </div>
 
           {/* Parties */}
           <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
