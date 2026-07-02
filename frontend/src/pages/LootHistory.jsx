@@ -3,7 +3,7 @@ import axios from 'axios';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth';
 import Sigil from '../components/Sigil';
-import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Upload } from 'lucide-react';
 import { fmtDatetime } from '../timeUtils';
 import ItemTooltip, { gradeStyle } from '../components/ItemTooltip';
 
@@ -14,6 +14,8 @@ export default function LootHistory() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [member, setMember] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
 
   const load = () => {
     setLoading(true); setError('');
@@ -40,6 +42,19 @@ export default function LootHistory() {
     [awards, member]
   );
 
+  const handleImport = (e) => {
+    const f = e.target.files[0];
+    e.target.value = '';
+    if (!f) return;
+    setImporting(true); setImportResult(null); setError('');
+    const form = new FormData();
+    form.append('file', f);
+    axios.post('/api/admin/loot/awards/import', form)
+      .then((res) => { setImportResult(res.data); load(); })
+      .catch((err) => setError(err.response?.data?.error || 'Import failed.'))
+      .finally(() => setImporting(false));
+  };
+
   if (!user?.isAdmin) {
     return (
       <div className="max-w-2xl mx-auto px-6 py-24 text-center">
@@ -61,6 +76,27 @@ export default function LootHistory() {
       <div className="rule-fade my-8" />
 
       {error && <div className="mb-6 px-5 py-3 rounded-sm border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
+
+      <div className="panel rounded-sm p-4 mb-6">
+        <div className="flex items-center gap-3 flex-wrap">
+          <label className={`inline-flex items-center gap-2 px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm text-sm cursor-pointer transition-colors ${importing ? 'opacity-40 pointer-events-none' : ''}`}>
+            <Upload className="w-4 h-4" /> {importing ? 'Importing…' : 'Upload CSV'}
+            <input type="file" accept=".csv,text/csv" className="hidden" onChange={handleImport} disabled={importing} />
+          </label>
+          <span className="text-ash text-xs">Columns: item, member, date (optional), awarded_by (optional)</span>
+        </div>
+        {importResult && (
+          <div className="mt-3 text-sm">
+            <span className="text-emerald-400">{importResult.imported} imported</span>
+            {importResult.skipped > 0 && <span className="text-oxblood ml-3">{importResult.skipped} skipped</span>}
+            {importResult.errors?.length > 0 && (
+              <ul className="mt-2 text-xs text-ash space-y-0.5 max-h-32 overflow-auto">
+                {importResult.errors.map((e, i) => <li key={i}>Row {e.row}: {e.reason}</li>)}
+              </ul>
+            )}
+          </div>
+        )}
+      </div>
 
       <div className="flex flex-wrap items-center gap-3 mb-6">
         <select value={member} onChange={(e) => setMember(e.target.value)}

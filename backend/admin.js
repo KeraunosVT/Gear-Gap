@@ -2,6 +2,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const multer = require('multer');
+const Papa = require('papaparse');
 const { parseScreenshot, parseCsv, WEAPONS } = require('./ingest');
 const { listMembers, postEmbed, postImage } = require('./discord');
 
@@ -189,6 +190,82 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
     const { error } = await supabase.from('loot_awards').delete().eq('id', req.params.id);
     if (error) return res.status(500).json({ error: 'Failed to revoke award.' });
     res.json({ ok: true });
+  });
+
+  // Bulk-backfill older loot awards from a CSV (columns: item, member, date, awarded_by).
+  router.post('/loot/awards/import', upload.single('file'), async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const f = req.file;
+    if (!f) return res.status(400).json({ error: 'CSV file required.' });
+
+    const HEADER_MAP = {
+      item: 'item', item_name: 'item', itemname: 'item', 'item name': 'item',
+      item_key: 'item_key', itemkey: 'item_key',
+      member: 'member', player: 'member', name: 'member', winner: 'member',
+      date: 'date', awarded_at: 'date', awardedat: 'date', 'awarded at': 'date',
+      awarded_by: 'awarded_by', awardedby: 'awarded_by', 'awarded by': 'awarded_by', by: 'awarded_by',
+    };
+    const parsed = Papa.parse(f.buffer.toString('utf8'), {
+      header: true, skipEmptyLines: true,
+      transformHeader: (h) => HEADER_MAP[h.trim().toLowerCase()] || h.trim().toLowerCase(),
+    });
+    if (parsed.errors?.length) return res.status(400).json({ error: 'Could not parse CSV: ' + parsed.errors[0].message });
+
+    const [catalog, discordMembers, { data: idData }] = await Promise.all([
+      lootCatalog.getCatalog(),
+      listMembers().catch(() => []),
+      supabase.from('player_identities').select('display_name, discord_id, ingame_names'),
+    ]);
+
+    const itemByKey = new Map();
+    const itemByName = new Map();
+    catalog.categories.forEach((c) => c.items.forEach((it) => {
+      itemByKey.set(it.key, it);
+      itemByName.set(norm(it.name), it);
+    }));
+
+    const nameToDiscordId = new Map();
+    discordMembers.forEach((m) => { if (m.name) nameToDiscordId.set(norm(m.name), m.id); });
+    (idData || []).forEach((it) => {
+      if (!it.discord_id) return;
+      if (it.display_name) nameToDiscordId.set(norm(it.display_name), it.discord_id);
+      (it.ingame_names || []).forEach((n) => nameToDiscordId.set(norm(n), it.discord_id));
+    });
+
+    const errors = [];
+    const toInsert = [];
+    (parsed.data || []).forEach((raw, idx) => {
+      const rowNum = idx + 2; // account for the header row
+      const itemRaw = clean(raw.item_key) || clean(raw.item);
+      const memberRaw = clean(raw.member);
+      if (!itemRaw || !memberRaw) { errors.push({ row: rowNum, reason: 'Missing item or member.' }); return; }
+
+      const item = itemByKey.get(itemRaw) || itemByName.get(norm(itemRaw));
+      if (!item) { errors.push({ row: rowNum, reason: `Unknown item "${itemRaw}".` }); return; }
+
+      const discordId = nameToDiscordId.get(norm(memberRaw));
+      if (!discordId) { errors.push({ row: rowNum, reason: `Unknown member "${memberRaw}".` }); return; }
+
+      const dateRaw = clean(raw.date);
+      const parsedDate = dateRaw ? new Date(dateRaw) : null;
+      const awardedAt = parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate.toISOString() : new Date().toISOString();
+
+      toInsert.push({
+        id: crypto.randomUUID(),
+        item_key: item.key,
+        discord_id: String(discordId),
+        display_name: memberRaw,
+        awarded_by: clean(raw.awarded_by) || req.user.username || req.user.id,
+        awarded_at: awardedAt,
+      });
+    });
+
+    if (toInsert.length > 0) {
+      const { error } = await supabase.from('loot_awards').insert(toInsert);
+      if (error) return res.status(500).json({ error: 'Failed to import awards: ' + error.message });
+    }
+
+    res.json({ imported: toInsert.length, skipped: errors.length, errors: errors.slice(0, 50) });
   });
 
   // ── Loot catalog management ──────────────────────────────────────────────────
