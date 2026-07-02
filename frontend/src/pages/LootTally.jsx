@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../auth';
 import Sigil from '../components/Sigil';
-import { ChevronDown, RefreshCw, Gavel, X, ScrollText, Plus, Pencil, Trash2, Upload } from 'lucide-react';
+import { ChevronDown, RefreshCw, Gavel, X, ScrollText, Plus, Pencil, Trash2, Upload, History } from 'lucide-react';
 import { fmtDatetime } from '../timeUtils';
 import ItemTooltip, { gradeStyle } from '../components/ItemTooltip';
 
@@ -139,13 +140,16 @@ export default function LootTally() {
       {error && <div className="mb-6 px-5 py-3 rounded-sm border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
       {msg && <div className={`mb-6 px-5 py-3 rounded-sm border text-sm ${msg.ok ? 'border-brass/40 bg-panel text-bone' : 'border-oxblood/50 bg-oxblooddeep/20 text-bone'}`}>{msg.text}</div>}
 
-      <div className="mb-8">
+      <div className="mb-8 flex items-center gap-5">
         <button
           onClick={() => setManaging((v) => !v)}
           className="inline-flex items-center gap-2 text-sm text-brass hover:text-brassbright transition-colors"
         >
           <Pencil className="w-4 h-4" /> {managing ? 'Close item manager' : 'Manage items'}
         </button>
+        <Link to="/admin/loot/history" className="inline-flex items-center gap-2 text-sm text-brass hover:text-brassbright transition-colors">
+          <History className="w-4 h-4" /> Loot History
+        </Link>
       </div>
 
       {managing && catalog && (

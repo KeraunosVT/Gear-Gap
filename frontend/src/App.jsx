@@ -13,6 +13,7 @@ import Admin from './pages/Admin';
 import Parties from './pages/Parties';
 import Names from './pages/Names';
 import LootTally from './pages/LootTally';
+import LootHistory from './pages/LootHistory';
 import Attendance from './pages/Attendance';
 import PlayerProfile from './pages/PlayerProfile';
 import LOA from './pages/LOA';
@@ -61,6 +62,7 @@ function Gate() {
           <Route path="/admin/parties" element={<Parties />} />
           <Route path="/admin/names" element={<Names />} />
           <Route path="/admin/loot" element={<LootTally />} />
+          <Route path="/admin/loot/history" element={<LootHistory />} />
           <Route path="/admin/attendance" element={<Attendance />} />
           {/* Legacy aliases kept so old links still resolve */}
           <Route path="/dashboard" element={<MatchStats />} />
