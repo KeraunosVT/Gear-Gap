@@ -464,6 +464,7 @@ export default function LootTally() {
                               <span className={`w-2 h-2 rounded-full ${PRIO_DOT[w.priority] || 'bg-line'} shrink-0`} />
                               <span className="text-bone">{w.name}</span>
                               <span className="text-ash text-xs">· {PRIO_SHORT[w.priority] || w.priority}</span>
+                              {w.added_at && <span className="text-ash/60 text-[10px]">· added {fmtDatetime(w.added_at)}</span>}
                               <div className="flex-1" />
                               {award ? (
                                 <span className="inline-flex items-center gap-1 text-xs text-brass">

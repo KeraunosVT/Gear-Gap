@@ -158,15 +158,19 @@ app.get('/api/loot', async (req, res) => {
     (idData || []).forEach((it) => { if (it.discord_id) discordNameMap[it.discord_id] = it.display_name; });
     const counts = {};
     const tally = {};
-    let mine = {};
+    const mine = {};
     (data || []).forEach((r) => {
       const picks = r.picks || {};
-      if (r.discord_id === req.user.id) mine = picks;
       const memberName = discordNameMap[r.discord_id] || r.display_name || 'Member';
-      Object.entries(picks).forEach(([k, prio]) => {
+      Object.entries(picks).forEach(([k, entry]) => {
         if (!validKeys.has(k)) return;
+        // Entries are { priority, added_at }; tolerate the older plain-string shape too.
+        const priority = typeof entry === 'string' ? entry : entry?.priority;
+        const addedAt = typeof entry === 'object' ? entry?.added_at || null : null;
+        if (!priority) return;
+        if (r.discord_id === req.user.id) mine[k] = priority;
         counts[k] = (counts[k] || 0) + 1;
-        if (req.user.isAdmin) (tally[k] = tally[k] || []).push({ name: memberName, priority: prio, discord_id: r.discord_id });
+        if (req.user.isAdmin) (tally[k] = tally[k] || []).push({ name: memberName, priority, discord_id: r.discord_id, added_at: addedAt });
       });
     });
     // Items already awarded to the current member (shown as "Loot Counciled").
@@ -186,16 +190,23 @@ app.put('/api/loot/:discordId', async (req, res) => {
   }
   if (!supabase || !lootCatalog) return res.status(503).json({ error: 'Database not configured.' });
   const validKeys = await lootCatalog.getKeys();
+  const { data: existing } = await supabase.from('loot_wishlists').select('picks').eq('discord_id', target).single();
+  const existingPicks = existing?.picks || {};
+  const now = new Date().toISOString();
   const incoming = req.body?.picks || {};
   const picks = {};
   Object.entries(incoming).forEach(([k, prio]) => {
-    if (validKeys.has(k) && lootCatalog.priorities.has(prio)) picks[k] = prio;
+    if (!validKeys.has(k) || !lootCatalog.priorities.has(prio)) return;
+    const prev = existingPicks[k];
+    // Keep the original add time across priority edits; only stamp "now" the first time an item is picked.
+    const addedAt = (prev && typeof prev === 'object' && prev.added_at) || now;
+    picks[k] = { priority: prio, added_at: addedAt };
   });
   const display_name = (req.body?.display_name || req.user.username || '').slice(0, 120);
   const { error } = await supabase.from('loot_wishlists')
     .upsert({ discord_id: target, display_name, picks, updated_at: new Date().toISOString() });
   if (error) { console.error('Loot save error:', error.message); return res.status(500).json({ error: 'Failed to save wishlist.' }); }
-  res.json({ picks });
+  res.json({ picks: Object.fromEntries(Object.entries(picks).map(([k, v]) => [k, v.priority])) });
 });
 
 // ── LOA (Leave of Absence) ───────────────────────────────────────────────────
