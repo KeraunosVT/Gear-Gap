@@ -11,8 +11,11 @@ const cookieParser = require('cookie-parser');
 const { router: authRouter, requireAuth, requireAdmin } = require('./auth');
 const { listMembers } = require('./discord');
 const SHARDS = require('../shared/shards.json');
-const WEAPONS = require('../shared/weapons.json');
+const BOSS_WEAPONS = require('../shared/archbossWeapons.json');
 const BUILDS = ['PvP', 'PvE'];
+const VALID_BOSS_WEAPONS = new Set(
+  Object.entries(BOSS_WEAPONS).flatMap(([boss, list]) => list.map((w) => `${boss}|${w}`))
+);
 const createLootCatalog = require('./lootCatalog');
 
 const gateway = require('./discordGateway');
@@ -126,8 +129,11 @@ app.put('/api/shards/:discordId', async (req, res) => {
     const v = parseInt(incoming[t.key], 10);
     shards[t.key] = Math.max(0, Math.min(SHARDS.max, Number.isFinite(v) ? v : 0));
   });
-  shards.weapon = WEAPONS.includes(incoming.weapon) ? incoming.weapon : '';
-  shards.build = BUILDS.includes(incoming.build) ? incoming.build : '';
+  const incomingWeapons = Array.isArray(incoming.weapons) ? incoming.weapons : [];
+  shards.weapons = incomingWeapons
+    .filter((w) => w && VALID_BOSS_WEAPONS.has(`${w.boss}|${w.weapon}`))
+    .map((w) => ({ boss: w.boss, weapon: w.weapon, build: BUILDS.includes(w.build) ? w.build : '' }))
+    .slice(0, 50);
   const display_name = (req.body?.display_name || req.user.username || '').slice(0, 120);
   const { error } = await supabase.from('shard_counts')
     .upsert({ discord_id: target, display_name, shards, updated_at: new Date().toISOString() });

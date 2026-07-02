@@ -2,18 +2,24 @@ import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../auth';
 import SHARDS from '../../../shared/shards.json';
-import WEAPONS from '../../../shared/weapons.json';
-import { Check, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
+import BOSS_WEAPONS from '../../../shared/archbossWeapons.json';
+import { Check, Loader2, AlertCircle, RefreshCw, Pencil } from 'lucide-react';
 
 const MAX = SHARDS.max;
 const TYPES = SHARDS.types;
 const BUILDS = ['PvP', 'PvE'];
+const VALID_BOSS_WEAPONS = new Set(
+  Object.entries(BOSS_WEAPONS).flatMap(([boss, list]) => list.map((w) => `${boss}|${w}`))
+);
 
 const normalizeShards = (s) => {
   const out = {};
   TYPES.forEach((t) => { out[t.key] = Math.max(0, Math.min(MAX, Number(s?.[t.key]) || 0)); });
-  out.weapon = WEAPONS.includes(s?.weapon) ? s.weapon : '';
-  out.build = BUILDS.includes(s?.build) ? s.build : '';
+  out.weapons = Array.isArray(s?.weapons)
+    ? s.weapons
+        .filter((w) => w && VALID_BOSS_WEAPONS.has(`${w.boss}|${w.weapon}`))
+        .map((w) => ({ boss: w.boss, weapon: w.weapon, build: BUILDS.includes(w.build) ? w.build : '' }))
+    : [];
   return out;
 };
 const rowTotal = (s) => TYPES.reduce((a, t) => a + (Number(s[t.key]) || 0), 0);
@@ -26,6 +32,7 @@ export default function Shards() {
   const [filter, setFilter] = useState('');
   const [status, setStatus] = useState({}); // memberId -> 'saving'|'saved'|'error'
   const [dirty, setDirty] = useState({});   // memberId -> bool
+  const [weaponModalId, setWeaponModalId] = useState(null);
 
   const canEdit = (id) => user && (user.isAdmin || user.id === id);
 
@@ -63,10 +70,10 @@ export default function Shards() {
     persist(member);
   };
 
-  // Weapon/build are selects — save immediately on change rather than waiting for blur.
-  const updateMeta = (id, key, value) => {
+  const saveWeapons = (id, weapons) => {
+    setWeaponModalId(null);
     setMembers((prev) => {
-      const next = prev.map((m) => (m.id === id ? { ...m, shards: { ...m.shards, [key]: value } } : m));
+      const next = prev.map((m) => (m.id === id ? { ...m, shards: { ...m.shards, weapons } } : m));
       persist(next.find((m) => m.id === id));
       return next;
     });
@@ -89,13 +96,15 @@ export default function Shards() {
     return t;
   }, [members]);
 
+  const weaponModalMember = weaponModalId ? members.find((m) => m.id === weaponModalId) : null;
+
   return (
     <div className="max-w-6xl mx-auto px-6 py-12">
       <div className="eyebrow text-brass text-[11px] mb-3">Members Area</div>
       <h1 className="font-display text-4xl md:text-5xl text-bone tracking-[0.08em]">Archboss Shards</h1>
       <p className="text-ash mt-2">
         {user?.isAdmin
-          ? 'Track every member\u2019s shard requests. You can edit any row.'
+          ? 'Track every member’s shard requests. You can edit any row.'
           : 'Track your shard requests. You can edit your own row; others are read-only.'} Max {MAX} of each.
       </p>
       <p className="text-bone font-bold uppercase mt-2">Put how many shard you need</p>
@@ -123,8 +132,7 @@ export default function Shards() {
             <thead className="border-b border-line">
               <tr className="eyebrow text-[10px] text-ash">
                 <th className="p-4 text-left font-normal">Member</th>
-                <th className="p-4 text-center font-normal">Weapon</th>
-                <th className="p-4 text-center font-normal">Build</th>
+                <th className="p-4 text-left font-normal">Weapons</th>
                 {TYPES.map((t) => <th key={t.key} className="p-4 text-center font-normal">{t.label}</th>)}
                 <th className="p-4 text-center font-normal">Total</th>
                 <th className="p-3 w-8"></th>
@@ -134,6 +142,7 @@ export default function Shards() {
               {ordered.map((m) => {
                 const mine = user && m.id === user.id;
                 const editable = canEdit(m.id);
+                const weapons = m.shards.weapons || [];
                 return (
                   <tr key={m.id} className={`border-b border-line/60 ${mine ? 'bg-brass/5' : ''}`}>
                     <td className="p-3">
@@ -145,39 +154,21 @@ export default function Shards() {
                         {mine && <span className="text-[9px] eyebrow text-brass border border-brass/40 rounded-full px-1.5 py-0.5">You</span>}
                       </div>
                     </td>
-                    <td className="p-3 text-center">
-                      {editable ? (
-                        <select
-                          value={m.shards.weapon || ''}
-                          onChange={(e) => updateMeta(m.id, 'weapon', e.target.value)}
-                          className="bg-hall border border-line rounded px-2 py-1.5 text-bone text-xs focus:outline-none focus:border-brass"
-                        >
-                          <option value="">— none —</option>
-                          {WEAPONS.map((w) => <option key={w} value={w}>{w}</option>)}
-                        </select>
-                      ) : (
-                        <span className="text-ash">{m.shards.weapon || '—'}</span>
-                      )}
-                    </td>
-                    <td className="p-3 text-center">
-                      {editable ? (
-                        <div className="inline-flex items-center gap-0 rounded-full border border-line bg-hall p-0.5">
-                          {BUILDS.map((b) => (
-                            <button
-                              key={b} type="button" onClick={() => updateMeta(m.id, 'build', m.shards.build === b ? '' : b)}
-                              className={`px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wide transition-colors ${
-                                m.shards.build === b
-                                  ? (b === 'PvP' ? 'bg-oxblood text-bone' : 'bg-emerald-500 text-ink')
-                                  : 'text-ash hover:text-bone'
-                              }`}
-                            >
-                              {b.toUpperCase()}
-                            </button>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-ash">{m.shards.build || '—'}</span>
-                      )}
+                    <td className="p-3">
+                      <div className="flex flex-wrap items-center gap-1.5 max-w-[280px]">
+                        {weapons.length === 0 && <span className="text-ash/50 text-xs">none set</span>}
+                        {weapons.map((w, i) => (
+                          <span key={i} className="inline-flex items-center gap-1 text-[10px] bg-hall border border-line rounded-full px-2 py-0.5 text-ash" title={w.boss}>
+                            {w.weapon}
+                            {w.build && <span className={w.build === 'PvP' ? 'text-oxblood' : 'text-emerald-400'}>· {w.build}</span>}
+                          </span>
+                        ))}
+                        {editable && (
+                          <button onClick={() => setWeaponModalId(m.id)} className="text-brass hover:text-brassbright shrink-0" title="Edit weapon wishlist">
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </td>
                     {TYPES.map((t) => (
                       <td key={t.key} className="p-3 text-center">
@@ -207,7 +198,6 @@ export default function Shards() {
               <tr className="border-t border-line bg-panelup/60">
                 <td className="p-4 eyebrow text-[10px] text-brass">Guild Total</td>
                 <td></td>
-                <td></td>
                 {TYPES.map((t) => <td key={t.key} className="p-4 text-center font-mono text-brassbright">{totals[t.key]}</td>)}
                 <td className="p-4 text-center font-mono text-brassbright">{TYPES.reduce((a, t) => a + totals[t.key], 0)}</td>
                 <td></td>
@@ -216,6 +206,84 @@ export default function Shards() {
           </table>
         </div>
       )}
+
+      {weaponModalMember && (
+        <WeaponModal
+          member={weaponModalMember}
+          onClose={() => setWeaponModalId(null)}
+          onSave={(weapons) => saveWeapons(weaponModalMember.id, weapons)}
+        />
+      )}
+    </div>
+  );
+}
+
+// Modal for picking specific archboss weapons (with a per-weapon PvP/PvE tag).
+// Keeps its own draft state so nothing is written until "Save".
+function WeaponModal({ member, onClose, onSave }) {
+  const [picks, setPicks] = useState(() => member.shards.weapons || []);
+
+  const findPick = (boss, weapon) => picks.find((p) => p.boss === boss && p.weapon === weapon);
+
+  const toggle = (boss, weapon) => {
+    setPicks((prev) => findPick(boss, weapon)
+      ? prev.filter((p) => !(p.boss === boss && p.weapon === weapon))
+      : [...prev, { boss, weapon, build: '' }]);
+  };
+
+  const setBuild = (boss, weapon, build) => {
+    setPicks((prev) => prev.map((p) => (p.boss === boss && p.weapon === weapon)
+      ? { ...p, build: p.build === build ? '' : build }
+      : p));
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-ink/70 backdrop-blur-sm" onClick={onClose}>
+      <div className="panel rounded-sm p-6 max-w-lg w-full max-h-[85vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="eyebrow text-brass text-[11px] mb-3">Weapon Wishlist</div>
+        <h2 className="font-display text-xl text-bone tracking-[0.06em] mb-4">{member.name}</h2>
+
+        <div className="space-y-5">
+          {Object.entries(BOSS_WEAPONS).map(([boss, weaponList]) => (
+            <div key={boss}>
+              <div className="text-brass text-sm font-semibold mb-2">{boss}</div>
+              <div className="space-y-1.5">
+                {weaponList.map((weapon) => {
+                  const pick = findPick(boss, weapon);
+                  return (
+                    <div key={weapon} className="flex items-center gap-2">
+                      <label className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer select-none">
+                        <input type="checkbox" checked={!!pick} onChange={() => toggle(boss, weapon)} className="accent-brass shrink-0" />
+                        <span className="text-sm text-bone truncate">{weapon}</span>
+                      </label>
+                      {pick && (
+                        <div className="inline-flex items-center gap-0 rounded-full border border-line bg-hall p-0.5 shrink-0">
+                          {BUILDS.map((b) => (
+                            <button key={b} type="button" onClick={() => setBuild(boss, weapon, b)}
+                              className={`px-2 py-0.5 rounded-full text-[9px] font-bold tracking-wide transition-colors ${
+                                pick.build === b ? (b === 'PvP' ? 'bg-oxblood text-bone' : 'bg-emerald-500 text-ink') : 'text-ash hover:text-bone'
+                              }`}
+                            >
+                              {b.toUpperCase()}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex justify-end gap-3 mt-6">
+          <button onClick={onClose} className="px-4 py-2 text-ash hover:text-bone transition-colors">Cancel</button>
+          <button onClick={() => onSave(picks)} className="px-5 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors">
+            Save
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
