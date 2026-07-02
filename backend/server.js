@@ -11,6 +11,8 @@ const cookieParser = require('cookie-parser');
 const { router: authRouter, requireAuth, requireAdmin } = require('./auth');
 const { listMembers } = require('./discord');
 const SHARDS = require('../shared/shards.json');
+const WEAPONS = require('../shared/weapons.json');
+const BUILDS = ['PvP', 'PvE'];
 const createLootCatalog = require('./lootCatalog');
 
 const gateway = require('./discordGateway');
@@ -124,6 +126,8 @@ app.put('/api/shards/:discordId', async (req, res) => {
     const v = parseInt(incoming[t.key], 10);
     shards[t.key] = Math.max(0, Math.min(SHARDS.max, Number.isFinite(v) ? v : 0));
   });
+  shards.weapon = WEAPONS.includes(incoming.weapon) ? incoming.weapon : '';
+  shards.build = BUILDS.includes(incoming.build) ? incoming.build : '';
   const display_name = (req.body?.display_name || req.user.username || '').slice(0, 120);
   const { error } = await supabase.from('shard_counts')
     .upsert({ discord_id: target, display_name, shards, updated_at: new Date().toISOString() });

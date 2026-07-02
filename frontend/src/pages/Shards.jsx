@@ -2,14 +2,18 @@ import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../auth';
 import SHARDS from '../../../shared/shards.json';
+import WEAPONS from '../../../shared/weapons.json';
 import { Check, Loader2, AlertCircle, RefreshCw } from 'lucide-react';
 
 const MAX = SHARDS.max;
 const TYPES = SHARDS.types;
+const BUILDS = ['PvP', 'PvE'];
 
 const normalizeShards = (s) => {
   const out = {};
   TYPES.forEach((t) => { out[t.key] = Math.max(0, Math.min(MAX, Number(s?.[t.key]) || 0)); });
+  out.weapon = WEAPONS.includes(s?.weapon) ? s.weapon : '';
+  out.build = BUILDS.includes(s?.build) ? s.build : '';
   return out;
 };
 const rowTotal = (s) => TYPES.reduce((a, t) => a + (Number(s[t.key]) || 0), 0);
@@ -40,8 +44,7 @@ export default function Shards() {
     setDirty((d) => ({ ...d, [id]: true }));
   };
 
-  const saveRow = (member) => {
-    if (!dirty[member.id]) return;
+  const persist = (member) => {
     setDirty((d) => ({ ...d, [member.id]: false }));
     setStatus((s) => ({ ...s, [member.id]: 'saving' }));
     axios.put(`/api/shards/${member.id}`, { shards: member.shards, display_name: member.name })
@@ -53,6 +56,20 @@ export default function Shards() {
         setStatus((s) => ({ ...s, [member.id]: 'error' }));
         setError(err.response?.data?.error || 'Save failed.');
       });
+  };
+
+  const saveRow = (member) => {
+    if (!dirty[member.id]) return;
+    persist(member);
+  };
+
+  // Weapon/build are selects — save immediately on change rather than waiting for blur.
+  const updateMeta = (id, key, value) => {
+    setMembers((prev) => {
+      const next = prev.map((m) => (m.id === id ? { ...m, shards: { ...m.shards, [key]: value } } : m));
+      persist(next.find((m) => m.id === id));
+      return next;
+    });
   };
 
   // Self pinned to top, then alphabetical; then filtered.
@@ -81,6 +98,7 @@ export default function Shards() {
           ? 'Track every member\u2019s shard requests. You can edit any row.'
           : 'Track your shard requests. You can edit your own row; others are read-only.'} Max {MAX} of each.
       </p>
+      <p className="text-bone font-bold uppercase mt-2">Put how many shard you need</p>
       <div className="rule-fade my-8" />
 
       <div className="flex items-center justify-between mb-5 gap-4">
@@ -101,10 +119,12 @@ export default function Shards() {
         <div className="py-20 text-center text-ash">No members found.</div>
       ) : (
         <div className="panel rounded-sm overflow-auto">
-          <table className="w-full min-w-[820px] text-sm">
+          <table className="w-full min-w-[980px] text-sm">
             <thead className="border-b border-line">
               <tr className="eyebrow text-[10px] text-ash">
                 <th className="p-4 text-left font-normal">Member</th>
+                <th className="p-4 text-center font-normal">Weapon</th>
+                <th className="p-4 text-center font-normal">Build</th>
                 {TYPES.map((t) => <th key={t.key} className="p-4 text-center font-normal">{t.label}</th>)}
                 <th className="p-4 text-center font-normal">Total</th>
                 <th className="p-3 w-8"></th>
@@ -124,6 +144,40 @@ export default function Shards() {
                         <span className="text-bone truncate max-w-[160px]">{m.name}</span>
                         {mine && <span className="text-[9px] eyebrow text-brass border border-brass/40 rounded-full px-1.5 py-0.5">You</span>}
                       </div>
+                    </td>
+                    <td className="p-3 text-center">
+                      {editable ? (
+                        <select
+                          value={m.shards.weapon || ''}
+                          onChange={(e) => updateMeta(m.id, 'weapon', e.target.value)}
+                          className="bg-hall border border-line rounded px-2 py-1.5 text-bone text-xs focus:outline-none focus:border-brass"
+                        >
+                          <option value="">— none —</option>
+                          {WEAPONS.map((w) => <option key={w} value={w}>{w}</option>)}
+                        </select>
+                      ) : (
+                        <span className="text-ash">{m.shards.weapon || '—'}</span>
+                      )}
+                    </td>
+                    <td className="p-3 text-center">
+                      {editable ? (
+                        <div className="inline-flex items-center gap-0 rounded-full border border-line bg-hall p-0.5">
+                          {BUILDS.map((b) => (
+                            <button
+                              key={b} type="button" onClick={() => updateMeta(m.id, 'build', m.shards.build === b ? '' : b)}
+                              className={`px-2.5 py-1 rounded-full text-[10px] font-bold tracking-wide transition-colors ${
+                                m.shards.build === b
+                                  ? (b === 'PvP' ? 'bg-oxblood text-bone' : 'bg-emerald-500 text-ink')
+                                  : 'text-ash hover:text-bone'
+                              }`}
+                            >
+                              {b.toUpperCase()}
+                            </button>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-ash">{m.shards.build || '—'}</span>
+                      )}
                     </td>
                     {TYPES.map((t) => (
                       <td key={t.key} className="p-3 text-center">
@@ -152,6 +206,8 @@ export default function Shards() {
             <tfoot>
               <tr className="border-t border-line bg-panelup/60">
                 <td className="p-4 eyebrow text-[10px] text-brass">Guild Total</td>
+                <td></td>
+                <td></td>
                 {TYPES.map((t) => <td key={t.key} className="p-4 text-center font-mono text-brassbright">{totals[t.key]}</td>)}
                 <td className="p-4 text-center font-mono text-brassbright">{TYPES.reduce((a, t) => a + totals[t.key], 0)}</td>
                 <td></td>
