@@ -3,7 +3,7 @@ import axios from 'axios';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth';
 import Sigil from '../components/Sigil';
-import { ChevronDown, RefreshCw, Gavel, X, ScrollText, Plus, Pencil, Trash2, Upload, History, UserCog } from 'lucide-react';
+import { ChevronDown, RefreshCw, Gavel, X, ScrollText, Plus, Pencil, Trash2, Upload, History, UserPlus } from 'lucide-react';
 import { fmtDatetime } from '../timeUtils';
 import ItemTooltip, { gradeStyle } from '../components/ItemTooltip';
 
@@ -27,7 +27,6 @@ export default function LootTally() {
   const [msg, setMsg] = useState(null);
   const [filter, setFilter] = useState('');
   const [category, setCategory] = useState('');
-  const [showZero, setShowZero] = useState(false);
   const [open, setOpen] = useState(() => new Set());
   const [pending, setPending] = useState(null); // { item, watcher }
   const [busy, setBusy] = useState(false);
@@ -46,11 +45,7 @@ export default function LootTally() {
   const [qlSearching, setQlSearching] = useState(false);
   const [qlAddCat, setQlAddCat] = useState('');
   const [members, setMembers] = useState([]);
-  const [managingWishlist, setManagingWishlist] = useState(false);
-  const [wlMember, setWlMember] = useState('');
-  const [wlAddItem, setWlAddItem] = useState('');
-  const [wlAddPrio, setWlAddPrio] = useState('');
-  const [wlBusy, setWlBusy] = useState(false);
+  const [pickBusy, setPickBusy] = useState(false);
 
   const toggleCat = (key) => setCollapsed((prev) => {
     const next = new Set(prev);
@@ -112,12 +107,11 @@ export default function LootTally() {
             watchers.forEach((w) => { if (byPrio[w.priority] != null) byPrio[w.priority]++; });
             return { ...it, category: cat.label, total: watchers.length, watchers, byPrio, awarded };
           })
-          .filter((it) => (showZero || it.total > 0 || it.awarded.length > 0)
-            && (it.name.toLowerCase().includes(f) || cat.label.toLowerCase().includes(f)));
+          .filter((it) => it.name.toLowerCase().includes(f) || cat.label.toLowerCase().includes(f));
         return { ...cat, items };
       })
       .filter((cat) => cat.items.length > 0 && (!category || cat.label === category));
-  }, [counts, tally, awardsByItem, filter, category, showZero, catalog, PRIO_INDEX]);
+  }, [counts, tally, awardsByItem, filter, category, catalog, PRIO_INDEX]);
 
   const flash = (text, ok = true) => { setMsg({ text, ok }); setTimeout(() => setMsg(null), 3500); };
 
@@ -144,13 +138,13 @@ export default function LootTally() {
 
   const saveMemberPicks = async (discordId, picks) => {
     const member = members.find((m) => m.id === discordId);
-    setWlBusy(true);
+    setPickBusy(true);
     try {
       await axios.put(`/api/loot/${discordId}`, { picks, display_name: member?.name });
       load();
       return true;
     } catch (err) { flash(err.response?.data?.error || 'Failed to update wishlist.', false); return false; }
-    finally { setWlBusy(false); }
+    finally { setPickBusy(false); }
   };
 
   // Flatten a member's picks back to { itemKey: priority } for the save payload —
@@ -158,21 +152,21 @@ export default function LootTally() {
   const flatPicks = (discordId) =>
     Object.fromEntries(Object.entries(picksByMember[discordId] || {}).map(([k, v]) => [k, v.priority]));
 
-  const addToWishlist = () => {
-    if (!wlMember || !wlAddItem || !wlAddPrio) return;
-    const current = flatPicks(wlMember);
-    if (current[wlAddItem] === wlAddPrio) return;
-    const item = itemByKey[wlAddItem];
-    saveMemberPicks(wlMember, { ...current, [wlAddItem]: wlAddPrio })
-      .then((ok) => { if (ok) flash(`Added "${item?.name}" to their wishlist.`); });
-    setWlAddItem(''); setWlAddPrio('');
+  const addPickForItem = (itemKey, discordId, priority) => {
+    const current = flatPicks(discordId);
+    if (current[itemKey] === priority) return;
+    const member = members.find((m) => m.id === discordId);
+    const item = itemByKey[itemKey];
+    saveMemberPicks(discordId, { ...current, [itemKey]: priority })
+      .then((ok) => { if (ok) flash(`Added "${item?.name}" to ${member?.name || "their"}'s wishlist.`); });
   };
 
-  const removeFromWishlist = (discordId, itemKey) => {
+  const removePickForItem = (itemKey, discordId) => {
     const next = flatPicks(discordId);
     delete next[itemKey];
+    const member = members.find((m) => m.id === discordId);
     const item = itemByKey[itemKey];
-    saveMemberPicks(discordId, next).then((ok) => { if (ok) flash(`Removed "${item?.name}" from their wishlist.`); });
+    saveMemberPicks(discordId, next).then((ok) => { if (ok) flash(`Removed "${item?.name}" from ${member?.name || "their"}'s wishlist.`); });
   };
 
   if (!user?.isAdmin) {
@@ -205,77 +199,7 @@ export default function LootTally() {
         <Link to="/admin/loot/history" className="inline-flex items-center gap-2 text-sm text-brass hover:text-brassbright transition-colors">
           <History className="w-4 h-4" /> Loot History
         </Link>
-        <button
-          onClick={() => setManagingWishlist((v) => !v)}
-          className="inline-flex items-center gap-2 text-sm text-brass hover:text-brassbright transition-colors"
-        >
-          <UserCog className="w-4 h-4" /> {managingWishlist ? 'Close wishlist manager' : 'Manage a member’s wishlist'}
-        </button>
       </div>
-
-      {managingWishlist && catalog && (
-        <div className="mb-10 panel rounded-sm p-6 space-y-5">
-          <div className="eyebrow text-brass text-[10px] mb-2">Wishlist Manager</div>
-
-          <select
-            value={wlMember}
-            onChange={(e) => { setWlMember(e.target.value); setWlAddItem(''); setWlAddPrio(''); }}
-            className="bg-hall border border-line rounded-sm px-3 py-2 text-bone focus:outline-none focus:border-brass"
-          >
-            <option value="">— select member —</option>
-            {[...members].sort((a, b) => (a.name || '').localeCompare(b.name || '')).map((m) => (
-              <option key={m.id} value={m.id}>{m.name}</option>
-            ))}
-          </select>
-
-          {wlMember && (
-            <>
-              <div>
-                <label className="eyebrow text-[10px] text-ash block mb-2">Current wishlist</label>
-                <div className="flex flex-wrap gap-2">
-                  {Object.keys(picksByMember[wlMember] || {}).length === 0
-                    ? <span className="text-ash/60 text-xs">Nothing on their wishlist.</span>
-                    : Object.entries(picksByMember[wlMember]).map(([key, { priority, added_at }]) => (
-                      <span key={key} className="inline-flex items-center gap-1.5 text-xs bg-hall border border-line rounded-full pl-3 pr-1.5 py-1 text-ash">
-                        {itemByKey[key]?.name || key} <span className="text-brass">· {PRIO_SHORT[priority] || priority}</span>
-                        {added_at && <span className="text-ash/60 text-[10px]">· added {fmtDatetime(added_at)}</span>}
-                        <button onClick={() => removeFromWishlist(wlMember, key)} disabled={wlBusy}
-                          className="text-ash hover:text-oxblood disabled:opacity-40" aria-label={`Remove ${itemByKey[key]?.name || key}`}>
-                          <X className="w-3 h-3" />
-                        </button>
-                      </span>
-                    ))}
-                </div>
-              </div>
-
-              <div>
-                <label className="eyebrow text-[10px] text-ash block mb-2">Add item</label>
-                <div className="flex flex-wrap items-center gap-2">
-                  <select value={wlAddItem} onChange={(e) => setWlAddItem(e.target.value)}
-                    className="bg-hall border border-line rounded-sm px-3 py-2 text-bone focus:outline-none focus:border-brass flex-1 min-w-[200px]">
-                    <option value="">— item —</option>
-                    {catalog.categories.map((c) => (
-                      <optgroup key={c.key} label={c.label}>
-                        {c.items.map((i) => <option key={i.key} value={i.key}>{i.name}</option>)}
-                      </optgroup>
-                    ))}
-                  </select>
-                  {catalog.priorities.map((p) => (
-                    <button key={p} onClick={() => setWlAddPrio(p)}
-                      className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${wlAddPrio === p ? PRIO_ON[p] : 'border-line text-ash hover:text-bone'}`}>
-                      {PRIO_SHORT[p]}
-                    </button>
-                  ))}
-                  <button onClick={addToWishlist} disabled={!wlAddItem || !wlAddPrio || wlBusy}
-                    className="px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm text-sm transition-colors disabled:opacity-40">
-                    Add
-                  </button>
-                </div>
-              </div>
-            </>
-          )}
-        </div>
-      )}
 
       {managing && catalog && (
         <div className="mb-10 panel rounded-sm p-6 space-y-6">
@@ -537,16 +461,13 @@ export default function LootTally() {
               <option value="">All categories</option>
               {(catalog?.categories || []).map((c) => <option key={c.key} value={c.label}>{c.label}</option>)}
             </select>
-            <label className="inline-flex items-center gap-2 text-sm text-ash cursor-pointer select-none">
-              <input type="checkbox" checked={showZero} onChange={(e) => setShowZero(e.target.checked)} className="accent-brass" /> Show unwanted
-            </label>
             <button onClick={load} className="inline-flex items-center gap-2 text-sm text-ash hover:text-brass"><RefreshCw className="w-4 h-4" /></button>
           </div>
 
           {loading ? (
             <div className="py-20 text-center text-ash">Counting the claims…</div>
           ) : groupedRows.length === 0 ? (
-            <div className="py-20 text-center text-ash">{showZero ? 'No items.' : 'No one has wishlisted anything yet.'}</div>
+            <div className="py-20 text-center text-ash">No items match.</div>
           ) : (
             <div className="space-y-8">
               {groupedRows.map((cat) => (
@@ -559,11 +480,14 @@ export default function LootTally() {
                   {!collapsed.has(cat.key) && <div className="panel rounded-sm divide-y divide-line">
               {cat.items.map((it) => {
                 const isOpen = open.has(it.key);
-                const canOpen = it.watchers.length > 0;
+                const watchingIds = new Set(it.watchers.map((w) => w.discord_id));
+                const eligibleMembers = [...members]
+                  .filter((m) => !watchingIds.has(m.id))
+                  .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
                 return (
                   <div key={it.key}>
-                    <button onClick={() => canOpen && toggle(it.key)}
-                      className={`w-full flex items-center gap-3 px-4 py-3 text-left ${canOpen ? 'hover:bg-panelup' : 'cursor-default'} transition-colors`}>
+                    <button onClick={() => toggle(it.key)}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-panelup transition-colors">
                       <div className="min-w-0 flex-1">
                         <ItemTooltip item={it}>
                           <span className={`truncate ${gradeStyle(it.grade)?.color || 'text-bone'}`}>{it.name}</span>
@@ -577,11 +501,14 @@ export default function LootTally() {
                         ))}
                       </div>
                       <div className="w-8 text-right font-mono text-brassbright shrink-0">{it.total}</div>
-                      <ChevronDown className={`w-4 h-4 shrink-0 transition-transform ${canOpen ? 'text-ash' : 'text-transparent'} ${isOpen ? 'rotate-180' : ''}`} />
+                      <ChevronDown className={`w-4 h-4 shrink-0 transition-transform text-ash ${isOpen ? 'rotate-180' : ''}`} />
                     </button>
 
-                    {isOpen && canOpen && (
+                    {isOpen && (
                       <div className="px-4 pb-3 space-y-1.5">
+                        {it.watchers.length === 0 && (
+                          <div className="text-ash/50 text-xs py-1">No one has wishlisted this.</div>
+                        )}
                         {it.watchers.map((w) => {
                           const award = awardFor(it.key, w.discord_id);
                           return (
@@ -602,9 +529,16 @@ export default function LootTally() {
                                   <Gavel className="w-3 h-3" /> Award
                                 </button>
                               )}
+                              <button onClick={() => removePickForItem(it.key, w.discord_id)} disabled={pickBusy}
+                                className="text-ash hover:text-oxblood disabled:opacity-40" title="Remove from their wishlist"
+                                aria-label={`Remove ${w.name} from wishlist for ${it.name}`}>
+                                <X className="w-3.5 h-3.5" />
+                              </button>
                             </div>
                           );
                         })}
+                        <AddPickRow itemName={it.name} members={eligibleMembers} priorities={catalog?.priorities || []}
+                          busy={pickBusy} onAdd={(discordId, prio) => addPickForItem(it.key, discordId, prio)} />
                       </div>
                     )}
                   </div>
@@ -658,6 +592,40 @@ export default function LootTally() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Inline "add a member to this item's wishlist" control, used inside each expanded item.
+// Kept as its own component so its in-progress selection doesn't leak between items.
+function AddPickRow({ itemName, members, priorities, busy, onAdd }) {
+  const [memberId, setMemberId] = useState('');
+  const [prio, setPrio] = useState('');
+
+  const submit = () => {
+    if (!memberId || !prio) return;
+    onAdd(memberId, prio);
+    setMemberId(''); setPrio('');
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 pt-2 mt-1 border-t border-line/50">
+      <select value={memberId} onChange={(e) => setMemberId(e.target.value)}
+        className="bg-hall border border-line rounded-sm px-2 py-1.5 text-xs text-bone focus:outline-none focus:border-brass flex-1 min-w-[140px]">
+        <option value="">— add member —</option>
+        {members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+      </select>
+      {priorities.map((p) => (
+        <button key={p} type="button" onClick={() => setPrio(p)}
+          className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border transition-colors ${prio === p ? PRIO_ON[p] : 'border-line text-ash hover:text-bone'}`}>
+          {PRIO_SHORT[p]}
+        </button>
+      ))}
+      <button type="button" onClick={submit} disabled={!memberId || !prio || busy}
+        title={`Add to wishlist for ${itemName}`}
+        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors disabled:opacity-40">
+        <UserPlus className="w-3.5 h-3.5" /> Add
+      </button>
     </div>
   );
 }
