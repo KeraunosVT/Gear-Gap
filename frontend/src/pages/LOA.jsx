@@ -122,10 +122,21 @@ export default function LOA() {
     return `${name}${time} — ${new Date(entry.event_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
   };
 
+  // Same as above minus the trailing date — used in the agenda, where the date is already a section header.
+  const formatEventName = (entry) => {
+    const ev = scheduleById[entry.event_schedule_id];
+    const name = ev ? ev.name : 'Event';
+    const time = ev?.event_time ? ` at ${fmtTime(ev.event_time)}` : '';
+    return `${name}${time}`;
+  };
+
   const formatRangeLabel = (entry) => {
     const fmt = (d) => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     return `${fmt(entry.start_date)} – ${fmt(entry.end_date)}`;
   };
+
+  const formatDateHeader = (dateStr) =>
+    new Date(dateStr + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
 
   const upcomingAbsent = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
@@ -135,6 +146,21 @@ export default function LOA() {
       return false;
     });
   }, [allEntries]);
+
+  // Agenda: the same upcoming absences, grouped under a date header and sorted
+  // chronologically (event date, or a range's start date) instead of a flat list.
+  const agendaGroups = useMemo(() => {
+    const groups = {};
+    upcomingAbsent.forEach((e) => {
+      const anchor = e.type === 'event' ? e.event_date : e.start_date;
+      (groups[anchor] = groups[anchor] || []).push(e);
+    });
+    return Object.entries(groups)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, entries]) => ({ date, entries }));
+  }, [upcomingAbsent]);
+
+  const todayStr = new Date().toISOString().slice(0, 10);
 
   const canSubmitEvent = loaType === 'event' && eventDate && eventScheduleId;
   const canSubmitRange = loaType === 'range' && startDate && endDate;
@@ -309,32 +335,42 @@ export default function LOA() {
             </div>
           )}
 
-          {/* LOA Board */}
+          {/* LOA Board — agenda grouped by date, chronological */}
           {tab === 'board' && (
             <div>
-              {upcomingAbsent.length === 0 ? (
+              {agendaGroups.length === 0 ? (
                 <div className="panel rounded-sm p-10 text-center text-ash">No upcoming absences on file.</div>
               ) : (
-                <div className="panel rounded-sm divide-y divide-line">
-                  {upcomingAbsent.map((e) => (
-                    <div key={e.id} className="flex items-center gap-4 px-5 py-3">
-                      <div className="flex items-center gap-2 shrink-0">
-                        {e.type === 'event'
-                          ? <CalendarX2 className="w-4 h-4 text-brass" />
-                          : <CalendarOff className="w-4 h-4 text-brass" />}
+                <div className="space-y-6">
+                  {agendaGroups.map(({ date, entries }) => (
+                    <div key={date}>
+                      <div className="eyebrow text-[10px] text-brass mb-2 flex items-center gap-2">
+                        {formatDateHeader(date)}
+                        {date === todayStr && <span className="text-oxblood">· Today</span>}
                       </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-bone text-sm font-medium">{e.display_name || 'Member'}</div>
-                        <div className="text-xs text-ash">
-                          {e.type === 'event' ? formatEventLabel(e) : formatRangeLabel(e)}
-                        </div>
-                        {user?.isAdmin && e.reason && <div className="text-xs text-brass/70 mt-0.5">{e.reason}</div>}
+                      <div className="panel rounded-sm divide-y divide-line">
+                        {entries.map((e) => (
+                          <div key={e.id} className="flex items-center gap-4 px-5 py-3">
+                            <div className="flex items-center gap-2 shrink-0">
+                              {e.type === 'event'
+                                ? <CalendarX2 className="w-4 h-4 text-brass" />
+                                : <CalendarOff className="w-4 h-4 text-brass" />}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="text-bone text-sm font-medium">{e.display_name || 'Member'}</div>
+                              <div className="text-xs text-ash">
+                                {e.type === 'event' ? formatEventName(e) : formatRangeLabel(e)}
+                              </div>
+                              {user?.isAdmin && e.reason && <div className="text-xs text-brass/70 mt-0.5">{e.reason}</div>}
+                            </div>
+                            {(user?.isAdmin || e.discord_id === user?.id) && (
+                              <button onClick={() => cancel(e.id)} className="text-ash hover:text-oxblood shrink-0" title="Cancel LOA">
+                                <X className="w-4 h-4" />
+                              </button>
+                            )}
+                          </div>
+                        ))}
                       </div>
-                      {(user?.isAdmin || e.discord_id === user?.id) && (
-                        <button onClick={() => cancel(e.id)} className="text-ash hover:text-oxblood shrink-0" title="Cancel LOA">
-                          <X className="w-4 h-4" />
-                        </button>
-                      )}
                     </div>
                   ))}
                 </div>
