@@ -35,13 +35,13 @@
   "StaffWand": "Invocator",
   "WandLongbow": "Seeker",
   "WandOrb": "Oracle",
-  "GauntletSnS": "Bastion",
-  "GauntletDagger": "Brawler",
-  "GauntletOrb": "Bulwark",
-  "GauntletStaff": "Channeler",
-  "GauntletGreatsword": "Juggernaut",
-  "GauntletCrossbow": "Marauder",
-  "GauntletWand": "Mystic",
-  "GauntletSpear": "Skirmisher",
-  "GauntletLongbow": "Strider"
+  "GauntletSnS": "Juggernaut",
+  "GauntletDagger": "Predator",
+  "GauntletOrb": "Soulcrusher",
+  "GauntletStaff": "Archon",
+  "GauntletGreatsword": "Mauler",
+  "GauntletCrossbow": "Shrike",
+  "GauntletWand": "Tormentor",
+  "GauntletSpear": "Destroyer",
+  "GauntletLongbow": "Mobilist"
 }
