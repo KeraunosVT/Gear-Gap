@@ -25,10 +25,10 @@ const POOL_ROLE_KEY = { Tank: 'pool_tank', DPS: 'pool_dps', Healer: 'pool_healer
 const POOL_KEYS = ['pool_unassigned', 'pool_tank', 'pool_dps', 'pool_healer'];
 const poolForRole = (role) => POOL_ROLE_KEY[role] || 'pool_unassigned';
 const POOL_META = [
-  { key: 'pool_unassigned', label: 'Unassigned', dot: 'bg-ash' },
   { key: 'pool_tank', label: 'Tank', dot: 'bg-sky-400' },
   { key: 'pool_dps', label: 'DPS', dot: 'bg-oxblood' },
   { key: 'pool_healer', label: 'Healer', dot: 'bg-emerald-400' },
+  { key: 'pool_unassigned', label: 'Unassigned', dot: 'bg-ash' },
 ];
 
 const initItems = () => ({
@@ -488,7 +488,7 @@ export default function Parties() {
 
       <DndContext sensors={sensors} collisionDetection={closestCorners}
         onDragStart={({ active }) => setActiveId(active.id)} onDragOver={onDragOver} onDragEnd={onDragEnd}>
-        <div className="grid grid-cols-1 lg:grid-cols-[560px_1fr] gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
           {/* Pools + Absent */}
           <div className="flex flex-col gap-4 lg:sticky lg:top-20 lg:self-start">
             <div className="panel rounded-sm p-3">
@@ -507,13 +507,13 @@ export default function Parties() {
                 {membersError}<button onClick={loadMembers} className="block mt-2 text-brass hover:text-brassbright">Retry</button>
               </div>
             ) : (
-              <div className="grid grid-cols-2 gap-4">
-                {POOL_META.map(({ key, label, dot }) => (
+              <div className="grid grid-cols-1 gap-4">
+                {POOL_META.filter(({ key }) => items[key].length > 0).map(({ key, label, dot }) => (
                   <DroppableColumn key={key} id={key} itemIds={poolViews[key]} className="panel rounded-sm p-3">
                     <div className="eyebrow text-[10px] text-ash flex items-center gap-2 mb-2">
                       <span className={`w-2 h-2 rounded-full ${dot}`} /> {label} ({items[key].length})
                     </div>
-                    <div className="space-y-2 max-h-[420px] overflow-auto pr-1 min-h-[50px]">
+                    <div className="space-y-2 max-h-[260px] overflow-auto pr-1 min-h-[50px]">
                       {poolViews[key].length === 0
                         ? <div className="text-ash/50 text-xs py-4 text-center">Empty</div>
                         : poolViews[key].map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} isLoa={loaSet.has(id)} classMode={classMode} assignedClass={classAssignments[classMode][id]} onClassChange={(cls) => setMemberClass(classMode, id, cls)} />)}
