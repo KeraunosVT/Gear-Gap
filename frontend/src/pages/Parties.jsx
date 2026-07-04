@@ -19,7 +19,23 @@ const ROLE_STYLE = {
 };
 const PARTY_SIZE = 6;
 const PARTY_IDS = Array.from({ length: 12 }, (_, i) => `p${i + 1}`);
-const initItems = () => ({ pool: [], absent: [], ...Object.fromEntries(PARTY_IDS.map((id) => [id, []])) });
+
+// Members sit in a role-specific pool (or "unassigned" if no role is set yet).
+const POOL_ROLE_KEY = { Tank: 'pool_tank', DPS: 'pool_dps', Healer: 'pool_healer' };
+const POOL_KEYS = ['pool_unassigned', 'pool_tank', 'pool_dps', 'pool_healer'];
+const poolForRole = (role) => POOL_ROLE_KEY[role] || 'pool_unassigned';
+const POOL_META = [
+  { key: 'pool_unassigned', label: 'Unassigned', dot: 'bg-ash' },
+  { key: 'pool_tank', label: 'Tank', dot: 'bg-sky-400' },
+  { key: 'pool_dps', label: 'DPS', dot: 'bg-oxblood' },
+  { key: 'pool_healer', label: 'Healer', dot: 'bg-emerald-400' },
+];
+
+const initItems = () => ({
+  ...Object.fromEntries(POOL_KEYS.map((k) => [k, []])),
+  absent: [],
+  ...Object.fromEntries(PARTY_IDS.map((id) => [id, []])),
+});
 const initNames = () => Object.fromEntries(PARTY_IDS.map((id, i) => [id, `Party ${i + 1}`]));
 const findContainer = (id, src) => (id in src ? id : Object.keys(src).find((k) => src[k].includes(id)));
 
@@ -166,6 +182,9 @@ export default function Parties() {
   const loaSetRef = useRef(loaSet);
   useEffect(() => { loaSetRef.current = loaSet; }, [loaSet]);
 
+  const rolesRef = useRef(roles);
+  useEffect(() => { rolesRef.current = roles; }, [roles]);
+
   const byId = useMemo(() => {
     const m = {};
     members.forEach((x) => { m[x.id] = x; });
@@ -173,10 +192,12 @@ export default function Parties() {
     return m;
   }, [members, extra]);
 
-  const poolView = useMemo(
-    () => items.pool.filter((id) => (byId[id]?.name || '').toLowerCase().includes(filter.toLowerCase())),
-    [items.pool, byId, filter]
-  );
+  const poolViews = useMemo(() => {
+    const f = filter.toLowerCase();
+    const views = {};
+    POOL_KEYS.forEach((k) => { views[k] = items[k].filter((id) => (byId[id]?.name || '').toLowerCase().includes(f)); });
+    return views;
+  }, [items, byId, filter]);
 
   const loadMembers = () => {
     setLoadingMembers(true); setMembersError('');
@@ -184,21 +205,23 @@ export default function Parties() {
       .then((res) => {
         const ms = res.data.members || [];
         setMembers(ms);
-        setRoles((prev) => {
-          const seeded = {};
-          ms.forEach((m) => { if (m.role) seeded[m.id] = m.role; });
-          return { ...seeded, ...prev };
-        });
-        // Put any members not already placed into the pool, or the absent box if they're on LOA.
+        const seeded = {};
+        ms.forEach((m) => { if (m.role) seeded[m.id] = m.role; });
+        const merged = { ...seeded, ...rolesRef.current };
+        setRoles(merged);
+        // Put any members not already placed into the pool matching their role,
+        // or the absent box if they're on LOA.
         setItems((prev) => {
           const placed = new Set([...PARTY_IDS, 'absent'].flatMap((k) => prev[k]));
           const unplaced = ms.map((m) => m.id).filter((id) => !placed.has(id));
           const loa = loaSetRef.current;
-          return {
-            ...prev,
-            pool: unplaced.filter((id) => !loa.has(id)),
-            absent: [...prev.absent, ...unplaced.filter((id) => loa.has(id))],
-          };
+          const next = { ...prev };
+          POOL_KEYS.forEach((k) => { next[k] = []; });
+          unplaced.forEach((id) => {
+            if (!loa.has(id)) next[poolForRole(merged[id])].push(id);
+          });
+          next.absent = [...prev.absent, ...unplaced.filter((id) => loa.has(id))];
+          return next;
         });
       })
       .catch((err) => setMembersError(err.response?.data?.error || 'Could not load members.'))
@@ -238,7 +261,7 @@ export default function Parties() {
     setItems((prev) => {
       const moving = [];
       const next = { ...prev };
-      ['pool', ...PARTY_IDS].forEach((key) => {
+      [...POOL_KEYS, ...PARTY_IDS].forEach((key) => {
         const stay = prev[key].filter((id) => {
           if (loaSet.has(id)) { moving.push(id); return false; }
           return true;
@@ -271,7 +294,7 @@ export default function Parties() {
       const ac = findContainer(activeId, prev);
       const oc = findContainer(overId, prev);
       if (!ac || !oc || ac === oc) return prev;
-      if (oc !== 'pool' && oc !== 'absent' && prev[oc].length >= PARTY_SIZE) return prev; // party full
+      if (!POOL_KEYS.includes(oc) && oc !== 'absent' && prev[oc].length >= PARTY_SIZE) return prev; // party full
       const activeItems = prev[ac];
       const overItems = prev[oc];
       const overIndex = overItems.indexOf(overId);
@@ -308,12 +331,23 @@ export default function Parties() {
     });
   };
 
-  const setRole = (id, role) =>
-    setRoles((r) => {
-      const next = r[id] === role ? '' : role;
-      axios.put('/api/admin/member-roles', { id, role: next }).catch(() => {});
-      return { ...r, [id]: next };
+  const setRole = (id, role) => {
+    const next = roles[id] === role ? '' : role;
+    setRoles((r) => ({ ...r, [id]: next }));
+    axios.put('/api/admin/member-roles', { id, role: next }).catch(() => {});
+    // If they're sitting in a pool (not a party or absent), move them to the pool matching their new role.
+    setItems((prev) => {
+      const container = findContainer(id, prev);
+      if (!POOL_KEYS.includes(container)) return prev;
+      const dest = poolForRole(next);
+      if (dest === container) return prev;
+      return {
+        ...prev,
+        [container]: prev[container].filter((x) => x !== id),
+        [dest]: [...prev[dest], id],
+      };
     });
+  };
 
   const renameParty = (id, name) => setPartyNames((n) => ({ ...n, [id]: name }));
 
@@ -328,8 +362,12 @@ export default function Parties() {
     }));
 
   const resetBoard = () => {
-    const ids = members.map((m) => m.id);
-    setItems({ ...initItems(), pool: ids.filter((id) => !loaSet.has(id)), absent: ids.filter((id) => loaSet.has(id)) });
+    const next = initItems();
+    members.forEach((m) => {
+      if (loaSet.has(m.id)) next.absent.push(m.id);
+      else next[poolForRole(roles[m.id])].push(m.id);
+    });
+    setItems(next);
     setPartyNames(initNames()); setRoles((r) => r); setRosterId(null); setRosterName(''); setExtra({});
     setClassAssignments({ pvp: {}, pve: {} });
   };
@@ -366,8 +404,11 @@ export default function Parties() {
       });
       const assigned = new Set(PARTY_IDS.flatMap((p) => nextItems[p]));
       const unassigned = members.map((m) => m.id).filter((mid) => !assigned.has(mid));
-      nextItems.pool = unassigned.filter((id) => !loaSet.has(id));
-      nextItems.absent = unassigned.filter((id) => loaSet.has(id));
+      const mergedRoles = { ...roles, ...nextRoles };
+      unassigned.forEach((id) => {
+        if (loaSet.has(id)) nextItems.absent.push(id);
+        else nextItems[poolForRole(mergedRoles[id])].push(id);
+      });
       setItems(nextItems); setPartyNames(nextNames);
       setRoles((prev) => ({ ...prev, ...nextRoles })); setExtra(nextExtra);
       setClassAssignments(r.layout?.classAssignments || { pvp: {}, pve: {} });
@@ -447,26 +488,40 @@ export default function Parties() {
 
       <DndContext sensors={sensors} collisionDetection={closestCorners}
         onDragStart={({ active }) => setActiveId(active.id)} onDragOver={onDragOver} onDragEnd={onDragEnd}>
-        <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
-          {/* Pool + Absent */}
-          <div className="flex flex-col gap-6 lg:sticky lg:top-20 lg:self-start">
-            <DroppableColumn id="pool" itemIds={poolView} className="panel rounded-sm p-4">
-              <div className="flex items-center justify-between mb-3">
-                <div className="eyebrow text-[10px] text-brass flex items-center gap-2"><Users className="w-3.5 h-3.5" /> Pool ({items.pool.length})</div>
+        <div className="grid grid-cols-1 lg:grid-cols-[560px_1fr] gap-6">
+          {/* Pools + Absent */}
+          <div className="flex flex-col gap-4 lg:sticky lg:top-20 lg:self-start">
+            <div className="panel rounded-sm p-3">
+              <div className="flex items-center justify-between mb-2">
+                <div className="eyebrow text-[10px] text-brass flex items-center gap-2"><Users className="w-3.5 h-3.5" /> Pool</div>
                 <button onClick={loadMembers} className="text-ash hover:text-brass" title="Reload members"><RefreshCw className="w-3.5 h-3.5" /></button>
               </div>
               <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search…"
-                className="w-full bg-hall border border-line rounded px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass mb-3" />
-              <div className="space-y-2 max-h-[640px] overflow-auto pr-1 min-h-[60px]">
-                {loadingMembers ? <div className="text-ash text-sm py-6 text-center">Loading members…</div>
-                  : membersError ? (
-                    <div className="text-sm text-bone border border-oxblood/40 bg-oxblooddeep/20 rounded p-3">
-                      {membersError}<button onClick={loadMembers} className="block mt-2 text-brass hover:text-brassbright">Retry</button>
-                    </div>
-                  ) : poolView.length === 0 ? <div className="text-ash text-sm py-6 text-center">Everyone's assigned.</div>
-                  : poolView.map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} isLoa={loaSet.has(id)} classMode={classMode} assignedClass={classAssignments[classMode][id]} onClassChange={(cls) => setMemberClass(classMode, id, cls)} />)}
+                className="w-full bg-hall border border-line rounded px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass" />
+            </div>
+
+            {loadingMembers ? (
+              <div className="panel rounded-sm p-6 text-ash text-sm text-center">Loading members…</div>
+            ) : membersError ? (
+              <div className="panel rounded-sm p-4 text-sm text-bone border border-oxblood/40 bg-oxblooddeep/20">
+                {membersError}<button onClick={loadMembers} className="block mt-2 text-brass hover:text-brassbright">Retry</button>
               </div>
-            </DroppableColumn>
+            ) : (
+              <div className="grid grid-cols-2 gap-4">
+                {POOL_META.map(({ key, label, dot }) => (
+                  <DroppableColumn key={key} id={key} itemIds={poolViews[key]} className="panel rounded-sm p-3">
+                    <div className="eyebrow text-[10px] text-ash flex items-center gap-2 mb-2">
+                      <span className={`w-2 h-2 rounded-full ${dot}`} /> {label} ({items[key].length})
+                    </div>
+                    <div className="space-y-2 max-h-[420px] overflow-auto pr-1 min-h-[50px]">
+                      {poolViews[key].length === 0
+                        ? <div className="text-ash/50 text-xs py-4 text-center">Empty</div>
+                        : poolViews[key].map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} isLoa={loaSet.has(id)} classMode={classMode} assignedClass={classAssignments[classMode][id]} onClassChange={(cls) => setMemberClass(classMode, id, cls)} />)}
+                    </div>
+                  </DroppableColumn>
+                ))}
+              </div>
+            )}
 
             <DroppableColumn id="absent" itemIds={items.absent} className="panel rounded-sm p-4">
               <div className="flex items-center justify-between mb-3">
