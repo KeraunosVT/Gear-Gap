@@ -361,6 +361,9 @@ export default function Parties() {
       members: items[pid].map((id) => ({ id, name: byId[id]?.name || 'Unknown', role: roles[id] || '' })),
     }));
 
+  const buildPayloadAbsent = () =>
+    items.absent.map((id) => ({ id, name: byId[id]?.name || 'Unknown', role: roles[id] || '' }));
+
   const resetBoard = () => {
     const next = initItems();
     members.forEach((m) => {
@@ -375,7 +378,7 @@ export default function Parties() {
   const save = async () => {
     if (!rosterName.trim()) return flash('Name the roster first.', false);
     setBusy(true);
-    const layout = { parties: buildPayloadParties(), classAssignments };
+    const layout = { parties: buildPayloadParties(), absent: buildPayloadAbsent(), classAssignments };
     try {
       if (rosterId) await axios.put(`/api/admin/rosters/${rosterId}`, { name: rosterName, layout });
       else { const res = await axios.post('/api/admin/rosters', { name: rosterName, layout }); setRosterId(res.data.id); }
@@ -402,7 +405,13 @@ export default function Parties() {
           if (!members.find((x) => x.id === m.id)) nextExtra[m.id] = { id: m.id, name: m.name, missing: true };
         });
       });
-      const assigned = new Set(PARTY_IDS.flatMap((p) => nextItems[p]));
+      // Absent membership is whatever was saved with the roster, not the current LOA status.
+      (r.layout?.absent || []).forEach((m) => {
+        nextItems.absent.push(m.id);
+        if (m.role) nextRoles[m.id] = m.role;
+        if (!members.find((x) => x.id === m.id)) nextExtra[m.id] = { id: m.id, name: m.name, missing: true };
+      });
+      const assigned = new Set([...PARTY_IDS, 'absent'].flatMap((p) => nextItems[p]));
       const unassigned = members.map((m) => m.id).filter((mid) => !assigned.has(mid));
       const mergedRoles = { ...roles, ...nextRoles };
       unassigned.forEach((id) => {
