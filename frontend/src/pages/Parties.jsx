@@ -508,7 +508,7 @@ export default function Parties() {
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-4">
-                {POOL_META.filter(({ key }) => items[key].length > 0).map(({ key, label, dot }) => (
+                {POOL_META.filter(({ key }) => activeId || items[key].length > 0).map(({ key, label, dot }) => (
                   <DroppableColumn key={key} id={key} itemIds={poolViews[key]} className="panel rounded-sm p-3">
                     <div className="eyebrow text-[10px] text-ash flex items-center gap-2 mb-2">
                       <span className={`w-2 h-2 rounded-full ${dot}`} /> {label} ({items[key].length})
