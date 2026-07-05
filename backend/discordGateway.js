@@ -113,7 +113,10 @@ async function handleReport(interaction) {
     const row = await eliteTimers.report(location, killedAt, interaction.user.username);
     const killedUnix = Math.floor(new Date(row.killed_at).getTime() / 1000);
     const spawnUnix = Math.floor(new Date(row.next_spawn_at).getTime() / 1000);
-    await interaction.deleteReply();
+    // Edit the ephemeral placeholder to a quiet confirmation, then post the actual
+    // timer info as a normal public follow-up — deleting the placeholder first caused
+    // a "message could not be loaded" flash in Discord's client.
+    await interaction.editReply('Recorded ✅');
     await interaction.followUp(
       `**${location}** killed at <t:${killedUnix}:t> — next spawn <t:${spawnUnix}:F> (<t:${spawnUnix}:R>).`
     );
