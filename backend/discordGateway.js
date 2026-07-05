@@ -83,30 +83,33 @@ async function registerCommands() {
 
 async function handleInteraction(interaction) {
   if (!interaction.isChatInputCommand() || interaction.commandName !== 'elitetimer') return;
+
+  // Ack immediately — Discord requires a response within 3s, and the Supabase
+  // round-trip below can occasionally be slower than that. Deferring buys 15 minutes.
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
   if (!eliteTimers) {
-    return interaction.reply({ content: 'Elite timers are not configured right now.', flags: MessageFlags.Ephemeral });
+    return interaction.editReply('Elite timers are not configured right now.');
   }
 
   const location = interaction.options.getString('location');
   const timeInput = interaction.options.getString('time');
   const killedAt = eliteTimers.parseGuildTimeToday(timeInput);
   if (!killedAt) {
-    return interaction.reply({
-      content: `Couldn't understand "${timeInput}" as a time. Try something like \`6:40pm\`.`,
-      flags: MessageFlags.Ephemeral,
-    });
+    return interaction.editReply(`Couldn't understand "${timeInput}" as a time. Try something like \`6:40pm\`.`);
   }
 
   try {
     const row = await eliteTimers.report(location, killedAt, interaction.user.username);
     const killedUnix = Math.floor(new Date(row.killed_at).getTime() / 1000);
     const spawnUnix = Math.floor(new Date(row.next_spawn_at).getTime() / 1000);
-    await interaction.reply(
+    await interaction.deleteReply();
+    await interaction.followUp(
       `**${location}** killed at <t:${killedUnix}:t> — next spawn <t:${spawnUnix}:F> (<t:${spawnUnix}:R>).`
     );
   } catch (err) {
     console.error('elitetimer command error:', err.message);
-    await interaction.reply({ content: 'Something went wrong saving that timer.', flags: MessageFlags.Ephemeral });
+    await interaction.editReply('Something went wrong saving that timer.');
   }
 }
 
