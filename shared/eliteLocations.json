@@ -1,0 +1,6 @@
+{
+  "Laslan": { "respawnHours": 4 },
+  "Stoneguard": { "respawnHours": 4 },
+  "Talandre": { "respawnHours": 6 },
+  "Nyx": { "respawnHours": 6 }
+}

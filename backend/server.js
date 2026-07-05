@@ -19,7 +19,6 @@ const VALID_BOSS_WEAPONS = new Set(
 const createLootCatalog = require('./lootCatalog');
 
 const gateway = require('./discordGateway');
-gateway.start();
 
 const app = express();
 
@@ -43,6 +42,9 @@ try {
 }
 
 const lootCatalog = supabase ? createLootCatalog(supabase) : null;
+
+// The gateway needs Supabase for /elitetimer persistence, so start it after setup.
+gateway.start(supabase);
 
 // ── GUILD ALIASES ────────────────────────────────────────────────────────────
 // Our guild has changed names over time. Collapse all past names to the current
