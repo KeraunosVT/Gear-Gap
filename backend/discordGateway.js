@@ -55,13 +55,13 @@ function getGuild() {
   return client.guilds.cache.get(GUILD_ID) || null;
 }
 
-// ── /elitetimer ──────────────────────────────────────────────────────────────
+// ── /elitetimer, /elitetimers ────────────────────────────────────────────────
 async function registerCommands() {
   if (!CLIENT_ID) {
-    console.warn('⚠️  DISCORD_CLIENT_ID missing — /elitetimer command was not registered.');
+    console.warn('⚠️  DISCORD_CLIENT_ID missing — elite timer commands were not registered.');
     return;
   }
-  const command = new SlashCommandBuilder()
+  const reportCommand = new SlashCommandBuilder()
     .setName('elitetimer')
     .setDescription('Report an elite boss kill and start its respawn timer.')
     .addStringOption((opt) =>
@@ -72,18 +72,28 @@ async function registerCommands() {
       opt.setName('time').setDescription('Kill time, e.g. 6:40pm').setRequired(true)
     );
 
+  const listCommand = new SlashCommandBuilder()
+    .setName('elitetimers')
+    .setDescription('Show the current respawn status of all elite bosses.');
+
   try {
     const rest = new REST({ version: '10' }).setToken(BOT_TOKEN);
-    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: [command.toJSON()] });
-    console.log('✅ /elitetimer command registered');
+    await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), {
+      body: [reportCommand.toJSON(), listCommand.toJSON()],
+    });
+    console.log('✅ /elitetimer and /elitetimers commands registered');
   } catch (err) {
-    console.error('❌ Failed to register /elitetimer:', err.message);
+    console.error('❌ Failed to register elite timer commands:', err.message);
   }
 }
 
 async function handleInteraction(interaction) {
-  if (!interaction.isChatInputCommand() || interaction.commandName !== 'elitetimer') return;
+  if (!interaction.isChatInputCommand()) return;
+  if (interaction.commandName === 'elitetimer') return handleReport(interaction);
+  if (interaction.commandName === 'elitetimers') return handleList(interaction);
+}
 
+async function handleReport(interaction) {
   // Ack immediately — Discord requires a response within 3s, and the Supabase
   // round-trip below can occasionally be slower than that. Deferring buys 15 minutes.
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
@@ -110,6 +120,33 @@ async function handleInteraction(interaction) {
   } catch (err) {
     console.error('elitetimer command error:', err.message);
     await interaction.editReply('Something went wrong saving that timer.');
+  }
+}
+
+async function handleList(interaction) {
+  await interaction.deferReply();
+
+  if (!eliteTimers) {
+    return interaction.editReply('Elite timers are not configured right now.');
+  }
+
+  try {
+    const rows = await eliteTimers.all();
+    const byLocation = Object.fromEntries(rows.map((r) => [r.location, r]));
+    const now = Date.now();
+    const lines = eliteTimers.locations.map((loc) => {
+      const row = byLocation[loc];
+      if (!row) return `**${loc}** — no report yet`;
+      const spawnUnix = Math.floor(new Date(row.next_spawn_at).getTime() / 1000);
+      if (new Date(row.next_spawn_at).getTime() > now) {
+        return `**${loc}** — spawns <t:${spawnUnix}:R> (<t:${spawnUnix}:t>)`;
+      }
+      return `**${loc}** — spawn window open (last reported <t:${spawnUnix}:R>)`;
+    });
+    await interaction.editReply(lines.join('\n'));
+  } catch (err) {
+    console.error('elitetimers command error:', err.message);
+    await interaction.editReply('Something went wrong reading the timers.');
   }
 }
 
