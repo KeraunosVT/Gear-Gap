@@ -156,20 +156,34 @@ async function handleList(interaction) {
 async function sweepEliteTimers() {
   if (!eliteTimers || !ready) return;
   if (!ELITE_CHANNEL_ID) return;
+
+  let due;
   try {
-    const due = await eliteTimers.getDue(WARNING_WINDOW_MS);
-    if (due.length === 0) return;
-    const guild = getGuild();
-    const channel = guild?.channels.cache.get(ELITE_CHANNEL_ID);
-    for (const row of due) {
-      const spawnUnix = Math.floor(new Date(row.next_spawn_at).getTime() / 1000);
-      if (channel?.isTextBased()) {
-        await channel.send(`⏰ **${row.location}** spawns <t:${spawnUnix}:R> (<t:${spawnUnix}:t>)!`);
-      }
-      await eliteTimers.markPinged(row.location);
-    }
+    due = await eliteTimers.getDue(WARNING_WINDOW_MS);
   } catch (err) {
     console.error('Elite timer sweep error:', err.message);
+    return;
+  }
+  if (due.length === 0) return;
+
+  const guild = getGuild();
+  const channel = guild?.channels.cache.get(ELITE_CHANNEL_ID);
+  if (!channel?.isTextBased()) {
+    console.error(`Elite timer sweep error: channel ${ELITE_CHANNEL_ID} not found or not text-based (check DISCORD_ELITE_CHANNEL_ID and bot permissions).`);
+    return;
+  }
+
+  // Each location pings independently — one failure (e.g. a permissions issue)
+  // shouldn't block the others, and a failed send leaves `pinged` false so it
+  // retries next sweep instead of being silently skipped forever.
+  for (const row of due) {
+    try {
+      const spawnUnix = Math.floor(new Date(row.next_spawn_at).getTime() / 1000);
+      await channel.send(`⏰ **${row.location}** spawns <t:${spawnUnix}:R> (<t:${spawnUnix}:t>)!`);
+      await eliteTimers.markPinged(row.location);
+    } catch (err) {
+      console.error(`Elite timer sweep error for ${row.location}:`, err.message);
+    }
   }
 }
 
