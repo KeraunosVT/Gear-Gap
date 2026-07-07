@@ -4,7 +4,7 @@ import axios from 'axios';
 import { useAuth } from '../auth';
 import Sigil from '../components/Sigil';
 import weaponToClass from '../../../shared/weaponClasses.json';
-import { UploadCloud, Plus, Trash2, X, Image as ImageIcon, FileSpreadsheet, Loader2, Check, AlertCircle, RotateCw } from 'lucide-react';
+import { UploadCloud, Plus, Trash2, X, Image as ImageIcon, FileSpreadsheet, Loader2, Check, AlertCircle, RotateCw, Map as MapIcon } from 'lucide-react';
 
 const WEAPONS = ['SnS', 'Greatsword', 'Dagger', 'Crossbow', 'Longbow', 'Staff', 'Wand', 'Spear', 'Orb', 'Gauntlet'];
 const STAT_COLS = ['kills', 'assists', 'damage_dealt', 'damage_taken', 'healing'];
@@ -49,6 +49,10 @@ export default function Admin() {
   const [title, setTitle] = useState('');
   const [matchDate, setMatchDate] = useState('');
   const [result, setResult] = useState('');
+  const [map, setMap] = useState('');
+  const [maps, setMaps] = useState([]);
+  const [showMapAdmin, setShowMapAdmin] = useState(false);
+  const [newMapName, setNewMapName] = useState('');
   const [players, setPlayers] = useState(null);
   const [warnings, setWarnings] = useState([]);
   const [running, setRunning] = useState(false);   // a parse pass is in progress
@@ -74,6 +78,23 @@ export default function Admin() {
       .catch(() => setMappedNames(new Set()));
   }, []);
 
+  const loadMaps = () => {
+    axios.get('/api/maps').then((res) => setMaps(res.data.maps || [])).catch(() => {});
+  };
+  useEffect(() => { loadMaps(); }, []);
+
+  const addMap = () => {
+    if (!newMapName.trim()) return;
+    axios.post('/api/admin/maps', { name: newMapName.trim() })
+      .then(() => { setNewMapName(''); loadMaps(); })
+      .catch((err) => setError(err.response?.data?.error || 'Failed to add map.'));
+  };
+  const deleteMap = (id) => {
+    axios.delete(`/api/admin/maps/${id}`)
+      .then(loadMaps)
+      .catch((err) => setError(err.response?.data?.error || 'Failed to delete map.'));
+  };
+
   // Load existing match when ?edit=<id> is in the URL.
   useEffect(() => {
     const editId = searchParams.get('edit');
@@ -87,6 +108,7 @@ export default function Admin() {
         setTitle(m.title || '');
         setMatchDate(m.match_date ? m.match_date.slice(0, 10) : '');
         setResult(m.result || '');
+        setMap(m.map || '');
         setPlayers(res.data.players || []);
         setWarnings([]);
         setDone(null);
@@ -190,12 +212,12 @@ export default function Admin() {
     try {
       let res;
       if (editingMatchId) {
-        res = await axios.put(`/api/admin/match/${editingMatchId}`, { title, match_date: matchDate, result, players });
+        res = await axios.put(`/api/admin/match/${editingMatchId}`, { title, match_date: matchDate, result, map, players });
       } else {
-        res = await axios.post('/api/admin/match/commit', { title, match_date: matchDate, result, players });
+        res = await axios.post('/api/admin/match/commit', { title, match_date: matchDate, result, map, players });
       }
       setDone(editingMatchId ? { ...res.data, edited: true } : res.data);
-      setPlayers(null); setItems([]); setTitle(''); setMatchDate(''); setResult(''); setWarnings([]);
+      setPlayers(null); setItems([]); setTitle(''); setMatchDate(''); setResult(''); setMap(''); setWarnings([]);
       if (editingMatchId) {
         setEditingMatchId(null);
         setSearchParams({});
@@ -218,6 +240,41 @@ export default function Admin() {
           ? 'Revise the record — update any row, then save your changes.'
           : 'Read results screenshots or a CSV, review every row, then commit it to the record.'}
       </p>
+
+      <div className="mt-6">
+        <button
+          onClick={() => setShowMapAdmin((v) => !v)}
+          className="inline-flex items-center gap-2 text-sm text-brass hover:text-brassbright transition-colors"
+        >
+          <MapIcon className="w-4 h-4" /> {showMapAdmin ? 'Close map manager' : 'Manage maps'}
+        </button>
+      </div>
+
+      {showMapAdmin && (
+        <div className="mt-6 panel rounded-sm p-6">
+          <div className="eyebrow text-brass text-[10px] mb-4">Wargame Maps</div>
+          <div className="flex gap-2 mb-4">
+            <input value={newMapName} onChange={(e) => setNewMapName(e.target.value)} placeholder="Map name"
+              onKeyDown={(e) => { if (e.key === 'Enter') addMap(); }}
+              className="bg-hall border border-line rounded-sm px-3 py-2 text-bone focus:outline-none focus:border-brass flex-1" />
+            <button onClick={addMap} disabled={!newMapName.trim()}
+              className="px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors disabled:opacity-40">
+              <Plus className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="space-y-2">
+            {maps.length === 0 ? (
+              <p className="text-ash text-sm">No maps yet. Add your wargame maps above.</p>
+            ) : maps.map((m) => (
+              <div key={m.id} className="flex items-center justify-between bg-hall border border-line rounded-sm px-3 py-2">
+                <span className="text-bone text-sm">{m.name}</span>
+                <button onClick={() => deleteMap(m.id)} className="text-ash hover:text-oxblood"><Trash2 className="w-3.5 h-3.5" /></button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="rule-fade my-10" />
 
       {done && (
@@ -338,6 +395,16 @@ export default function Admin() {
                 <option value="Draw">Draw</option>
               </select>
             </div>
+            <div>
+              <label className="eyebrow text-[10px] text-ash block mb-2">Map</label>
+              <select
+                value={map} onChange={(e) => setMap(e.target.value)}
+                className="w-full bg-panel border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
+              >
+                <option value="">— set map —</option>
+                {maps.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
+              </select>
+            </div>
             <div className="space-y-3">
               {items.some((it) => it.status === 'idle') && (
                 <button
@@ -378,7 +445,7 @@ export default function Admin() {
           )}
 
           {editingMatchId && (
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
               <div>
                 <label className="eyebrow text-[10px] text-ash block mb-2">Match title</label>
                 <input
@@ -404,6 +471,16 @@ export default function Admin() {
                   <option value="Win">Win</option>
                   <option value="Loss">Loss</option>
                   <option value="Draw">Draw</option>
+                </select>
+              </div>
+              <div>
+                <label className="eyebrow text-[10px] text-ash block mb-2">Map</label>
+                <select
+                  value={map} onChange={(e) => setMap(e.target.value)}
+                  className="w-full bg-panel border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
+                >
+                  <option value="">— set map —</option>
+                  {maps.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
                 </select>
               </div>
             </div>
@@ -494,7 +571,7 @@ export default function Admin() {
             <button
               onClick={() => {
                 setPlayers(null); setWarnings([]);
-                if (editingMatchId) { setEditingMatchId(null); setSearchParams({}); setTitle(''); setMatchDate(''); setResult(''); }
+                if (editingMatchId) { setEditingMatchId(null); setSearchParams({}); setTitle(''); setMatchDate(''); setResult(''); setMap(''); }
               }}
               className="px-6 py-3 text-ash hover:text-bone transition-colors"
             >

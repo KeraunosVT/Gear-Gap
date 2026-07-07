@@ -230,6 +230,38 @@ app.get('/api/event-schedule', async (req, res) => {
   res.json({ schedule: data || [] });
 });
 
+// ── Wargame maps (read-only for members; admin manages via admin router) ────
+app.get('/api/maps', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+  const { data, error } = await supabase.from('wargame_maps').select('*').order('name');
+  if (error) return res.status(500).json({ error: 'Failed to load maps.' });
+  res.json({ maps: data || [] });
+});
+
+// Per-map win/loss record, for the War Record page.
+app.get('/api/maps/stats', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+  const { data, error } = await supabase.from('wargame_matches').select('map, result').not('map', 'is', null);
+  if (error) return res.status(500).json({ error: 'Failed to load map stats.' });
+
+  const byMap = {};
+  (data || []).forEach((m) => {
+    const key = m.map;
+    if (!key) return;
+    const s = (byMap[key] ||= { map: key, played: 0, wins: 0, losses: 0, draws: 0 });
+    s.played++;
+    if (m.result === 'Win') s.wins++;
+    else if (m.result === 'Loss') s.losses++;
+    else if (m.result === 'Draw') s.draws++;
+  });
+
+  const stats = Object.values(byMap)
+    .map((s) => ({ ...s, winPct: s.played > 0 ? Math.round((s.wins / s.played) * 100) : 0 }))
+    .sort((a, b) => b.played - a.played);
+
+  res.json({ stats });
+});
+
 // My LOAs
 app.get('/api/loa', async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not configured.' });

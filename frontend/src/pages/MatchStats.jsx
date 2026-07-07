@@ -1,4 +1,4 @@
-import { Sword, Target, Heart, Users, ShieldAlert, Pencil } from 'lucide-react';
+import { Sword, Target, Heart, Users, ShieldAlert, Pencil, Map as MapIcon } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
@@ -25,6 +25,7 @@ export default function MatchStats() {
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState(false);
   const [detailError, setDetailError] = useState(false);
+  const [mapStats, setMapStats] = useState([]);
 
   const loadMatches = () => {
     setLoading(true);
@@ -50,6 +51,9 @@ export default function MatchStats() {
 
   useEffect(() => { loadMatches(); }, []);
   useEffect(() => { loadDetail(selectedMatchId); }, [selectedMatchId]);
+  useEffect(() => {
+    axios.get('/api/maps/stats').then((res) => setMapStats(res.data.stats || [])).catch(() => {});
+  }, []);
 
   const selectedMatch = matchDetail?.match;
   const players = matchDetail?.players || [];
@@ -88,6 +92,41 @@ export default function MatchStats() {
         </div>
       </div>
       <div className="rule-fade mb-12" />
+
+      {/* Per-map win record */}
+      {mapStats.length > 0 && (
+        <div className="mb-12">
+          <h3 className="font-display text-xl text-bone tracking-[0.08em] mb-5 flex items-center gap-3">
+            <MapIcon className="w-5 h-5 text-brass" /> Map Record
+          </h3>
+          <div className="panel rounded-sm overflow-auto">
+            <table className="w-full min-w-[480px] text-sm">
+              <thead className="border-b border-line">
+                <tr className="eyebrow text-[10px] text-ash">
+                  <th className="text-left p-4 font-normal">Map</th>
+                  <th className="text-center p-4 font-normal">Played</th>
+                  <th className="text-center p-4 font-normal">Wins</th>
+                  <th className="text-center p-4 font-normal">Losses</th>
+                  <th className="text-center p-4 font-normal">Draws</th>
+                  <th className="text-center p-4 font-normal">Win %</th>
+                </tr>
+              </thead>
+              <tbody className="font-mono">
+                {mapStats.map((s) => (
+                  <tr key={s.map} className="border-b border-line/60 last:border-0">
+                    <td className="p-4 font-sans font-medium text-brassbright">{s.map}</td>
+                    <td className="p-4 text-center text-bone">{s.played}</td>
+                    <td className="p-4 text-center text-emerald-400">{s.wins}</td>
+                    <td className="p-4 text-center text-oxblood">{s.losses}</td>
+                    <td className="p-4 text-center text-ash">{s.draws}</td>
+                    <td className="p-4 text-center text-brassbright">{s.winPct}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* List failure */}
       {listError && (
@@ -130,6 +169,11 @@ export default function MatchStats() {
                 {selectedMatch.result === 'Win' ? 'Held The Field' :
                  selectedMatch.result === 'Loss' ? 'Lost The Field' :
                  'Contested Field'}
+              </span>
+            )}
+            {selectedMatch.map && (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-sm text-sm text-ash border border-line">
+                <MapIcon className="w-3.5 h-3.5" /> {selectedMatch.map}
               </span>
             )}
             {user?.isAdmin && (

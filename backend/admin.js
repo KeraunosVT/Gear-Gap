@@ -668,7 +668,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
   router.post('/match/commit', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
 
-    const { title, match_date, result, players } = req.body || {};
+    const { title, match_date, result, map, players } = req.body || {};
     if (!Array.isArray(players) || players.length === 0) {
       return res.status(400).json({ error: 'No players to save.' });
     }
@@ -682,6 +682,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
       title: clean(title) || 'Wargame',
       match_date: clean(match_date),
       result: clean(result),
+      map: clean(map),
       created_at: nowIso,
     });
     if (mErr) {
@@ -735,7 +736,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
   router.put('/match/:id', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
 
-    const { title, match_date, result, players } = req.body || {};
+    const { title, match_date, result, map, players } = req.body || {};
     if (!Array.isArray(players) || players.length === 0) {
       return res.status(400).json({ error: 'No players to save.' });
     }
@@ -747,7 +748,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
     if (chk || !existing) return res.status(404).json({ error: 'Match not found.' });
 
     const { error: mErr } = await supabase.from('wargame_matches')
-      .update({ title: clean(title) || 'Wargame', match_date: clean(match_date), result: clean(result) })
+      .update({ title: clean(title) || 'Wargame', match_date: clean(match_date), result: clean(result), map: clean(map) })
       .eq('id', matchId);
     if (mErr) {
       console.error('Match update error:', mErr.message);
@@ -943,6 +944,24 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
     const { error } = await supabase.from('event_schedule').delete().eq('id', req.params.id);
     if (error) return res.status(500).json({ error: 'Failed to delete event.' });
+    res.json({ ok: true });
+  });
+
+  // ── Wargame map management ───────────────────────────────────────────────────
+  router.post('/maps', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const { name } = req.body || {};
+    if (!name || !name.trim()) return res.status(400).json({ error: 'Map name required.' });
+    const { data, error } = await supabase.from('wargame_maps')
+      .insert({ name: name.trim().slice(0, 60) }).select('id, name').single();
+    if (error) return res.status(409).json({ error: 'That map already exists.' });
+    res.json(data);
+  });
+
+  router.delete('/maps/:id', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const { error } = await supabase.from('wargame_maps').delete().eq('id', req.params.id);
+    if (error) return res.status(500).json({ error: 'Failed to delete map.' });
     res.json({ ok: true });
   });
 
