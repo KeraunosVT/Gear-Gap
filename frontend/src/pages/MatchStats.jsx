@@ -1,9 +1,10 @@
 import { Sword, Target, Heart, Users, ShieldAlert, Pencil, Map as MapIcon } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../auth';
 import weaponToClass from '../../../shared/weaponClasses.json';
+import SEASONS from '../../../shared/seasons.json';
 
 function getClassName(weapon1, weapon2) {
   if (!weapon1) return 'Unknown';
@@ -16,6 +17,13 @@ function getClassName(weapon1, weapon2) {
   return `${w1} ${w2}`.trim();
 }
 
+// Whichever season contains today, or the most recent one if we're past all of them.
+function currentSeasonIndex() {
+  const today = new Date().toISOString().slice(0, 10);
+  const idx = SEASONS.findIndex((s) => today >= s.start && (!s.end || today <= s.end));
+  return idx >= 0 ? idx : SEASONS.length - 1;
+}
+
 export default function MatchStats() {
   const { user } = useAuth();
   const [searchParams] = useSearchParams();
@@ -26,15 +34,24 @@ export default function MatchStats() {
   const [listError, setListError] = useState(false);
   const [detailError, setDetailError] = useState(false);
   const [mapStats, setMapStats] = useState([]);
+  const [season, setSeason] = useState(() => String(currentSeasonIndex()));
+
+  // "all" = All Time (no date filter); otherwise an index into SEASONS.
+  const seasonRange = useMemo(() => {
+    if (season === 'all') return {};
+    const s = SEASONS[Number(season)];
+    return s ? { start: s.start, end: s.end || undefined } : {};
+  }, [season]);
 
   const loadMatches = () => {
     setLoading(true);
     setListError(false);
-    axios.get('/api/matches/recent?limit=30')
+    axios.get('/api/matches/recent', { params: { limit: 300, ...seasonRange } })
       .then(res => {
         setMatches(res.data);
         const fromUrl = searchParams.get('match');
-        setSelectedMatchId(fromUrl || (res.data.length > 0 ? res.data[0].id : null));
+        const fromUrlValid = fromUrl && res.data.some((m) => m.id === fromUrl);
+        setSelectedMatchId(fromUrlValid ? fromUrl : (res.data.length > 0 ? res.data[0].id : null));
       })
       .catch(err => { console.error(err); setListError(true); })
       .finally(() => setLoading(false));
@@ -49,11 +66,11 @@ export default function MatchStats() {
       .catch(err => { console.error(err); setDetailError(true); });
   };
 
-  useEffect(() => { loadMatches(); }, []);
+  useEffect(() => { loadMatches(); }, [season]);
   useEffect(() => { loadDetail(selectedMatchId); }, [selectedMatchId]);
   useEffect(() => {
-    axios.get('/api/maps/stats').then((res) => setMapStats(res.data.stats || [])).catch(() => {});
-  }, []);
+    axios.get('/api/maps/stats', { params: seasonRange }).then((res) => setMapStats(res.data.stats || [])).catch(() => {});
+  }, [season]);
 
   const selectedMatch = matchDetail?.match;
   const players = matchDetail?.players || [];
@@ -75,20 +92,33 @@ export default function MatchStats() {
           <p className="text-ash mt-2">Every engagement, broken down to the blade.</p>
         </div>
 
-        <div className="w-full md:w-96">
-          <label className="eyebrow text-[10px] text-ash block mb-2">Select engagement</label>
-          <select
-            value={selectedMatchId || ''}
-            onChange={(e) => setSelectedMatchId(e.target.value)}
-            className="w-full bg-panel border border-line rounded-sm px-5 py-3.5 text-bone focus:outline-none focus:border-brass transition-colors"
-          >
-            <option value="">— choose —</option>
-            {matches.map(m => (
-              <option key={m.id} value={m.id}>
-                {new Date(m.match_date + 'T12:00:00').toLocaleDateString()} — {m.title}
-              </option>
-            ))}
-          </select>
+        <div className="flex flex-col sm:flex-row gap-4 w-full md:w-auto">
+          <div className="w-full sm:w-48">
+            <label className="eyebrow text-[10px] text-ash block mb-2">Season</label>
+            <select
+              value={season}
+              onChange={(e) => setSeason(e.target.value)}
+              className="w-full bg-panel border border-line rounded-sm px-5 py-3.5 text-bone focus:outline-none focus:border-brass transition-colors"
+            >
+              <option value="all">All Time</option>
+              {SEASONS.map((s, i) => <option key={s.name} value={i}>{s.name}</option>)}
+            </select>
+          </div>
+          <div className="w-full sm:w-96">
+            <label className="eyebrow text-[10px] text-ash block mb-2">Select engagement</label>
+            <select
+              value={selectedMatchId || ''}
+              onChange={(e) => setSelectedMatchId(e.target.value)}
+              className="w-full bg-panel border border-line rounded-sm px-5 py-3.5 text-bone focus:outline-none focus:border-brass transition-colors"
+            >
+              <option value="">— choose —</option>
+              {matches.map(m => (
+                <option key={m.id} value={m.id}>
+                  {new Date(m.match_date + 'T12:00:00').toLocaleDateString()} — {m.title}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
       <div className="rule-fade mb-12" />

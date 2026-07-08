@@ -1,0 +1,6 @@
+[
+  { "name": "Season 1", "start": "2024-10-01", "end": "2025-03-05" },
+  { "name": "Season 2", "start": "2025-03-06", "end": "2025-09-17" },
+  { "name": "Season 3", "start": "2025-09-18", "end": "2026-06-24" },
+  { "name": "Season 4", "start": "2026-06-25", "end": null }
+]
