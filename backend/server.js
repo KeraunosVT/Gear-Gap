@@ -241,11 +241,7 @@ app.get('/api/maps', async (req, res) => {
 // Per-map win/loss record, for the War Record page.
 app.get('/api/maps/stats', async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-  const { start, end } = req.query;
-  let query = supabase.from('wargame_matches').select('map, result').not('map', 'is', null);
-  if (start) query = query.gte('match_date', start);
-  if (end) query = query.lte('match_date', end);
-  const { data, error } = await query;
+  const { data, error } = await supabase.from('wargame_matches').select('map, result').not('map', 'is', null);
   if (error) return res.status(500).json({ error: 'Failed to load map stats.' });
 
   const byMap = {};
@@ -527,18 +523,13 @@ app.get('/api/matches/recent', async (req, res) => {
 
   try {
     // Clamp the limit so a caller can't request, say, ?limit=100000
-    const limit = Math.min(Math.max(parseInt(req.query.limit) || 6, 1), 300);
-    const { start, end } = req.query;
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 6, 1), 50);
 
-    let query = supabase
+    const { data: matches, error } = await supabase
       .from('wargame_matches')
       .select('*')
       .order('match_date', { ascending: false })
       .limit(limit);
-    if (start) query = query.gte('match_date', start);
-    if (end) query = query.lte('match_date', end);
-
-    const { data: matches, error } = await query;
 
     if (error) throw error;
     if (!matches || matches.length === 0) return res.json([]);
