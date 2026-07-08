@@ -85,7 +85,7 @@ export default function MatchStats() {
             <option value="">— choose —</option>
             {matches.map(m => (
               <option key={m.id} value={m.id}>
-                {new Date(m.match_date + 'T12:00:00').toLocaleDateString()} — {m.title}
+                {new Date(m.match_date + 'T12:00:00').toLocaleDateString()} — {m.title}{m.map ? ` (${m.map})` : ''}
               </option>
             ))}
           </select>
