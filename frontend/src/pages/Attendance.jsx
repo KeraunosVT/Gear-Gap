@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../auth';
 import Sigil from '../components/Sigil';
-import { RefreshCw, Camera, Trash2, ChevronDown, Users, CalendarDays, Loader2, ArrowUp, ArrowDown, BarChart3 } from 'lucide-react';
+import { RefreshCw, Camera, Trash2, ChevronDown, Users, CalendarDays, Loader2, ArrowUp, ArrowDown, BarChart3, Wand2 } from 'lucide-react';
 
 export default function Attendance() {
   const { user } = useAuth();
@@ -25,6 +25,7 @@ export default function Attendance() {
   const [loadingStats, setLoadingStats] = useState(true);
   const [statSort, setStatSort] = useState('rate'); // 'rate' | 'name' | 'attended'
   const [statDir, setStatDir] = useState('desc');
+  const [backfilling, setBackfilling] = useState(false);
 
   const loadChannels = () => {
     axios.get('/api/admin/voice-channels')
@@ -61,6 +62,19 @@ export default function Attendance() {
   }
 
   const flash = (text, ok = true) => { setMsg({ text, ok }); setTimeout(() => setMsg(null), 4000); };
+
+  const backfillNames = async () => {
+    setBackfilling(true);
+    try {
+      const res = await axios.post('/api/admin/attendance/backfill-names');
+      flash(`Checked ${res.data.checked} record${res.data.checked === 1 ? '' : 's'} — updated ${res.data.updated}.`);
+      loadEvents(); loadStats();
+    } catch (err) {
+      flash(err.response?.data?.error || 'Backfill failed.', false);
+    } finally {
+      setBackfilling(false);
+    }
+  };
 
   const snap = () => {
     if (!selectedChannel) return;
@@ -135,9 +149,20 @@ export default function Attendance() {
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-12">
-      <div className="eyebrow text-brass text-[11px] mb-3">War Table</div>
-      <h1 className="font-display text-4xl md:text-5xl text-bone tracking-[0.08em]">Attendance</h1>
-      <p className="text-ash mt-2">Snap a voice channel to log who showed up. Set a title and date, then save.</p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <div className="eyebrow text-brass text-[11px] mb-3">War Table</div>
+          <h1 className="font-display text-4xl md:text-5xl text-bone tracking-[0.08em]">Attendance</h1>
+          <p className="text-ash mt-2">Snap a voice channel to log who showed up. Set a title and date, then save.</p>
+        </div>
+        <button
+          onClick={backfillNames} disabled={backfilling}
+          title="Re-check past attendance records against mapped display names"
+          className="inline-flex items-center gap-2 text-sm text-brass hover:text-brassbright transition-colors disabled:opacity-40 mt-2"
+        >
+          <Wand2 className="w-4 h-4" /> {backfilling ? 'Fixing…' : 'Fix past names'}
+        </button>
+      </div>
       <div className="rule-fade my-8" />
 
       {msg && (

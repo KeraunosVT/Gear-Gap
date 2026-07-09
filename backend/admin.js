@@ -880,6 +880,28 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
     res.json({ id: eventId, attendees: rows.length });
   });
 
+  // One-time (re-runnable) fix for attendance rows saved before snapshots resolved
+  // display names against player_identities — updates any that now have a mapping.
+  router.post('/attendance/backfill-names', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const { data: idData, error: idErr } = await supabase.from('player_identities').select('display_name, discord_id');
+    if (idErr) return res.status(500).json({ error: 'Failed to load identities.' });
+    const discordMap = {};
+    (idData || []).forEach((it) => { if (it.discord_id) discordMap[it.discord_id] = it.display_name; });
+
+    const { data: rows, error: rErr } = await supabase.from('event_attendance').select('id, discord_id, display_name');
+    if (rErr) return res.status(500).json({ error: 'Failed to load attendance records.' });
+
+    const toFix = (rows || []).filter((r) => discordMap[r.discord_id] && discordMap[r.discord_id] !== r.display_name);
+    const results = await Promise.all(toFix.map((r) =>
+      supabase.from('event_attendance').update({ display_name: discordMap[r.discord_id] }).eq('id', r.id)
+    ));
+    const failed = results.filter((r) => r.error).length;
+    if (failed > 0) console.error(`Attendance backfill: ${failed} row(s) failed to update.`);
+
+    res.json({ checked: (rows || []).length, updated: toFix.length - failed });
+  });
+
   router.get('/attendance-stats', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
     try {
