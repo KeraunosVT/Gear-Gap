@@ -30,7 +30,7 @@ export default function MatchStats() {
   const loadMatches = () => {
     setLoading(true);
     setListError(false);
-    axios.get('/api/matches/recent?limit=30')
+    axios.get('/api/matches/recent?limit=500')
       .then(res => {
         setMatches(res.data);
         const fromUrl = searchParams.get('match');

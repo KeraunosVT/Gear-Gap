@@ -523,7 +523,7 @@ app.get('/api/matches/recent', async (req, res) => {
 
   try {
     // Clamp the limit so a caller can't request, say, ?limit=100000
-    const limit = Math.min(Math.max(parseInt(req.query.limit) || 6, 1), 50);
+    const limit = Math.min(Math.max(parseInt(req.query.limit) || 6, 1), 500);
 
     const { data: matches, error } = await supabase
       .from('wargame_matches')
