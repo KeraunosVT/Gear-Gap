@@ -803,9 +803,18 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
     res.json({ channels: gateway.listVoiceChannels() });
   });
 
-  router.get('/voice-channels/:id/members', (req, res) => {
+  router.get('/voice-channels/:id/members', async (req, res) => {
     if (!gateway) return res.status(503).json({ error: 'Discord gateway not available.' });
-    res.json({ members: gateway.getVoiceMembers(req.params.id) });
+    const members = gateway.getVoiceMembers(req.params.id);
+    // Prefer the guild's mapped display name (player_identities) over whatever
+    // nickname/username Discord happens to show, same as /api/admin/members.
+    if (supabase && members.length > 0) {
+      const { data: idData } = await supabase.from('player_identities').select('display_name, discord_id');
+      const discordMap = {};
+      (idData || []).forEach((it) => { if (it.discord_id) discordMap[it.discord_id] = it.display_name; });
+      members.forEach((m) => { if (discordMap[m.id]) m.name = discordMap[m.id]; });
+    }
+    res.json({ members });
   });
 
   router.get('/events', async (req, res) => {
