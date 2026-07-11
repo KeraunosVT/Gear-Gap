@@ -11,7 +11,7 @@ function fmtCountdown(ms) {
   const h = Math.floor(totalSec / 3600);
   const m = Math.floor((totalSec % 3600) / 60);
   const s = totalSec % 60;
-  return h > 0 ? `${h}h ${m}m` : `${m}m ${s}s`;
+  return h > 0 ? `${h}h ${m}m ${s}s` : `${m}m ${s}s`;
 }
 
 export default function EliteTimerBar() {
@@ -36,7 +36,7 @@ export default function EliteTimerBar() {
 
   return (
     <div className="border-b border-line bg-panel/60">
-      <div className="max-w-6xl mx-auto px-6 py-2 flex flex-wrap items-center gap-x-6 gap-y-1 text-xs">
+      <div className="max-w-6xl mx-auto px-6 py-2 flex flex-wrap items-center justify-center gap-x-6 gap-y-1 text-xs">
         <span className="eyebrow text-[10px] text-brass flex items-center gap-1.5 shrink-0">
           <Clock className="w-3.5 h-3.5" /> Elites
         </span>
