@@ -17,6 +17,7 @@ const VALID_BOSS_WEAPONS = new Set(
   Object.entries(BOSS_WEAPONS).flatMap(([boss, list]) => list.map((w) => `${boss}|${w}`))
 );
 const createLootCatalog = require('./lootCatalog');
+const createEliteTimers = require('./eliteTimers');
 
 const gateway = require('./discordGateway');
 
@@ -42,6 +43,7 @@ try {
 }
 
 const lootCatalog = supabase ? createLootCatalog(supabase) : null;
+const eliteTimers = supabase ? createEliteTimers(supabase) : null;
 
 // The gateway needs Supabase for /elitetimer persistence, so start it after setup.
 gateway.start(supabase);
@@ -236,6 +238,13 @@ app.get('/api/maps', async (req, res) => {
   const { data, error } = await supabase.from('wargame_maps').select('*').order('name');
   if (error) return res.status(500).json({ error: 'Failed to load maps.' });
   res.json({ maps: data || [] });
+});
+
+// ── Elite boss respawn timers (read-only; reported via the /elitetimer Discord command) ──
+app.get('/api/elite-timers', async (req, res) => {
+  if (!eliteTimers) return res.status(503).json({ error: 'Database not configured.' });
+  const timers = await eliteTimers.all();
+  res.json({ timers, locations: eliteTimers.locations });
 });
 
 // Per-map win/loss record, for the War Record page.

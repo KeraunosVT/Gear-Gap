@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth';
 import Masthead from './components/Masthead';
+import EliteTimerBar from './components/EliteTimerBar';
 import Footer from './components/Footer';
 import Sigil from './components/Sigil';
 import Home from './pages/Home';
@@ -23,6 +24,7 @@ function Layout() {
   return (
     <div className="min-h-screen bg-ink text-bone flex flex-col">
       <Masthead />
+      <EliteTimerBar />
       <main className="flex-1">
         <Outlet />
       </main>
