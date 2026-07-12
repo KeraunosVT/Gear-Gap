@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
 import weaponToClass from '../../../shared/weaponClasses.json';
-import { ArrowLeft, Sword, Target, Heart, ShieldAlert, Trophy, TrendingUp } from 'lucide-react';
+import { ArrowLeft, Sword, Target, Heart, ShieldAlert, Trophy, TrendingUp, Shield, Gem, BarChart3 } from 'lucide-react';
 
 const fmt = (n) => (Number(n) || 0).toLocaleString();
 const fmtM = (n) => ((Number(n) || 0) / 1e6).toFixed(1) + 'M';
@@ -136,6 +136,29 @@ export default function PlayerProfile() {
           )}
         </div>
       </div>
+
+      {/* Gear Level */}
+      {p.gear && (
+        <div className="mb-14">
+          <h3 className="font-display text-xl text-bone tracking-[0.08em] mb-5 flex items-center gap-3">
+            <Shield className="w-5 h-5 text-brass" /> Gear Level
+          </h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+              { label: 'Weapon', value: p.gear.weapon, icon: <Sword className="w-4 h-4" /> },
+              { label: 'Armor', value: p.gear.armor, icon: <Shield className="w-4 h-4" /> },
+              { label: 'Accessory', value: p.gear.accessory, icon: <Gem className="w-4 h-4" /> },
+              { label: 'Average', value: p.gear.average, icon: <BarChart3 className="w-4 h-4" /> },
+            ].map((g) => (
+              <div key={g.label} className="panel rounded-sm p-5 text-center">
+                <div className="flex items-center justify-center gap-2 text-brass mb-3">{g.icon}</div>
+                <div className="font-mono text-3xl text-brassbright tabular-nums">{g.value || '—'}</div>
+                <div className="eyebrow text-[10px] text-ash mt-2">{g.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Performance Trends */}
       {p.matchHistory.length >= 3 && <TrendSection history={p.matchHistory} />}

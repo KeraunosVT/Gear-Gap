@@ -8,6 +8,7 @@ require('dotenv').config({ path: path.join(__dirname, '.env') });
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
+const multer = require('multer');
 const { router: authRouter, requireAuth, requireAdmin } = require('./auth');
 const { listMembers } = require('./discord');
 const SHARDS = require('../shared/shards.json');
@@ -18,6 +19,12 @@ const VALID_BOSS_WEAPONS = new Set(
 );
 const createLootCatalog = require('./lootCatalog');
 const createEliteTimers = require('./eliteTimers');
+const createGearIlvl = require('./gearIlvl');
+
+const gearUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 }, // 15 MB
+});
 
 const gateway = require('./discordGateway');
 
@@ -44,6 +51,7 @@ try {
 
 const lootCatalog = supabase ? createLootCatalog(supabase) : null;
 const eliteTimers = supabase ? createEliteTimers(supabase) : null;
+const gearIlvl = supabase ? createGearIlvl(supabase) : null;
 
 // The gateway needs Supabase for /elitetimer persistence, so start it after setup.
 gateway.start(supabase);
@@ -101,6 +109,29 @@ app.put('/api/my-classes', async (req, res) => {
     }, { onConflict: 'discord_id', ignoreDuplicates: false });
   if (error) return res.status(500).json({ error: 'Failed to save classes.' });
   res.json({ ok: true });
+});
+
+// ── MEMBERS AREA: Gear item level ────────────────────────────────────────────
+// Any member can submit a screenshot of their own gear; a new submission
+// replaces whatever they had on file before. The full comparison table is
+// admin-only (see /api/admin/gear-ilvl) — this is just "what's on file for me".
+app.get('/api/gear-ilvl/mine', async (req, res) => {
+  if (!gearIlvl) return res.status(503).json({ error: 'Database not configured.' });
+  const entry = await gearIlvl.forMember(req.user.id);
+  res.json({ entry });
+});
+
+app.post('/api/gear-ilvl', gearUpload.single('image'), async (req, res) => {
+  if (!gearIlvl) return res.status(503).json({ error: 'Database not configured.' });
+  if (!req.file) return res.status(400).json({ error: 'Screenshot required.' });
+  try {
+    const extracted = await gearIlvl.parseGearScreenshot(req.file.buffer, req.file.mimetype);
+    const entry = await gearIlvl.submit(req.user.id, req.user.username, extracted);
+    res.json({ entry });
+  } catch (err) {
+    console.error('Gear ilvl submit error:', err.message);
+    res.status(500).json({ error: err.message || 'Could not read that screenshot.' });
+  }
 });
 
 // ── MEMBERS AREA: Archboss shard tracker ─────────────────────────────────────
@@ -414,16 +445,19 @@ app.get('/api/player/:name', async (req, res) => {
 
     // Resolve all in-game names this player might appear as via identities.
     const { data: ids } = await supabase.from('player_identities')
-      .select('display_name, ingame_names');
+      .select('display_name, ingame_names, discord_id');
     let names = [requestedName];
     let displayName = requestedName;
+    let discordId = null;
     (ids || []).forEach((it) => {
       const all = [it.display_name, ...(Array.isArray(it.ingame_names) ? it.ingame_names : [])].filter(Boolean);
       if (all.some((n) => n.toLowerCase() === lower)) {
         displayName = it.display_name || requestedName;
         names = all;
+        discordId = it.discord_id || null;
       }
     });
+    const gearEntry = discordId && gearIlvl ? await gearIlvl.forMember(discordId) : null;
 
     // Pull every match row for those names (our guild only).
     const guildNames = Object.keys(GUILD_ALIASES);
@@ -483,6 +517,10 @@ app.get('/api/player/:name', async (req, res) => {
       avg_healing: total ? healing / total : 0,
       classBreakdown,
       matchHistory: matches,
+      gear: gearEntry ? {
+        weapon: gearEntry.weapon, armor: gearEntry.armor,
+        accessory: gearEntry.accessory, average: gearEntry.average,
+      } : null,
     });
   } catch (err) {
     console.error('Player profile error:', err.message);

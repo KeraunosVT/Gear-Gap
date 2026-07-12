@@ -19,6 +19,8 @@ import Attendance from './pages/Attendance';
 import PlayerProfile from './pages/PlayerProfile';
 import LOA from './pages/LOA';
 import Classes from './pages/Classes';
+import GearLevel from './pages/GearLevel';
+import GearLevels from './pages/GearLevels';
 
 function Layout() {
   return (
@@ -60,12 +62,14 @@ function Gate() {
           <Route path="/loot" element={<Loot />} />
           <Route path="/loa" element={<LOA />} />
           <Route path="/classes" element={<Classes />} />
+          <Route path="/gear" element={<GearLevel />} />
           <Route path="/admin" element={<Admin />} />
           <Route path="/admin/parties" element={<Parties />} />
           <Route path="/admin/names" element={<Names />} />
           <Route path="/admin/loot" element={<LootTally />} />
           <Route path="/admin/loot/history" element={<LootHistory />} />
           <Route path="/admin/attendance" element={<Attendance />} />
+          <Route path="/admin/gear-levels" element={<GearLevels />} />
           {/* Legacy aliases kept so old links still resolve */}
           <Route path="/dashboard" element={<MatchStats />} />
           <Route path="/match-stats" element={<MatchStats />} />

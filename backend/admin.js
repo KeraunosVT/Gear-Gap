@@ -151,6 +151,23 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
     res.json({ ok: true });
   });
 
+  // ── Gear item levels (admin-only comparison table) ───────────────────────────
+  router.get('/gear-ilvl', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const [{ data, error }, { data: idData }] = await Promise.all([
+      supabase.from('gear_levels').select('*'),
+      supabase.from('player_identities').select('display_name, discord_id'),
+    ]);
+    if (error) return res.status(500).json({ error: 'Failed to load gear levels.' });
+    const discordNameMap = {};
+    (idData || []).forEach((it) => { if (it.discord_id) discordNameMap[it.discord_id] = it.display_name; });
+    const entries = (data || []).map((e) => ({
+      ...e,
+      display_name: discordNameMap[e.discord_id] || e.display_name,
+    }));
+    res.json({ entries });
+  });
+
   // ── Loot council: awards ────────────────────────────────────────────────────
   router.get('/loot/awards', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });

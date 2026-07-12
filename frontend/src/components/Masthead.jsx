@@ -16,6 +16,7 @@ const membersLinks = [
   { to: '/loot', label: 'Loot' },
   { to: '/loa', label: 'LOA' },
   { to: '/classes', label: 'Classes' },
+  { to: '/gear', label: 'Gear Level' },
 ];
 
 const adminLinks = [
@@ -24,6 +25,7 @@ const adminLinks = [
   { to: '/admin/names', label: 'Names' },
   { to: '/admin/loot', label: 'Loot Council' },
   { to: '/admin/attendance', label: 'Attendance' },
+  { to: '/admin/gear-levels', label: 'Gear Levels' },
 ];
 
 const linkClass = ({ isActive }) =>
