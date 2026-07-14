@@ -9,6 +9,7 @@ const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const multer = require('multer');
+const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const { router: authRouter, requireAuth, requireAdmin } = require('./auth');
 const { listMembers } = require('./discord');
 const SHARDS = require('../shared/shards.json');
@@ -29,6 +30,22 @@ const gearUpload = multer({
 const gateway = require('./discordGateway');
 
 const app = express();
+
+// Render/Railway/etc. sit behind one reverse proxy — needed for req.ip and
+// req.secure to reflect the real client rather than the proxy.
+app.set('trust proxy', 1);
+
+// Per-member throttle for endpoints that call Gemini (each request costs real
+// API money). Keyed on the session user id; IP is only a fallback in case this
+// is ever mounted before auth.
+const gearSubmitLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  limit: parseInt(process.env.GEAR_SUBMIT_LIMIT_PER_HOUR, 10) || 5,
+  keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many gear submissions — the limit is 5 per hour. Try again later.' },
+});
 
 // CORS allowlist. The frontend is served same-origin by this server, so no
 // cross-origin access is needed in production — `origin: false` sends no CORS
@@ -128,9 +145,12 @@ app.get('/api/gear-ilvl/mine', async (req, res) => {
   res.json({ entry });
 });
 
-app.post('/api/gear-ilvl', gearUpload.single('image'), async (req, res) => {
+app.post('/api/gear-ilvl', gearSubmitLimiter, gearUpload.single('image'), async (req, res) => {
   if (!gearIlvl) return res.status(503).json({ error: 'Database not configured.' });
   if (!req.file) return res.status(400).json({ error: 'Screenshot required.' });
+  if (!req.file.mimetype?.startsWith('image/')) {
+    return res.status(415).json({ error: 'Please upload an image file (PNG or JPG screenshot).' });
+  }
   try {
     const extracted = await gearIlvl.parseGearScreenshot(req.file.buffer, req.file.mimetype);
     const entry = await gearIlvl.submit(req.user.id, req.user.username, extracted);

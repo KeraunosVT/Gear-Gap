@@ -50,6 +50,17 @@ async function listMembers() {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+// Fetch one guild member by user id (for session re-verification).
+// Returns { status, member } — 404 means they're no longer in the guild.
+async function fetchMember(userId) {
+  if (!botConfigured) throw new Error('Discord bot is not configured.');
+  const res = await axios.get(`${API}/guilds/${GUILD_ID}/members/${userId}`, {
+    headers: authHeaders(),
+    validateStatus: (s) => s < 500,
+  });
+  return { status: res.status, member: res.status === 200 ? res.data : null };
+}
+
 // Post an embed to the configured roster channel.
 async function postEmbed(embed, content) {
   if (!botConfigured) throw new Error('Discord bot is not configured.');
@@ -76,4 +87,4 @@ async function postImage(buffer, filename, content) {
   );
 }
 
-module.exports = { listMembers, postEmbed, postImage, botConfigured };
+module.exports = { listMembers, fetchMember, postEmbed, postImage, botConfigured };
