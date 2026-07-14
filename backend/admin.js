@@ -95,7 +95,7 @@ const team = (v) => {
   return null;
 };
 
-module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
+module.exports = function createAdminRouter(supabase, gateway, lootCatalog, identities) {
   const router = express.Router();
 
   router.get('/whoami', (req, res) => {
@@ -107,9 +107,9 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
     try {
       const members = await listMembers();
       if (supabase) {
-        const [{ data: roleData }, { data: idData }] = await Promise.all([
+        const [{ data: roleData }, ids] = await Promise.all([
           supabase.from('member_roles').select('discord_id, role, pvp_classes, pve_classes'),
-          supabase.from('player_identities').select('display_name, discord_id'),
+          identities.load(),
         ]);
         const roleMap = {};
         const classMap = {};
@@ -121,16 +121,11 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
           };
         });
 
-        const discordMap = {};
-        (idData || []).forEach((it) => {
-          if (it.discord_id) discordMap[it.discord_id] = it.display_name;
-        });
-
         members.forEach((m) => {
           m.role = roleMap[m.id] || '';
           m.pvp_classes = classMap[m.id]?.pvp_classes || [];
           m.pve_classes = classMap[m.id]?.pve_classes || [];
-          if (discordMap[m.id]) m.name = discordMap[m.id];
+          m.name = ids.displayNameFor(m.id, m.name);
         });
       }
       res.json({ members });
@@ -154,16 +149,14 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
   // ── Gear item levels (admin-only comparison table) ───────────────────────────
   router.get('/gear-ilvl', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-    const [{ data, error }, { data: idData }] = await Promise.all([
+    const [{ data, error }, ids] = await Promise.all([
       supabase.from('gear_levels').select('*'),
-      supabase.from('player_identities').select('display_name, discord_id'),
+      identities.load(),
     ]);
     if (error) return res.status(500).json({ error: 'Failed to load gear levels.' });
-    const discordNameMap = {};
-    (idData || []).forEach((it) => { if (it.discord_id) discordNameMap[it.discord_id] = it.display_name; });
     const entries = (data || []).map((e) => ({
       ...e,
-      display_name: discordNameMap[e.discord_id] || e.display_name,
+      display_name: ids.displayNameFor(e.discord_id, e.display_name),
     }));
     res.json({ entries });
   });
@@ -171,16 +164,14 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
   // ── Loot council: awards ────────────────────────────────────────────────────
   router.get('/loot/awards', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-    const [{ data, error }, { data: idData }] = await Promise.all([
+    const [{ data, error }, ids] = await Promise.all([
       supabase.from('loot_awards').select('*').order('awarded_at', { ascending: false }),
-      supabase.from('player_identities').select('display_name, discord_id'),
+      identities.load(),
     ]);
     if (error) return res.status(500).json({ error: 'Failed to load awards.' });
-    const discordNameMap = {};
-    (idData || []).forEach((it) => { if (it.discord_id) discordNameMap[it.discord_id] = it.display_name; });
     const awards = (data || []).map((a) => ({
       ...a,
-      display_name: discordNameMap[a.discord_id] || a.display_name,
+      display_name: ids.displayNameFor(a.discord_id, a.display_name),
     }));
     res.json({ awards });
   });
@@ -228,10 +219,10 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
     });
     if (parsed.errors?.length) return res.status(400).json({ error: 'Could not parse CSV: ' + parsed.errors[0].message });
 
-    const [catalog, discordMembers, { data: idData }] = await Promise.all([
+    const [catalog, discordMembers, ids] = await Promise.all([
       lootCatalog.getCatalog(),
       listMembers().catch(() => []),
-      supabase.from('player_identities').select('display_name, discord_id, ingame_names'),
+      identities.load(),
     ]);
 
     const itemByKey = new Map();
@@ -241,13 +232,10 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
       itemByName.set(norm(it.name), it);
     }));
 
-    const nameToDiscordId = new Map();
-    discordMembers.forEach((m) => { if (m.name) nameToDiscordId.set(norm(m.name), m.id); });
-    (idData || []).forEach((it) => {
-      if (!it.discord_id) return;
-      if (it.display_name) nameToDiscordId.set(norm(it.display_name), it.discord_id);
-      (it.ingame_names || []).forEach((n) => nameToDiscordId.set(norm(n), it.discord_id));
-    });
+    // Identities take precedence; Discord server names are the fallback for
+    // members who have no identity row yet.
+    const discordByMemberName = new Map();
+    discordMembers.forEach((m) => { if (m.name) discordByMemberName.set(norm(m.name), m.id); });
 
     const errors = [];
     const toInsert = [];
@@ -260,7 +248,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
       const item = itemByKey.get(itemRaw) || itemByName.get(norm(itemRaw));
       if (!item) { errors.push({ row: rowNum, reason: `Unknown item "${itemRaw}".` }); return; }
 
-      const discordId = nameToDiscordId.get(norm(memberRaw));
+      const discordId = ids.discordIdFor(memberRaw) || discordByMemberName.get(norm(memberRaw));
       if (!discordId) { errors.push({ row: rowNum, reason: `Unknown member "${memberRaw}".` }); return; }
 
       const dateRaw = clean(raw.date);
@@ -455,23 +443,16 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
     try {
       const [counts, ids] = await Promise.all([
         supabase.rpc('get_guild_player_counts'),
-        supabase.from('player_identities').select('id, display_name, ingame_names'),
+        identities.load(),
       ]);
       if (counts.error) throw counts.error;
-      if (ids.error) throw ids.error;
-      const identities = ids.data || [];
-
-      const mapped = new Set();
-      identities.forEach((it) => {
-        if (it.display_name) mapped.add(norm(it.display_name));
-        (Array.isArray(it.ingame_names) ? it.ingame_names : []).forEach((n) => mapped.add(norm(n)));
-      });
+      const identityRows = ids.rows;
 
       const unmapped = (counts.data || [])
-        .filter((c) => !mapped.has(norm(c.player_name)))
+        .filter((c) => !ids.identityForName(c.player_name))
         .map((c) => {
           let best = null;
-          identities.forEach((it) => {
+          identityRows.forEach((it) => {
             [it.display_name, ...(Array.isArray(it.ingame_names) ? it.ingame_names : [])]
               .filter(Boolean)
               .forEach((cand) => {
@@ -484,7 +465,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
         })
         .sort((a, b) => b.matches - a.matches);
 
-      res.json({ unmapped, identities });
+      res.json({ unmapped, identities: identityRows });
     } catch (err) {
       console.error('Unmapped names error:', err.message);
       res.status(500).json({ error: 'Failed to load unmapped names.' });
@@ -504,6 +485,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
     const { error } = await supabase.from('player_identities')
       .update({ ingame_names: arr, updated_at: new Date().toISOString() }).eq('id', req.params.id);
     if (error) return res.status(500).json({ error: 'Failed to add alias.' });
+    identities.invalidate();
     res.json({ ok: true });
   });
 
@@ -518,6 +500,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
     const { error } = await supabase.from('player_identities')
       .update({ ingame_names: arr, updated_at: new Date().toISOString() }).eq('id', req.params.id);
     if (error) return res.status(500).json({ error: 'Failed to remove alias.' });
+    identities.invalidate();
     res.json({ ok: true });
   });
 
@@ -529,6 +512,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
       .update({ discord_id: discord_id || null, updated_at: new Date().toISOString() })
       .eq('id', req.params.id);
     if (error) return res.status(500).json({ error: 'Failed to link Discord account.' });
+    identities.invalidate();
     res.json({ ok: true });
   });
 
@@ -541,6 +525,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
       .update({ display_name: String(display_name).trim().slice(0, 120), updated_at: new Date().toISOString() })
       .eq('id', req.params.id);
     if (error) return res.status(500).json({ error: 'Failed to rename identity.' });
+    identities.invalidate();
     res.json({ ok: true });
   });
 
@@ -549,6 +534,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
     const { error } = await supabase.from('player_identities').delete().eq('id', req.params.id);
     if (error) return res.status(500).json({ error: 'Failed to delete identity.' });
+    identities.invalidate();
     res.json({ ok: true });
   });
 
@@ -563,6 +549,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
     const { error } = await supabase.from('player_identities')
       .insert({ id, display_name: String(display_name).slice(0, 120), ingame_names: aliases, created_at: now, updated_at: now });
     if (error) return res.status(500).json({ error: 'Failed to create identity.' });
+    identities.invalidate();
     res.json({ id });
   });
 
@@ -796,10 +783,8 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
     // Prefer the guild's mapped display name (player_identities) over whatever
     // nickname/username Discord happens to show, same as /api/admin/members.
     if (supabase && members.length > 0) {
-      const { data: idData } = await supabase.from('player_identities').select('display_name, discord_id');
-      const discordMap = {};
-      (idData || []).forEach((it) => { if (it.discord_id) discordMap[it.discord_id] = it.display_name; });
-      members.forEach((m) => { if (discordMap[m.id]) m.name = discordMap[m.id]; });
+      const ids = await identities.load();
+      members.forEach((m) => { m.name = ids.displayNameFor(m.id, m.name); });
     }
     res.json({ members });
   });
@@ -871,17 +856,17 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
   // display names against player_identities — updates any that now have a mapping.
   router.post('/attendance/backfill-names', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-    const { data: idData, error: idErr } = await supabase.from('player_identities').select('display_name, discord_id');
-    if (idErr) return res.status(500).json({ error: 'Failed to load identities.' });
-    const discordMap = {};
-    (idData || []).forEach((it) => { if (it.discord_id) discordMap[it.discord_id] = it.display_name; });
+    const ids = await identities.load();
 
     const { data: rows, error: rErr } = await supabase.from('event_attendance').select('id, discord_id, display_name');
     if (rErr) return res.status(500).json({ error: 'Failed to load attendance records.' });
 
-    const toFix = (rows || []).filter((r) => discordMap[r.discord_id] && discordMap[r.discord_id] !== r.display_name);
+    const toFix = (rows || []).filter((r) => {
+      const mapped = ids.displayNameFor(r.discord_id);
+      return mapped && mapped !== r.display_name;
+    });
     const results = await Promise.all(toFix.map((r) =>
-      supabase.from('event_attendance').update({ display_name: discordMap[r.discord_id] }).eq('id', r.id)
+      supabase.from('event_attendance').update({ display_name: ids.displayNameFor(r.discord_id) }).eq('id', r.id)
     ));
     const failed = results.filter((r) => r.error).length;
     if (failed > 0) console.error(`Attendance backfill: ${failed} row(s) failed to update.`);

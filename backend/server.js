@@ -21,6 +21,7 @@ const VALID_BOSS_WEAPONS = new Set(
 const createLootCatalog = require('./lootCatalog');
 const createEliteTimers = require('./eliteTimers');
 const createGearIlvl = require('./gearIlvl');
+const createIdentities = require('./identities');
 
 const gearUpload = multer({
   storage: multer.memoryStorage(),
@@ -76,6 +77,7 @@ try {
 const lootCatalog = supabase ? createLootCatalog(supabase) : null;
 const eliteTimers = supabase ? createEliteTimers(supabase) : null;
 const gearIlvl = supabase ? createGearIlvl(supabase) : null;
+const identities = supabase ? createIdentities(supabase) : null;
 
 // The gateway needs Supabase for /elitetimer persistence, so start it after setup.
 gateway.start(supabase);
@@ -108,7 +110,7 @@ app.use('/api', (req, res, next) => {
 
 // ── ADMIN AREA (requires admin role) ─────────────────────────────────────────
 const createAdminRouter = require('./admin');
-app.use('/api/admin', requireAdmin, createAdminRouter(supabase, gateway, lootCatalog));
+app.use('/api/admin', requireAdmin, createAdminRouter(supabase, gateway, lootCatalog, identities));
 
 // ── MEMBERS AREA: Class builds ───────────────────────────────────────────────
 app.get('/api/my-classes', async (req, res) => {
@@ -221,19 +223,17 @@ app.get('/api/loot', async (req, res) => {
   if (!supabase || !lootCatalog) return res.status(503).json({ error: 'Database not configured.' });
   try {
     const validKeys = await lootCatalog.getKeys();
-    const [{ data, error }, { data: idData }] = await Promise.all([
+    const [{ data, error }, ids] = await Promise.all([
       supabase.from('loot_wishlists').select('discord_id, display_name, picks'),
-      supabase.from('player_identities').select('display_name, discord_id'),
+      identities.load(),
     ]);
     if (error) throw error;
-    const discordNameMap = {};
-    (idData || []).forEach((it) => { if (it.discord_id) discordNameMap[it.discord_id] = it.display_name; });
     const counts = {};
     const tally = {};
     const mine = {};
     (data || []).forEach((r) => {
       const picks = r.picks || {};
-      const memberName = discordNameMap[r.discord_id] || r.display_name || 'Member';
+      const memberName = ids.displayNameFor(r.discord_id, r.display_name || 'Member');
       Object.entries(picks).forEach(([k, entry]) => {
         if (!validKeys.has(k)) return;
         // Entries are { priority, added_at }; tolerate the older plain-string shape too.
@@ -395,8 +395,8 @@ app.delete('/api/loa/:id', async (req, res) => {
 app.get('/api/players', async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
   try {
-    // Clamp like /api/matches/recent so ?last=999999 can't request the world.
     const lastN = Math.min(Math.max(parseInt(req.query.last, 10) || 0, 0), 500);
+    const ids = await identities.load();
 
     let data;
     if (lastN > 0) {
@@ -407,24 +407,16 @@ app.get('/api/players', async (req, res) => {
       if (matchIds.length === 0) return res.json({ players: [] });
 
       const guildNames = Object.keys(GUILD_ALIASES);
-      const [{ data: rows, error: rErr }, { data: idRows }] = await Promise.all([
-        supabase.from('player_match_stats')
-          .select('player_name, kills, assists, damage_dealt, damage_taken, healing')
-          .in('match_id', matchIds)
-          .in('guild_name', guildNames),
-        supabase.from('player_identities').select('display_name, ingame_names'),
-      ]);
+      const { data: rows, error: rErr } = await supabase
+        .from('player_match_stats')
+        .select('player_name, kills, assists, damage_dealt, damage_taken, healing')
+        .in('match_id', matchIds)
+        .in('guild_name', guildNames);
       if (rErr) throw rErr;
-
-      const nameToIdentity = {};
-      (idRows || []).forEach((it) => {
-        const all = [it.display_name, ...(Array.isArray(it.ingame_names) ? it.ingame_names : [])].filter(Boolean);
-        all.forEach((n) => { nameToIdentity[n.trim().toLowerCase()] = it.display_name; });
-      });
 
       const agg = {};
       (rows || []).forEach((r) => {
-        const resolved = nameToIdentity[(r.player_name || '').trim().toLowerCase()] || r.player_name;
+        const resolved = ids.resolveName(r.player_name);
         if (!agg[resolved]) agg[resolved] = { player_name: resolved, matches: 0, kills: 0, assists: 0, damage_dealt: 0, damage_taken: 0, healing: 0 };
         agg[resolved].matches++;
         agg[resolved].kills += Number(r.kills) || 0;
@@ -440,20 +432,11 @@ app.get('/api/players', async (req, res) => {
       data = result.data;
     }
 
-    const [{ data: idData }, members] = await Promise.all([
-      supabase.from('player_identities').select('display_name, ingame_names, discord_id'),
-      listMembers().catch(() => []),
-    ]);
-
+    const members = await listMembers().catch(() => []);
     const memberIds = new Set(members.map((m) => m.id));
-    const nameToDiscord = {};
-    (idData || []).forEach((it) => {
-      const names = [it.display_name, ...(Array.isArray(it.ingame_names) ? it.ingame_names : [])].filter(Boolean);
-      names.forEach((n) => { if (it.discord_id) nameToDiscord[n.trim().toLowerCase()] = it.discord_id; });
-    });
 
     const players = (data || []).map((p) => {
-      const did = nameToDiscord[(p.player_name || '').trim().toLowerCase()];
+      const did = ids.discordIdFor(p.player_name);
       return { ...p, is_member: did ? memberIds.has(did) : false };
     });
 
@@ -469,22 +452,18 @@ app.get('/api/player/:name', async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
   try {
     const requestedName = decodeURIComponent(req.params.name).trim();
-    const lower = requestedName.toLowerCase();
 
     // Resolve all in-game names this player might appear as via identities.
-    const { data: ids } = await supabase.from('player_identities')
-      .select('display_name, ingame_names, discord_id');
+    const ids = await identities.load();
+    const identity = ids.identityForName(requestedName);
     let names = [requestedName];
     let displayName = requestedName;
     let discordId = null;
-    (ids || []).forEach((it) => {
-      const all = [it.display_name, ...(Array.isArray(it.ingame_names) ? it.ingame_names : [])].filter(Boolean);
-      if (all.some((n) => n.toLowerCase() === lower)) {
-        displayName = it.display_name || requestedName;
-        names = all;
-        discordId = it.discord_id || null;
-      }
-    });
+    if (identity) {
+      displayName = identity.display_name || requestedName;
+      names = [identity.display_name, ...(Array.isArray(identity.ingame_names) ? identity.ingame_names : [])].filter(Boolean);
+      discordId = identity.discord_id || null;
+    }
     const gearEntry = discordId && gearIlvl ? await gearIlvl.forMember(discordId) : null;
 
     // Pull every match row for those names (our guild only).
