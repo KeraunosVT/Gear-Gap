@@ -15,12 +15,46 @@ const botConfigured = Boolean(BOT_TOKEN && GUILD_ID);
 
 const authHeaders = () => ({ Authorization: `Bot ${BOT_TOKEN}` });
 
+// listMembers() is hit from several routes (roster, players, admin pool,
+// awards import), and each uncached call re-paginates the entire guild member
+// list — an easy way to trip Discord's rate limits. Cache the result briefly,
+// dedupe concurrent callers onto one fetch, and serve the last good list if a
+// refresh fails (a stale roster beats a 502).
+const CACHE_TTL_MS = (parseInt(process.env.MEMBER_CACHE_SECONDS, 10) || 60) * 1000;
+let membersCache = null;       // last successful result
+let membersCacheAt = 0;        // when it was fetched
+let membersInFlight = null;    // Promise while a fetch is running
+
 // Fetch every guild member (paginated), keep those with a member role.
 async function listMembers() {
   if (!botConfigured) {
     throw new Error('Discord bot is not configured (set DISCORD_BOT_TOKEN and DISCORD_GUILD_ID).');
   }
 
+  if (membersCache && Date.now() - membersCacheAt < CACHE_TTL_MS) {
+    return membersCache;
+  }
+  if (membersInFlight) return membersInFlight;
+
+  membersInFlight = fetchAllMembers()
+    .then((members) => {
+      membersCache = members;
+      membersCacheAt = Date.now();
+      return members;
+    })
+    .catch((err) => {
+      if (membersCache) {
+        console.warn('listMembers refresh failed — serving stale cache:', err.message);
+        return membersCache;
+      }
+      throw err;
+    })
+    .finally(() => { membersInFlight = null; });
+
+  return membersInFlight;
+}
+
+async function fetchAllMembers() {
   const members = [];
   let after = '0';
   for (let page = 0; page < 25; page++) { // safety cap (~25k members)

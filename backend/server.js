@@ -395,7 +395,8 @@ app.delete('/api/loa/:id', async (req, res) => {
 app.get('/api/players', async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
   try {
-    const lastN = parseInt(req.query.last, 10);
+    // Clamp like /api/matches/recent so ?last=999999 can't request the world.
+    const lastN = Math.min(Math.max(parseInt(req.query.last, 10) || 0, 0), 500);
 
     let data;
     if (lastN > 0) {
