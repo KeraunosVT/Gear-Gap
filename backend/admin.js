@@ -681,59 +681,61 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
     res.json({ players: merged.players, warnings: [...fileWarnings, ...merged.warnings] });
   });
 
-  // ── Commit reviewed rows: create match + insert players ─────────────────────
+  // Shape one reviewed player row for the save_match RPC. The SQL function
+  // stamps ids/created_at itself, so only the stat fields travel.
+  const playerRow = (p) => ({
+    rank: toInt(p.rank),
+    weapon_1: clean(p.weapon_1),
+    weapon_2: clean(p.weapon_2),
+    guild_name: clean(p.guild_name),
+    player_name: clean(p.player_name),
+    team_color: team(p.team_color),
+    kills: toInt(p.kills),
+    assists: toInt(p.assists),
+    damage_dealt: toInt(p.damage_dealt),
+    damage_taken: toInt(p.damage_taken),
+    healing: toInt(p.healing),
+  });
+
+  // Create-or-replace a match and all its player rows in ONE transaction via
+  // the save_match Postgres function (see migrations/001_atomic_match_save.sql).
+  // A failure anywhere rolls back everything — no orphan matches, no lost rows.
+  async function saveMatch(matchId, { title, match_date, result, map, players }) {
+    const { data, error } = await supabase.rpc('save_match', {
+      p_id: matchId,
+      p_title: clean(title) || 'Wargame',
+      p_match_date: clean(match_date),
+      p_result: clean(result),
+      p_map: clean(map),
+      p_players: players.map(playerRow),
+    });
+    if (error) {
+      // Most likely cause on first deploy: the migration hasn't been run yet.
+      if (/function .*save_match.* does not exist/i.test(error.message)) {
+        throw new Error('save_match() is missing — run migrations/001_atomic_match_save.sql in Supabase.');
+      }
+      throw new Error(error.message);
+    }
+    return data; // number of player rows written
+  }
+
+  // ── Commit reviewed rows: create match + insert players (atomic) ────────────
   router.post('/match/commit', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
 
-    const { title, match_date, result, map, players } = req.body || {};
+    const { players } = req.body || {};
     if (!Array.isArray(players) || players.length === 0) {
       return res.status(400).json({ error: 'No players to save.' });
     }
 
     const matchId = crypto.randomUUID();
-    const nowIso = new Date().toISOString();
-
-    // 1. Create the match row
-    const { error: mErr } = await supabase.from('wargame_matches').insert({
-      id: matchId,
-      title: clean(title) || 'Wargame',
-      match_date: clean(match_date),
-      result: clean(result),
-      map: clean(map),
-      created_at: nowIso,
-    });
-    if (mErr) {
-      console.error('Match insert error:', mErr.message);
-      return res.status(500).json({ error: 'Failed to create the match.' });
+    try {
+      const inserted = await saveMatch(matchId, req.body);
+      res.json({ match_id: matchId, inserted });
+    } catch (err) {
+      console.error('Match commit error:', err.message);
+      res.status(500).json({ error: 'Failed to save the match. ' + err.message });
     }
-
-    // 2. Insert the player rows
-    const rows = players.map((p) => ({
-      id: crypto.randomUUID(),
-      match_id: matchId,
-      rank: toInt(p.rank),
-      weapon_1: clean(p.weapon_1),
-      weapon_2: clean(p.weapon_2),
-      guild_name: clean(p.guild_name),
-      player_name: clean(p.player_name),
-      team_color: team(p.team_color),
-      kills: toInt(p.kills),
-      assists: toInt(p.assists),
-      damage_dealt: toInt(p.damage_dealt),
-      damage_taken: toInt(p.damage_taken),
-      healing: toInt(p.healing),
-      created_at: nowIso,
-    }));
-
-    const { error: pErr } = await supabase.from('player_match_stats').insert(rows);
-    if (pErr) {
-      console.error('Players insert error:', pErr.message);
-      // No cross-table transaction here, so clean up the orphan match row.
-      await supabase.from('wargame_matches').delete().eq('id', matchId);
-      return res.status(500).json({ error: 'Failed to save players — match was rolled back.' });
-    }
-
-    res.json({ match_id: matchId, inserted: rows.length });
   });
 
   // ── Load an existing match for editing ───────────────────────────────────────
@@ -749,66 +751,34 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog) {
     res.json({ match, players: players || [] });
   });
 
-  // ── Update an existing match (metadata + replace all player rows) ──────────
+  // ── Update an existing match (metadata + replace all player rows, atomic) ──
+  // save_match() is create-or-replace, so a wrong id would silently create a new
+  // match — the existence check keeps PUT semantics honest (404 on unknown id).
   router.put('/match/:id', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
 
-    const { title, match_date, result, map, players } = req.body || {};
+    const { players } = req.body || {};
     if (!Array.isArray(players) || players.length === 0) {
       return res.status(400).json({ error: 'No players to save.' });
     }
 
     const matchId = req.params.id;
-
     const { data: existing, error: chk } = await supabase
       .from('wargame_matches').select('id').eq('id', matchId).single();
     if (chk || !existing) return res.status(404).json({ error: 'Match not found.' });
 
-    const { error: mErr } = await supabase.from('wargame_matches')
-      .update({ title: clean(title) || 'Wargame', match_date: clean(match_date), result: clean(result), map: clean(map) })
-      .eq('id', matchId);
-    if (mErr) {
-      console.error('Match update error:', mErr.message);
-      return res.status(500).json({ error: 'Failed to update match.' });
+    try {
+      const updated = await saveMatch(matchId, req.body);
+      res.json({ match_id: matchId, updated });
+    } catch (err) {
+      console.error('Match update error:', err.message);
+      res.status(500).json({ error: 'Failed to update the match. ' + err.message });
     }
-
-    const { error: dErr } = await supabase.from('player_match_stats').delete().eq('match_id', matchId);
-    if (dErr) {
-      console.error('Player delete error:', dErr.message);
-      return res.status(500).json({ error: 'Failed to replace players.' });
-    }
-
-    const nowIso = new Date().toISOString();
-    const rows = players.map((p) => ({
-      id: crypto.randomUUID(),
-      match_id: matchId,
-      rank: toInt(p.rank),
-      weapon_1: clean(p.weapon_1),
-      weapon_2: clean(p.weapon_2),
-      guild_name: clean(p.guild_name),
-      player_name: clean(p.player_name),
-      team_color: team(p.team_color),
-      kills: toInt(p.kills),
-      assists: toInt(p.assists),
-      damage_dealt: toInt(p.damage_dealt),
-      damage_taken: toInt(p.damage_taken),
-      healing: toInt(p.healing),
-      created_at: nowIso,
-    }));
-
-    const { error: pErr } = await supabase.from('player_match_stats').insert(rows);
-    if (pErr) {
-      console.error('Players re-insert error:', pErr.message);
-      return res.status(500).json({ error: 'Failed to save updated players.' });
-    }
-
-    res.json({ match_id: matchId, updated: rows.length });
   });
 
-  // ── Delete a match and its player rows ─────────────────────────────────────
+  // ── Delete a match (player rows follow via ON DELETE CASCADE) ──────────────
   router.delete('/match/:id', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-    await supabase.from('player_match_stats').delete().eq('match_id', req.params.id);
     const { error } = await supabase.from('wargame_matches').delete().eq('id', req.params.id);
     if (error) return res.status(500).json({ error: 'Failed to delete match.' });
     res.json({ ok: true });

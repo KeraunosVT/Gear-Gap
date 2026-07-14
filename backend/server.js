@@ -30,7 +30,14 @@ const gateway = require('./discordGateway');
 
 const app = express();
 
-app.use(cors({ origin: true, credentials: true }));
+// CORS allowlist. The frontend is served same-origin by this server, so no
+// cross-origin access is needed in production — `origin: false` sends no CORS
+// headers at all (same-origin requests are unaffected). For local dev (Vite on
+// :5173) or any other trusted origin, set CORS_ORIGINS to a comma-separated
+// list of full origins, e.g. CORS_ORIGINS=http://localhost:5173
+const CORS_ORIGINS = (process.env.CORS_ORIGINS || '')
+  .split(',').map((s) => s.trim()).filter((s) => /^https?:\/\//.test(s));
+app.use(cors({ origin: CORS_ORIGINS.length ? CORS_ORIGINS : false, credentials: true }));
 app.use(express.json());
 app.use(cookieParser());
 
