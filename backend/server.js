@@ -22,6 +22,7 @@ const createLootCatalog = require('./lootCatalog');
 const createEliteTimers = require('./eliteTimers');
 const createGearIlvl = require('./gearIlvl');
 const createIdentities = require('./identities');
+const createLoa = require('./loa');
 
 const gearUpload = multer({
   storage: multer.memoryStorage(),
@@ -78,6 +79,7 @@ const lootCatalog = supabase ? createLootCatalog(supabase) : null;
 const eliteTimers = supabase ? createEliteTimers(supabase) : null;
 const gearIlvl = supabase ? createGearIlvl(supabase) : null;
 const identities = supabase ? createIdentities(supabase) : null;
+const loa = supabase ? createLoa(supabase) : null;
 
 // The gateway needs Supabase for /elitetimer persistence, so start it after setup.
 gateway.start(supabase);
@@ -331,64 +333,52 @@ app.get('/api/maps/stats', async (req, res) => {
 
 // My LOAs
 app.get('/api/loa', async (req, res) => {
-  if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-  const { data, error } = await supabase.from('loa_entries').select('*')
-    .eq('discord_id', req.user.id).order('created_at', { ascending: false });
-  if (error) return res.status(500).json({ error: 'Failed to load LOAs.' });
-  res.json({ entries: data || [] });
+  if (!loa) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    res.json({ entries: await loa.mine(req.user.id) });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
 });
 
 // All LOAs (so members can see who's out, minus reasons)
 app.get('/api/loa/all', async (req, res) => {
-  if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-  const { data, error } = await supabase.from('loa_entries').select('*')
-    .order('created_at', { ascending: false });
-  if (error) return res.status(500).json({ error: 'Failed to load LOAs.' });
-  const entries = (data || []).map((e) => {
-    const out = { ...e };
-    if (!req.user.isAdmin) delete out.reason;
-    return out;
-  });
-  res.json({ entries });
+  if (!loa) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    res.json({ entries: await loa.all(req.user.isAdmin) });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
 });
 
 // Submit an LOA (per-event or range)
 app.post('/api/loa', async (req, res) => {
-  if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+  if (!loa) return res.status(503).json({ error: 'Database not configured.' });
   const { type, event_date, event_schedule_id, start_date, end_date, reason } = req.body || {};
-  if (type === 'event') {
-    if (!event_date || !event_schedule_id) return res.status(400).json({ error: 'Event date and event type required.' });
-  } else if (type === 'range') {
-    if (!start_date || !end_date) return res.status(400).json({ error: 'Start and end date required.' });
-    if (new Date(end_date) < new Date(start_date)) return res.status(400).json({ error: 'End date must be after start date.' });
-  } else {
-    return res.status(400).json({ error: 'Type must be "event" or "range".' });
+  try {
+    if (type === 'event') {
+      await loa.submitEvent({ discordId: req.user.id, displayName: req.user.username, eventDate: event_date, eventScheduleId: event_schedule_id, reason });
+    } else if (type === 'range') {
+      await loa.submitRange({ discordId: req.user.id, displayName: req.user.username, startDate: start_date, endDate: end_date, reason });
+    } else {
+      return res.status(400).json({ error: 'Type must be "event" or "range".' });
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
   }
-  const { error } = await supabase.from('loa_entries').insert({
-    discord_id: req.user.id,
-    display_name: (req.user.username || '').slice(0, 120),
-    type,
-    event_date: type === 'event' ? event_date : null,
-    event_schedule_id: type === 'event' ? event_schedule_id : null,
-    start_date: type === 'range' ? start_date : null,
-    end_date: type === 'range' ? end_date : null,
-    reason: (reason || '').slice(0, 500) || null,
-  });
-  if (error) return res.status(500).json({ error: 'Failed to submit LOA.' });
-  res.json({ ok: true });
 });
 
 // Delete own LOA
 app.delete('/api/loa/:id', async (req, res) => {
-  if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-  const { data: entry } = await supabase.from('loa_entries').select('discord_id').eq('id', req.params.id).single();
-  if (!entry) return res.status(404).json({ error: 'LOA not found.' });
-  if (entry.discord_id !== req.user.id && !req.user.isAdmin) {
-    return res.status(403).json({ error: 'You can only cancel your own LOA.' });
+  if (!loa) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    const { messageId } = await loa.cancel(req.params.id, req.user.id, req.user.isAdmin);
+    res.json({ ok: true });
+    gateway.deleteLoaMessage(messageId);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
   }
-  const { error } = await supabase.from('loa_entries').delete().eq('id', req.params.id);
-  if (error) return res.status(500).json({ error: 'Failed to cancel LOA.' });
-  res.json({ ok: true });
 });
 
 // ── ALL-TIME PLAYER STATS (our guild only) ───────────────────────────────────
