@@ -973,7 +973,9 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
     const date = req.query.date || new Date().toISOString().slice(0, 10);
     const eventFilter = req.query.event || null;
-    const { data, error } = await supabase.from('loa_entries').select('discord_id, display_name, type, event_date, event_schedule_id, start_date, end_date');
+    const dow = new Date(date + 'T12:00:00').getDay();
+    const { data, error } = await supabase.from('loa_entries')
+      .select('discord_id, display_name, type, event_date, event_schedule_id, start_date, end_date, day_of_week');
     if (error) return res.status(500).json({ error: 'Failed to load LOAs.' });
     const out = new Map();
     (data || []).forEach((e) => {
@@ -982,6 +984,12 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
         matches = !eventFilter || e.event_schedule_id === eventFilter;
       }
       if (e.type === 'range' && e.start_date <= date && e.end_date >= date) matches = true;
+      // Recurring: matches every week on its day-of-week. If it's scoped to one
+      // event, it only counts when that event is the one being checked (or when
+      // no specific event filter was given, same as the 'event' type above).
+      if (e.type === 'recurring' && e.day_of_week === dow) {
+        matches = !e.event_schedule_id || !eventFilter || e.event_schedule_id === eventFilter;
+      }
       if (matches) out.set(e.discord_id, { discord_id: e.discord_id, display_name: e.display_name });
     });
     res.json({ date, unavailable: [...out.values()] });

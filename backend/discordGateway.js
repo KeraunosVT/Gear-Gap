@@ -11,6 +11,10 @@ const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
 const GUILD_ID = process.env.DISCORD_GUILD_ID;
 const ELITE_CHANNEL_ID = process.env.DISCORD_ELITE_CHANNEL_ID;
 const LOA_CHANNEL_ID = process.env.DISCORD_LOA_CHANNEL_ID;
+// Same admin role list auth.js uses to gate the website's admin area, so
+// "officer" means the same thing in Discord as it does on the site.
+const ADMIN_ROLE_IDS = (process.env.DISCORD_ADMIN_ROLE_IDS || '').split(',').map((s) => s.trim()).filter(Boolean);
+const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 const SWEEP_INTERVAL_MS = 60 * 1000;
 const WARNING_WINDOW_MS = 10 * 60 * 1000;
@@ -97,18 +101,29 @@ async function registerCommands() {
           .setDescription('Request LOA for a single scheduled event.')
           .addStringOption((opt) => opt.setName('date').setDescription('Event date, YYYY-MM-DD').setRequired(true))
           .addStringOption((opt) => opt.setName('event').setDescription('Which event').setRequired(true).setAutocomplete(true))
-          .addStringOption((opt) => opt.setName('reason').setDescription('Optional, visible to officers only').setRequired(false))
+          .addStringOption((opt) => opt.setName('reason').setDescription('Visible to officers only').setRequired(true))
+          .addUserOption((opt) => opt.setName('member').setDescription('Officers only: submit on behalf of this member').setRequired(false))
       )
       .addSubcommand((sub) =>
         sub.setName('range')
           .setDescription('Request LOA for a date range.')
           .addStringOption((opt) => opt.setName('start_date').setDescription('Start date, YYYY-MM-DD').setRequired(true))
           .addStringOption((opt) => opt.setName('end_date').setDescription('End date, YYYY-MM-DD').setRequired(true))
-          .addStringOption((opt) => opt.setName('reason').setDescription('Optional, visible to officers only').setRequired(false))
+          .addStringOption((opt) => opt.setName('reason').setDescription('Visible to officers only').setRequired(true))
+          .addUserOption((opt) => opt.setName('member').setDescription('Officers only: submit on behalf of this member').setRequired(false))
+      )
+      .addSubcommand((sub) =>
+        sub.setName('recurring')
+          .setDescription('Always out on the same day every week, until cancelled.')
+          .addStringOption((opt) => opt.setName('day').setDescription('Day of the week').setRequired(true)
+            .addChoices(...DAY_NAMES.map((name, value) => ({ name, value: String(value) }))))
+          .addStringOption((opt) => opt.setName('reason').setDescription('Visible to officers only').setRequired(true))
+          .addStringOption((opt) => opt.setName('event').setDescription('Leave blank for the whole day').setRequired(false).setAutocomplete(true))
+          .addUserOption((opt) => opt.setName('member').setDescription('Officers only: submit on behalf of this member').setRequired(false))
       )
       .addSubcommand((sub) =>
         sub.setName('cancel')
-          .setDescription('Cancel one of your upcoming LOAs.')
+          .setDescription('Cancel one of your upcoming LOAs (officers: anyone’s).')
           .addStringOption((opt) => opt.setName('entry').setDescription('Which LOA to cancel').setRequired(true).setAutocomplete(true))
       );
 
@@ -199,6 +214,28 @@ function displayNameFor(user) {
   return user.globalName || user.username || 'Member';
 }
 
+function isAdminMember(interaction) {
+  if (!ADMIN_ROLE_IDS.length) return false;
+  const roles = interaction.member?.roles?.cache;
+  if (!roles) return false;
+  return ADMIN_ROLE_IDS.some((r) => roles.has(r));
+}
+
+// Who an LOA submission is for. Defaults to the invoker; if they passed the
+// `member` option, this submits on that member's behalf instead — but only
+// if the invoker actually holds an admin role, checked here rather than
+// trusted from the option existing.
+function resolveTarget(interaction) {
+  const targetUser = interaction.options.getUser('member');
+  if (!targetUser) {
+    return { discordId: interaction.user.id, displayName: displayNameFor(interaction.user), onBehalf: false };
+  }
+  if (!isAdminMember(interaction)) {
+    return { error: "Only officers can submit an LOA on someone else's behalf." };
+  }
+  return { discordId: targetUser.id, displayName: displayNameFor(targetUser), onBehalf: true };
+}
+
 // Renders a YYYY-MM-DD calendar date as a Discord timestamp tag (noon UTC —
 // these are date-only values, so the exact hour doesn't matter, just the day).
 function discordDate(dateStr) {
@@ -247,12 +284,16 @@ async function handleLoa(interaction) {
   const sub = interaction.options.getSubcommand();
   if (sub === 'event') return handleLoaEvent(interaction);
   if (sub === 'range') return handleLoaRange(interaction);
+  if (sub === 'recurring') return handleLoaRecurring(interaction);
   if (sub === 'cancel') return handleLoaCancel(interaction);
 }
 
 async function handleLoaEvent(interaction) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   if (!loa) return interaction.editReply('LOA tracking is not configured right now.');
+
+  const target = resolveTarget(interaction);
+  if (target.error) return interaction.editReply(target.error);
 
   const date = interaction.options.getString('date');
   const eventScheduleId = interaction.options.getString('event');
@@ -261,14 +302,16 @@ async function handleLoaEvent(interaction) {
 
   try {
     const { id, eventName } = await loa.submitEvent({
-      discordId: interaction.user.id,
-      displayName: displayNameFor(interaction.user),
+      discordId: target.discordId,
+      displayName: target.displayName,
       eventDate: date,
       eventScheduleId,
       reason,
     });
-    await interaction.editReply(`Recorded ✅ — LOA submitted for ${date}.`);
-    const messageId = await announceLoa(`📋 **${displayNameFor(interaction.user)}** is on LOA for **${eventName}** — ${discordDate(date)}`);
+    await interaction.editReply(target.onBehalf
+      ? `Recorded ✅ — LOA submitted for **${target.displayName}** on ${date}.`
+      : `Recorded ✅ — LOA submitted for ${date}.`);
+    const messageId = await announceLoa(`📋 **${target.displayName}** is on LOA for **${eventName}** — ${discordDate(date)}`);
     if (messageId) await loa.setMessageId(id, messageId);
   } catch (err) {
     await interaction.editReply(err.message || 'Something went wrong submitting that LOA.');
@@ -279,18 +322,53 @@ async function handleLoaRange(interaction) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   if (!loa) return interaction.editReply('LOA tracking is not configured right now.');
 
+  const target = resolveTarget(interaction);
+  if (target.error) return interaction.editReply(target.error);
+
   const startDate = interaction.options.getString('start_date');
   const endDate = interaction.options.getString('end_date');
   const reason = interaction.options.getString('reason') || '';
 
   try {
     const { id } = await loa.submitRange({
-      discordId: interaction.user.id,
-      displayName: displayNameFor(interaction.user),
+      discordId: target.discordId,
+      displayName: target.displayName,
       startDate, endDate, reason,
     });
-    await interaction.editReply(`Recorded ✅ — LOA submitted for ${startDate} to ${endDate}.`);
-    const messageId = await announceLoa(`📋 **${displayNameFor(interaction.user)}** is on LOA — ${discordDate(startDate)} to ${discordDate(endDate)}`);
+    await interaction.editReply(target.onBehalf
+      ? `Recorded ✅ — LOA submitted for **${target.displayName}**, ${startDate} to ${endDate}.`
+      : `Recorded ✅ — LOA submitted for ${startDate} to ${endDate}.`);
+    const messageId = await announceLoa(`📋 **${target.displayName}** is on LOA — ${discordDate(startDate)} to ${discordDate(endDate)}`);
+    if (messageId) await loa.setMessageId(id, messageId);
+  } catch (err) {
+    await interaction.editReply(err.message || 'Something went wrong submitting that LOA.');
+  }
+}
+
+async function handleLoaRecurring(interaction) {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  if (!loa) return interaction.editReply('LOA tracking is not configured right now.');
+
+  const target = resolveTarget(interaction);
+  if (target.error) return interaction.editReply(target.error);
+
+  const dow = parseInt(interaction.options.getString('day'), 10);
+  const eventScheduleId = interaction.options.getString('event') || null;
+  const reason = interaction.options.getString('reason') || '';
+
+  try {
+    const { id, eventName } = await loa.submitRecurring({
+      discordId: target.discordId,
+      displayName: target.displayName,
+      dayOfWeek: dow,
+      eventScheduleId,
+      reason,
+    });
+    const scope = eventName ? ` for **${eventName}**` : '';
+    await interaction.editReply(target.onBehalf
+      ? `Recorded ✅ — **${target.displayName}** is now always out on **${DAY_NAMES[dow]}**${scope}.`
+      : `Recorded ✅ — you're now always out on **${DAY_NAMES[dow]}**${scope}.`);
+    const messageId = await announceLoa(`📋 **${target.displayName}** is always on LOA every **${DAY_NAMES[dow]}**${scope}`);
     if (messageId) await loa.setMessageId(id, messageId);
   } catch (err) {
     await interaction.editReply(err.message || 'Something went wrong submitting that LOA.');
@@ -305,11 +383,10 @@ async function handleLoaCancel(interaction) {
   if (!id) return interaction.editReply('No LOA selected — pick one from the list.');
 
   try {
-    // isAdmin is deliberately hard-coded false here: Discord-side cancellation
-    // is self-service only (the autocomplete list only ever offers the
-    // caller's own entries). Admins cancelling on someone else's behalf still
-    // goes through the website.
-    const { messageId } = await loa.cancel(id, interaction.user.id, false);
+    // Officers can cancel anyone's LOA from Discord (matches the website,
+    // where the LOA Board's cancel button shows for admins on any entry);
+    // everyone else can only cancel their own, enforced in loa.cancel().
+    const { messageId } = await loa.cancel(id, interaction.user.id, isAdminMember(interaction));
     await interaction.editReply('Cancelled ✅');
     await deleteLoaMessage(messageId);
   } catch (err) {
@@ -321,6 +398,7 @@ async function handleAutocomplete(interaction) {
   if (interaction.commandName !== 'loa') return interaction.respond([]).catch(() => {});
   const sub = interaction.options.getSubcommand();
   if (sub === 'event') return autocompleteLoaEvent(interaction);
+  if (sub === 'recurring') return autocompleteLoaRecurring(interaction);
   if (sub === 'cancel') return autocompleteLoaCancel(interaction);
   return interaction.respond([]).catch(() => {});
 }
@@ -342,18 +420,48 @@ async function autocompleteLoaEvent(interaction) {
   await interaction.respond(choices).catch(() => {});
 }
 
+// `event` is optional here (blank = whole day), so unlike autocompleteLoaEvent
+// there's no placeholder needed for the zero-results case — the field just
+// shows no suggestions and the member leaves it blank.
+async function autocompleteLoaRecurring(interaction) {
+  if (!loa) return interaction.respond([]).catch(() => {});
+  const day = interaction.options.getString('day');
+  const dow = day === null ? NaN : parseInt(day, 10);
+  if (!Number.isInteger(dow) || dow < 0 || dow > 6) return interaction.respond([]).catch(() => {});
+
+  const focused = interaction.options.getFocused().toLowerCase();
+  const events = await loa.eventsForDay(dow);
+  const choices = events
+    .filter((e) => e.name.toLowerCase().includes(focused))
+    .slice(0, 25)
+    .map((e) => ({ name: e.event_time ? `${e.name} (${e.event_time})` : e.name, value: e.id }));
+  await interaction.respond(choices).catch(() => {});
+}
+
 async function autocompleteLoaCancel(interaction) {
   if (!loa) return interaction.respond([]).catch(() => {});
-  const entries = await loa.mine(interaction.user.id);
+  const admin = isAdminMember(interaction);
+  const entries = admin ? await loa.all(true) : await loa.mine(interaction.user.id);
   const today = new Date().toISOString().slice(0, 10);
-  const upcoming = entries.filter((e) => (e.type === 'event' ? e.event_date >= today : e.end_date >= today));
+  const upcoming = entries.filter((e) => {
+    if (e.type === 'event') return e.event_date >= today;
+    if (e.type === 'range') return e.end_date >= today;
+    return true; // recurring — always current until explicitly cancelled
+  });
   if (upcoming.length === 0) {
     return interaction.respond([{ name: '— no upcoming LOAs —', value: '' }]).catch(() => {});
   }
-  const choices = upcoming.slice(0, 25).map((e) => ({
-    name: e.type === 'event' ? `Event — ${e.event_date}` : `Range — ${e.start_date} to ${e.end_date}`,
-    value: e.id,
-  }));
+  const label = (e) => {
+    const who = admin ? `${e.display_name} — ` : '';
+    if (e.type === 'event') return `${who}Event — ${e.event_date}`;
+    if (e.type === 'range') return `${who}Range — ${e.start_date} to ${e.end_date}`;
+    return `${who}Recurring — ${DAY_NAMES[e.day_of_week]}`;
+  };
+  const focused = interaction.options.getFocused().toLowerCase();
+  const choices = upcoming
+    .map((e) => ({ name: label(e), value: e.id }))
+    .filter((c) => c.name.toLowerCase().includes(focused))
+    .slice(0, 25);
   await interaction.respond(choices).catch(() => {});
 }
 

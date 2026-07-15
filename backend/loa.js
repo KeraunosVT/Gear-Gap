@@ -15,22 +15,33 @@ function dayOfWeek(dateStr) {
 
 module.exports = function createLoa(supabase) {
   const isValidDate = (dateStr) => DATE_RE.test(dateStr || '');
+  const requireReason = (reason) => {
+    const trimmed = (reason || '').trim();
+    if (!trimmed) throw httpError(400, 'Reason is required.');
+    return trimmed;
+  };
 
   return {
     isValidDate,
 
-    // Events on the recurring schedule that fall on the same day-of-week as `dateStr`.
+    // Events on the recurring schedule for a given day-of-week (0=Sunday..6=Saturday).
+    async eventsForDay(dow) {
+      const { data, error } = await supabase.from('event_schedule')
+        .select('*').eq('day_of_week', dow).order('name');
+      if (error) { console.error('loa.eventsForDay error:', error.message); return []; }
+      return data || [];
+    },
+
+    // Same, but keyed off a calendar date instead of a raw day-of-week number.
     async eventsForDate(dateStr) {
       if (!isValidDate(dateStr)) return [];
-      const { data, error } = await supabase.from('event_schedule')
-        .select('*').eq('day_of_week', dayOfWeek(dateStr)).order('name');
-      if (error) { console.error('loa.eventsForDate error:', error.message); return []; }
-      return data || [];
+      return this.eventsForDay(dayOfWeek(dateStr));
     },
 
     async submitEvent({ discordId, displayName, eventDate, eventScheduleId, reason }) {
       if (!isValidDate(eventDate)) throw httpError(400, 'Date must be in YYYY-MM-DD format.');
       if (!eventScheduleId) throw httpError(400, 'Event is required.');
+      const cleanReason = requireReason(reason);
       const { data: ev, error: evErr } = await supabase.from('event_schedule')
         .select('id, name, day_of_week').eq('id', eventScheduleId).single();
       if (evErr || !ev) throw httpError(400, 'Unknown event.');
@@ -44,7 +55,7 @@ module.exports = function createLoa(supabase) {
         event_schedule_id: eventScheduleId,
         start_date: null,
         end_date: null,
-        reason: (reason || '').slice(0, 500) || null,
+        reason: cleanReason.slice(0, 500),
       }).select('id').single();
       if (error) throw httpError(500, 'Failed to submit LOA.');
       return { id: row.id, eventName: ev.name };
@@ -53,6 +64,7 @@ module.exports = function createLoa(supabase) {
     async submitRange({ discordId, displayName, startDate, endDate, reason }) {
       if (!isValidDate(startDate) || !isValidDate(endDate)) throw httpError(400, 'Dates must be in YYYY-MM-DD format.');
       if (new Date(endDate) < new Date(startDate)) throw httpError(400, 'End date must be after start date.');
+      const cleanReason = requireReason(reason);
 
       const { data: row, error } = await supabase.from('loa_entries').insert({
         discord_id: discordId,
@@ -62,10 +74,41 @@ module.exports = function createLoa(supabase) {
         event_schedule_id: null,
         start_date: startDate,
         end_date: endDate,
-        reason: (reason || '').slice(0, 500) || null,
+        reason: cleanReason.slice(0, 500),
       }).select('id').single();
       if (error) throw httpError(500, 'Failed to submit LOA.');
       return { id: row.id };
+    },
+
+    // Recurs every week on `dayOfWeek` (0=Sunday..6=Saturday) until cancelled.
+    // `eventScheduleId` is optional: set it to cover only that one recurring
+    // event (e.g. "always out for Tuesday Wargame"), or leave it null to cover
+    // the whole day regardless of what's scheduled.
+    async submitRecurring({ discordId, displayName, dayOfWeek: dow, eventScheduleId, reason }) {
+      if (!Number.isInteger(dow) || dow < 0 || dow > 6) throw httpError(400, 'Day of week must be between 0 and 6.');
+      const cleanReason = requireReason(reason);
+      let eventName = null;
+      if (eventScheduleId) {
+        const { data: ev, error: evErr } = await supabase.from('event_schedule')
+          .select('id, name, day_of_week').eq('id', eventScheduleId).single();
+        if (evErr || !ev) throw httpError(400, 'Unknown event.');
+        if (ev.day_of_week !== dow) throw httpError(400, "That event isn't scheduled on that day.");
+        eventName = ev.name;
+      }
+
+      const { data: row, error } = await supabase.from('loa_entries').insert({
+        discord_id: discordId,
+        display_name: (displayName || '').slice(0, 120),
+        type: 'recurring',
+        event_date: null,
+        event_schedule_id: eventScheduleId || null,
+        start_date: null,
+        end_date: null,
+        day_of_week: dow,
+        reason: cleanReason.slice(0, 500),
+      }).select('id').single();
+      if (error) throw httpError(500, 'Failed to submit LOA.');
+      return { id: row.id, eventName };
     },
 
     // Best-effort — called after announceLoa() posts to Discord, to remember

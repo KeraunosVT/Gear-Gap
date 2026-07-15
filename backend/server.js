@@ -354,14 +354,22 @@ app.get('/api/loa/all', async (req, res) => {
 // Submit an LOA (per-event or range)
 app.post('/api/loa', async (req, res) => {
   if (!loa) return res.status(503).json({ error: 'Database not configured.' });
-  const { type, event_date, event_schedule_id, start_date, end_date, reason } = req.body || {};
+  const { type, event_date, event_schedule_id, start_date, end_date, day_of_week, reason, discord_id, display_name } = req.body || {};
+  // Admins can submit on a member's behalf by passing discord_id/display_name;
+  // anyone else's request is always attributed to themselves regardless of
+  // what the body says.
+  const onBehalf = req.user.isAdmin && discord_id;
+  const targetId = onBehalf ? discord_id : req.user.id;
+  const targetName = onBehalf ? (display_name || 'Member') : req.user.username;
   try {
     if (type === 'event') {
-      await loa.submitEvent({ discordId: req.user.id, displayName: req.user.username, eventDate: event_date, eventScheduleId: event_schedule_id, reason });
+      await loa.submitEvent({ discordId: targetId, displayName: targetName, eventDate: event_date, eventScheduleId: event_schedule_id, reason });
     } else if (type === 'range') {
-      await loa.submitRange({ discordId: req.user.id, displayName: req.user.username, startDate: start_date, endDate: end_date, reason });
+      await loa.submitRange({ discordId: targetId, displayName: targetName, startDate: start_date, endDate: end_date, reason });
+    } else if (type === 'recurring') {
+      await loa.submitRecurring({ discordId: targetId, displayName: targetName, dayOfWeek: parseInt(day_of_week, 10), eventScheduleId: event_schedule_id, reason });
     } else {
-      return res.status(400).json({ error: 'Type must be "event" or "range".' });
+      return res.status(400).json({ error: 'Type must be "event", "range", or "recurring".' });
     }
     res.json({ ok: true });
   } catch (err) {

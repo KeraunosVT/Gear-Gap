@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../auth';
-import { CalendarOff, CalendarX2, Plus, Trash2, Settings, X } from 'lucide-react';
+import { CalendarOff, CalendarX2, Plus, Trash2, Settings, X, Repeat } from 'lucide-react';
 
 import { fmtTime, fmtTimeEst } from '../timeUtils';
 
@@ -22,6 +22,8 @@ export default function LOA() {
   const [eventScheduleId, setEventScheduleId] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [recurDay, setRecurDay] = useState('');
+  const [recurEventScheduleId, setRecurEventScheduleId] = useState('');
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -29,6 +31,10 @@ export default function LOA() {
   const [newEventName, setNewEventName] = useState('');
   const [newEventDay, setNewEventDay] = useState('');
   const [newEventTime, setNewEventTime] = useState('');
+
+  // Officers can submit an LOA on someone else's behalf; '' means "myself".
+  const [adminMembers, setAdminMembers] = useState([]);
+  const [submitFor, setSubmitFor] = useState('');
 
   const load = () => {
     setLoading(true); setError('');
@@ -48,6 +54,11 @@ export default function LOA() {
 
   useEffect(() => { load(); }, []);
 
+  useEffect(() => {
+    if (!user?.isAdmin) return;
+    axios.get('/api/admin/members').then((res) => setAdminMembers(res.data.members || [])).catch(() => {});
+  }, [user?.isAdmin]);
+
   const flash = (text, ok = true) => { setMsg({ text, ok }); setTimeout(() => setMsg(null), 4000); };
 
   const scheduleById = useMemo(() => {
@@ -62,19 +73,30 @@ export default function LOA() {
     return schedule.filter((s) => s.day_of_week === dow);
   }, [eventDate, schedule]);
 
+  const eventsOnRecurDay = useMemo(() => {
+    if (recurDay === '') return [];
+    return schedule.filter((s) => s.day_of_week === Number(recurDay));
+  }, [recurDay, schedule]);
+
+  const submitTarget = useMemo(() => adminMembers.find((m) => m.id === submitFor) || null, [adminMembers, submitFor]);
+
   const submit = async () => {
     setSubmitting(true); setError('');
     try {
       await axios.post('/api/loa', {
         type: loaType,
         event_date: loaType === 'event' ? eventDate : undefined,
-        event_schedule_id: loaType === 'event' ? eventScheduleId : undefined,
+        event_schedule_id: loaType === 'event' ? eventScheduleId : loaType === 'recurring' ? (recurEventScheduleId || undefined) : undefined,
         start_date: loaType === 'range' ? startDate : undefined,
         end_date: loaType === 'range' ? endDate : undefined,
+        day_of_week: loaType === 'recurring' ? Number(recurDay) : undefined,
         reason,
+        discord_id: submitTarget?.id,
+        display_name: submitTarget?.name,
       });
-      flash('LOA submitted.');
-      setEventDate(''); setEventScheduleId(''); setStartDate(''); setEndDate(''); setReason('');
+      flash(submitTarget ? `LOA submitted for ${submitTarget.name}.` : 'LOA submitted.');
+      setEventDate(''); setEventScheduleId(''); setStartDate(''); setEndDate('');
+      setRecurDay(''); setRecurEventScheduleId(''); setReason(''); setSubmitFor('');
       load();
     } catch (err) {
       flash(err.response?.data?.error || 'Failed to submit LOA.', false);
@@ -135,6 +157,12 @@ export default function LOA() {
     return `${fmt(entry.start_date)} – ${fmt(entry.end_date)}`;
   };
 
+  const formatRecurringLabel = (entry) => {
+    const ev = scheduleById[entry.event_schedule_id];
+    const scope = ev ? ` — ${ev.name}${ev.event_time ? ` at ${fmtTime(ev.event_time)}` : ''}` : '';
+    return `Every ${DAYS[entry.day_of_week]}${scope}`;
+  };
+
   const formatDateHeader = (dateStr) =>
     new Date(dateStr + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
 
@@ -143,9 +171,13 @@ export default function LOA() {
     return allEntries.filter((e) => {
       if (e.type === 'event') return e.event_date >= today;
       if (e.type === 'range') return e.end_date >= today;
-      return false;
+      return false; // recurring entries have their own section, not the dated agenda
     });
   }, [allEntries]);
+
+  // Recurring absences have no fixed date to group under, so the board lists
+  // them separately instead of folding them into the chronological agenda.
+  const recurringEntries = useMemo(() => allEntries.filter((e) => e.type === 'recurring'), [allEntries]);
 
   // Agenda: the same upcoming absences, grouped under a date header and sorted
   // chronologically (event date, or a range's start date) instead of a flat list.
@@ -162,8 +194,9 @@ export default function LOA() {
 
   const todayStr = new Date().toISOString().slice(0, 10);
 
-  const canSubmitEvent = loaType === 'event' && eventDate && eventScheduleId;
-  const canSubmitRange = loaType === 'range' && startDate && endDate;
+  const canSubmitEvent = loaType === 'event' && eventDate && eventScheduleId && reason.trim();
+  const canSubmitRange = loaType === 'range' && startDate && endDate && reason.trim();
+  const canSubmitRecurring = loaType === 'recurring' && recurDay !== '' && reason.trim();
 
   return (
     <div className="max-w-4xl mx-auto px-6 py-12">
@@ -243,6 +276,17 @@ export default function LOA() {
           {/* Submit */}
           {tab === 'submit' && (
             <div className="panel rounded-sm p-6 space-y-5">
+              {user?.isAdmin && (
+                <div>
+                  <label className="eyebrow text-[10px] text-ash block mb-2">Submit for</label>
+                  <select value={submitFor} onChange={(e) => setSubmitFor(e.target.value)}
+                    className="w-full md:w-64 bg-hall border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass">
+                    <option value="">Myself</option>
+                    {adminMembers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+                  </select>
+                </div>
+              )}
+
               <div className="flex gap-3">
                 <button onClick={() => setLoaType('event')}
                   className={`inline-flex items-center gap-2 px-4 py-2 rounded-sm text-sm font-medium border transition-colors ${loaType === 'event' ? 'border-brass bg-panel text-brassbright' : 'border-line text-ash hover:text-bone'}`}>
@@ -251,6 +295,10 @@ export default function LOA() {
                 <button onClick={() => setLoaType('range')}
                   className={`inline-flex items-center gap-2 px-4 py-2 rounded-sm text-sm font-medium border transition-colors ${loaType === 'range' ? 'border-brass bg-panel text-brassbright' : 'border-line text-ash hover:text-bone'}`}>
                   <CalendarOff className="w-4 h-4" /> Date range
+                </button>
+                <button onClick={() => setLoaType('recurring')}
+                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-sm text-sm font-medium border transition-colors ${loaType === 'recurring' ? 'border-brass bg-panel text-brassbright' : 'border-line text-ash hover:text-bone'}`}>
+                  <Repeat className="w-4 h-4" /> Recurring
                 </button>
               </div>
 
@@ -292,13 +340,34 @@ export default function LOA() {
                 </div>
               )}
 
+              {loaType === 'recurring' && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="eyebrow text-[10px] text-ash block mb-2">Day</label>
+                    <select value={recurDay} onChange={(e) => { setRecurDay(e.target.value); setRecurEventScheduleId(''); }}
+                      className="w-full bg-hall border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass">
+                      <option value="">— select day —</option>
+                      {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="eyebrow text-[10px] text-ash block mb-2">Event <span className="text-ash/50">(optional — blank means the whole day)</span></label>
+                    <select value={recurEventScheduleId} onChange={(e) => setRecurEventScheduleId(e.target.value)} disabled={recurDay === ''}
+                      className="w-full bg-hall border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass disabled:opacity-40">
+                      <option value="">Whole day</option>
+                      {eventsOnRecurDay.map((s) => <option key={s.id} value={s.id}>{s.name}{s.event_time ? ` (${fmtTime(s.event_time)})` : ''}</option>)}
+                    </select>
+                  </div>
+                </div>
+              )}
+
               <div>
-                <label className="eyebrow text-[10px] text-ash block mb-2">Reason <span className="text-ash/50">(optional, visible to officers only)</span></label>
+                <label className="eyebrow text-[10px] text-ash block mb-2">Reason <span className="text-ash/50">(visible to officers only)</span></label>
                 <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. vacation, work trip"
                   className="w-full bg-hall border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass" />
               </div>
 
-              <button onClick={submit} disabled={submitting || !(canSubmitEvent || canSubmitRange)}
+              <button onClick={submit} disabled={submitting || !(canSubmitEvent || canSubmitRange || canSubmitRecurring)}
                 className="px-6 py-3 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors disabled:opacity-40">
                 {submitting ? 'Submitting…' : 'Submit LOA'}
               </button>
@@ -315,13 +384,15 @@ export default function LOA() {
                   {myEntries.map((e) => (
                     <div key={e.id} className="flex items-center gap-4 px-5 py-3">
                       <div className="flex items-center gap-2 shrink-0">
-                        {e.type === 'event'
-                          ? <CalendarX2 className="w-4 h-4 text-brass" />
-                          : <CalendarOff className="w-4 h-4 text-brass" />}
+                        {e.type === 'event' && <CalendarX2 className="w-4 h-4 text-brass" />}
+                        {e.type === 'range' && <CalendarOff className="w-4 h-4 text-brass" />}
+                        {e.type === 'recurring' && <Repeat className="w-4 h-4 text-brass" />}
                       </div>
                       <div className="min-w-0 flex-1">
                         <div className="text-bone text-sm">
-                          {e.type === 'event' ? formatEventLabel(e) : formatRangeLabel(e)}
+                          {e.type === 'event' && formatEventLabel(e)}
+                          {e.type === 'range' && formatRangeLabel(e)}
+                          {e.type === 'recurring' && formatRecurringLabel(e)}
                         </div>
                         {e.reason && <div className="text-xs text-ash mt-0.5">{e.reason}</div>}
                       </div>
@@ -335,11 +406,40 @@ export default function LOA() {
             </div>
           )}
 
-          {/* LOA Board — agenda grouped by date, chronological */}
+          {/* LOA Board — recurring absences, then the dated agenda, chronological */}
           {tab === 'board' && (
-            <div>
+            <div className="space-y-8">
+              {recurringEntries.length > 0 && (
+                <div>
+                  <div className="eyebrow text-[10px] text-brass mb-2 flex items-center gap-2">
+                    <Repeat className="w-3.5 h-3.5" /> Recurring
+                  </div>
+                  <div className="panel rounded-sm divide-y divide-line">
+                    {recurringEntries.map((e) => (
+                      <div key={e.id} className="flex items-center gap-4 px-5 py-3">
+                        <div className="flex items-center gap-2 shrink-0">
+                          <Repeat className="w-4 h-4 text-brass" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-bone text-sm font-medium">{e.display_name || 'Member'}</div>
+                          <div className="text-xs text-ash">{formatRecurringLabel(e)}</div>
+                          {user?.isAdmin && e.reason && <div className="text-xs text-brass/70 mt-0.5">{e.reason}</div>}
+                        </div>
+                        {(user?.isAdmin || e.discord_id === user?.id) && (
+                          <button onClick={() => cancel(e.id)} className="text-ash hover:text-oxblood shrink-0" title="Cancel LOA">
+                            <X className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {agendaGroups.length === 0 ? (
-                <div className="panel rounded-sm p-10 text-center text-ash">No upcoming absences on file.</div>
+                recurringEntries.length === 0 && (
+                  <div className="panel rounded-sm p-10 text-center text-ash">No upcoming absences on file.</div>
+                )
               ) : (
                 <div className="space-y-6">
                   {agendaGroups.map(({ date, entries }) => (
