@@ -67,7 +67,7 @@ module.exports = function createLoa(supabase) {
         end_date: null,
         reason: cleanReason.slice(0, 500),
       }).select('id').single();
-      if (error) throw httpError(500, 'Failed to submit LOA.');
+      if (error) { console.error('loa.submitEvent error:', error.message); throw httpError(500, 'Failed to submit LOA.'); }
       return { id: row.id, eventName: ev.name };
     },
 
@@ -86,7 +86,7 @@ module.exports = function createLoa(supabase) {
         end_date: endDate,
         reason: cleanReason.slice(0, 500),
       }).select('id').single();
-      if (error) throw httpError(500, 'Failed to submit LOA.');
+      if (error) { console.error('loa.submitRange error:', error.message); throw httpError(500, 'Failed to submit LOA.'); }
       return { id: row.id };
     },
 
@@ -117,7 +117,7 @@ module.exports = function createLoa(supabase) {
         day_of_week: dow,
         reason: cleanReason.slice(0, 500),
       }).select('id').single();
-      if (error) throw httpError(500, 'Failed to submit LOA.');
+      if (error) { console.error('loa.submitRecurring error:', error.message); throw httpError(500, 'Failed to submit LOA.'); }
       return { id: row.id, eventName };
     },
 
