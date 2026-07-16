@@ -1021,6 +1021,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
       return res.status(500).json({ error: 'Failed to load LOAs.', detail: error.message });
     }
     const eventTime = eventRow?.event_time || null;
+    if (eventFilter) console.log('loa.unavailable debug:', { date, eventFilter, eventTime });
     const out = new Map();
     (data || []).forEach((e) => {
       let matches = false;
@@ -1038,6 +1039,12 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
         const scopeMatches = !e.event_schedule_id || !eventFilter || e.event_schedule_id === eventFilter;
         const timeMatches = !e.start_time || !eventTime || eventTime >= e.start_time;
         matches = scopeMatches && timeMatches;
+        if (eventFilter) {
+          console.log('loa.unavailable debug recurring entry:', {
+            discord_id: e.discord_id, event_schedule_id: e.event_schedule_id,
+            start_time: e.start_time, scopeMatches, timeMatches, matches,
+          });
+        }
       }
       if (matches) out.set(e.discord_id, { discord_id: e.discord_id, display_name: e.display_name });
     });
