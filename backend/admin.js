@@ -850,6 +850,10 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     }
 
     res.json({ id: eventId, attendees: rows.length });
+
+    // Best-effort — DMs go out after responding so a slow/failed Discord send
+    // can't delay or break the save itself.
+    if (gateway) gateway.notifyAttendance(attendees, title, event_date).catch(() => {});
   });
 
   // One-time (re-runnable) fix for attendance rows saved before snapshots resolved

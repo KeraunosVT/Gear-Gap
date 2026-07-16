@@ -499,6 +499,24 @@ async function sweepEliteTimers() {
   }
 }
 
+// DMs each attendee a simple confirmation that their attendance was logged.
+// Best-effort per member — a member with DMs from server members disabled (or
+// who has left the guild) just gets logged and skipped, not surfaced as a
+// failure of the save itself, which has already succeeded by the time this runs.
+async function notifyAttendance(attendees, title, eventDate) {
+  if (!ready || !client) return;
+  const dateText = eventDate ? ` on ${discordDate(eventDate)}` : '';
+  const text = `✅ Your attendance for **${title}**${dateText} has been recorded. Thanks for showing up!`;
+  for (const a of attendees) {
+    try {
+      const user = await client.users.fetch(a.id);
+      await user.send(text);
+    } catch (err) {
+      console.error(`Attendance DM error for ${a.id}:`, err.message);
+    }
+  }
+}
+
 // List voice channels the bot can see.
 function listVoiceChannels() {
   const guild = getGuild();
@@ -524,4 +542,4 @@ function getVoiceMembers(channelId) {
   }));
 }
 
-module.exports = { start, listVoiceChannels, getVoiceMembers, deleteLoaMessage };
+module.exports = { start, listVoiceChannels, getVoiceMembers, deleteLoaMessage, notifyAttendance };
