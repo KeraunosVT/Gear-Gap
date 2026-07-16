@@ -9,6 +9,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { useAuth } from '../auth';
 import Sigil from '../components/Sigil';
+import { todayInGuildTz } from '../timeUtils';
 import { Save, Trash2, Send, Plus, RefreshCw, Users, CalendarOff } from 'lucide-react';
 
 const ROLES = ['Tank', 'DPS', 'Healer'];
@@ -170,7 +171,7 @@ export default function Parties() {
   const [membersError, setMembersError] = useState('');
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState(false);
-  const [loaDate, setLoaDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [loaDate, setLoaDate] = useState(todayInGuildTz);
   const [loaEvent, setLoaEvent] = useState('');
   const [loaSet, setLoaSet] = useState(new Set());
   const [schedule, setSchedule] = useState([]);

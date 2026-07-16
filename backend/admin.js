@@ -5,6 +5,7 @@ const multer = require('multer');
 const Papa = require('papaparse');
 const { parseScreenshot, parseCsv, WEAPONS } = require('./ingest');
 const { listMembers, postEmbed, postImage } = require('./discord');
+const { todayInGuildTz } = require('./loa');
 
 const ROLE_EMOJI = { Tank: '🛡️', DPS: '⚔️', Healer: '💚' };
 
@@ -975,7 +976,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
   // ── LOA: who's out on a given date/event (for party builder) ────────────────
   router.get('/loa/unavailable', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-    const date = req.query.date || new Date().toISOString().slice(0, 10);
+    const date = req.query.date || todayInGuildTz();
     const eventFilter = req.query.event || null;
     const dow = new Date(date + 'T12:00:00').getDay();
     const { data, error } = await supabase.from('loa_entries')

@@ -442,7 +442,7 @@ async function autocompleteLoaCancel(interaction) {
   if (!loa) return interaction.respond([]).catch(() => {});
   const admin = isAdminMember(interaction);
   const entries = admin ? await loa.all(true) : await loa.mine(interaction.user.id);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = createLoa.todayInGuildTz();
   const upcoming = entries.filter((e) => {
     if (e.type === 'event') return e.event_date >= today;
     if (e.type === 'range') return e.end_date >= today;

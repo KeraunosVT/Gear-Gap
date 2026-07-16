@@ -2,6 +2,7 @@
 // /api/loa routes and the /loa Discord command so both write through the
 // same validation instead of maintaining it twice.
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const GUILD_TZ = 'America/New_York';
 
 function httpError(status, message) {
   const err = new Error(message);
@@ -11,6 +12,15 @@ function httpError(status, message) {
 
 function dayOfWeek(dateStr) {
   return new Date(dateStr + 'T12:00:00').getDay();
+}
+
+// "Today" as a YYYY-MM-DD string in the guild's own timezone, not the server's.
+// new Date().toISOString() reads the UTC calendar day, which silently rolls
+// over to tomorrow from ~7-8pm ET onward — exactly when people are building
+// rosters for that night's event — so callers needing "today" must use this
+// instead of toISOString().slice(0, 10).
+function todayInGuildTz() {
+  return new Date().toLocaleDateString('en-CA', { timeZone: GUILD_TZ });
 }
 
 module.exports = function createLoa(supabase) {
@@ -148,3 +158,5 @@ module.exports = function createLoa(supabase) {
     },
   };
 };
+
+module.exports.todayInGuildTz = todayInGuildTz;

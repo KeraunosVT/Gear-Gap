@@ -3,7 +3,7 @@ import axios from 'axios';
 import { useAuth } from '../auth';
 import { CalendarOff, CalendarX2, Plus, Trash2, Settings, X, Repeat } from 'lucide-react';
 
-import { fmtTime, fmtTimeEst } from '../timeUtils';
+import { fmtTime, fmtTimeEst, todayInGuildTz } from '../timeUtils';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -180,7 +180,7 @@ export default function LOA() {
     return out;
   };
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayStr = todayInGuildTz();
 
   const upcomingAbsent = useMemo(() => {
     return allEntries.filter((e) => {
