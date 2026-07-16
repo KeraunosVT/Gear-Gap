@@ -247,10 +247,16 @@ app.get('/api/loot', async (req, res) => {
         if (req.user.isAdmin) (tally[k] = tally[k] || []).push({ name: memberName, priority, discord_id: r.discord_id, added_at: addedAt });
       });
     });
-    // Items already awarded to the current member (shown as "Loot Counciled").
-    const { data: myAwards } = await supabase.from('loot_awards').select('item_key').eq('discord_id', req.user.id);
-    const awarded = (myAwards || []).map((a) => a.item_key);
-    res.json({ mine, counts, awarded, tally: req.user.isAdmin ? tally : undefined });
+    // Builds of each item already awarded to the current member, so the UI can
+    // lock just that build's chip and leave the others open to request. Awards
+    // with no recorded build (made before builds were tracked) don't lock anything.
+    const { data: myAwards } = await supabase.from('loot_awards').select('item_key, priority').eq('discord_id', req.user.id);
+    const awardedBuilds = {};
+    (myAwards || []).forEach((a) => {
+      if (!a.priority) return;
+      (awardedBuilds[a.item_key] = awardedBuilds[a.item_key] || []).push(a.priority);
+    });
+    res.json({ mine, counts, awardedBuilds, tally: req.user.isAdmin ? tally : undefined });
   } catch (err) {
     console.error('Loot load error:', err.message);
     res.status(500).json({ error: 'Failed to load loot wishlist.' });

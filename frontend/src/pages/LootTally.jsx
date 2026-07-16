@@ -78,7 +78,8 @@ export default function LootTally() {
     awards.forEach((a) => { (m[a.item_key] = m[a.item_key] || []).push(a); });
     return m;
   }, [awards]);
-  const awardFor = (itemKey, discordId) => (awardsByItem[itemKey] || []).find((a) => a.discord_id === discordId);
+  const awardFor = (itemKey, discordId, priority) =>
+    (awardsByItem[itemKey] || []).find((a) => a.discord_id === discordId && a.priority === priority);
 
   // Reverse-index the per-item tally into per-member picks, so the wishlist manager
   // can show/edit a member's full list without a separate endpoint.
@@ -98,9 +99,11 @@ export default function LootTally() {
         const items = (cat.items || [])
           .map((it) => {
             const awarded = awardsByItem[it.key] || [];
-            const awardedIds = new Set(awarded.map((a) => a.discord_id));
+            // A watcher only drops off the pending list once THIS build has been
+            // awarded to them — an award for a different build (or an older award
+            // with no recorded build) leaves their wishlist entry open.
             const watchers = [...(tally[it.key] || [])]
-              .filter((w) => !awardedIds.has(w.discord_id))
+              .filter((w) => !awarded.some((a) => a.discord_id === w.discord_id && a.priority === w.priority))
               .sort((a, b) => (PRIO_INDEX[a.priority] - PRIO_INDEX[b.priority]) || (a.name || '').localeCompare(b.name || ''));
             const byPrio = {};
             catalog.priorities.forEach((p) => { byPrio[p] = 0; });
@@ -126,6 +129,7 @@ export default function LootTally() {
     setBusy(true);
     axios.post('/api/admin/loot/awards', {
       item_key: pending.item.key, discord_id: pending.watcher.discord_id, display_name: pending.watcher.name,
+      priority: pending.watcher.priority,
     })
       .then(() => { setPending(null); load(); })
       .catch((err) => setError(err.response?.data?.error || 'Award failed.'))
@@ -510,7 +514,7 @@ export default function LootTally() {
                           <div className="text-ash/50 text-xs py-1">No one has wishlisted this.</div>
                         )}
                         {it.watchers.map((w) => {
-                          const award = awardFor(it.key, w.discord_id);
+                          const award = awardFor(it.key, w.discord_id, w.priority);
                           return (
                             <div key={w.discord_id} className="flex items-center gap-2 text-sm">
                               <span className={`w-2 h-2 rounded-full ${PRIO_DOT[w.priority] || 'bg-line'} shrink-0`} />
@@ -563,7 +567,11 @@ export default function LootTally() {
                   <div key={a.id} className="flex items-start gap-2 border-b border-line/50 pb-3 last:border-0">
                     <div className="min-w-0 flex-1">
                       <div className="text-sm text-bone truncate">{itemByKey[a.item_key]?.name || a.item_key}</div>
-                      <div className="text-xs text-brass truncate">{a.display_name || 'Member'}</div>
+                      <div className="flex items-center gap-1.5 text-xs text-brass truncate">
+                        {a.priority && <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${PRIO_DOT[a.priority] || 'bg-line'}`} />}
+                        <span className="truncate">{a.display_name || 'Member'}</span>
+                        <span className="text-ash/70 shrink-0">{a.priority ? `· ${PRIO_SHORT[a.priority] || a.priority}` : '· build unset'}</span>
+                      </div>
                       <div className="text-[10px] text-ash mt-0.5">{fmtDatetime(a.awarded_at)}{a.awarded_by ? ` · by ${a.awarded_by}` : ''}</div>
                     </div>
                     <button onClick={() => revoke(a.id)} className="text-ash hover:text-oxblood shrink-0" title="Revoke"><X className="w-4 h-4" /></button>

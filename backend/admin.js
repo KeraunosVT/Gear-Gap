@@ -179,7 +179,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
 
   router.post('/loot/awards', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-    const { item_key, discord_id, display_name } = req.body || {};
+    const { item_key, discord_id, display_name, priority } = req.body || {};
     if (!item_key || !discord_id) return res.status(400).json({ error: 'Item and player are required.' });
     const validKeys = await lootCatalog.getKeys();
     if (!validKeys.has(item_key)) return res.status(400).json({ error: 'Unknown item.' });
@@ -187,11 +187,23 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     const { error } = await supabase.from('loot_awards').insert({
       id, item_key, discord_id: String(discord_id),
       display_name: display_name || null,
+      priority: lootCatalog.priorities.has(priority) ? priority : null,
       awarded_by: req.user.username || req.user.id,
       awarded_at: new Date().toISOString(),
     });
     if (error) return res.status(500).json({ error: 'Failed to record award.' });
     res.json({ id });
+  });
+
+  // Backfill/correct which build an older award (pre-dating the priority
+  // column) was actually for.
+  router.patch('/loot/awards/:id', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const { priority } = req.body || {};
+    if (priority !== null && !lootCatalog.priorities.has(priority)) return res.status(400).json({ error: 'Unknown build.' });
+    const { error } = await supabase.from('loot_awards').update({ priority }).eq('id', req.params.id);
+    if (error) return res.status(500).json({ error: 'Failed to update award.' });
+    res.json({ ok: true });
   });
 
   router.delete('/loot/awards/:id', async (req, res) => {
@@ -201,7 +213,19 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     res.json({ ok: true });
   });
 
-  // Bulk-backfill older loot awards from a CSV (columns: item, member, date, awarded_by).
+  // Recognized spellings for the optional CSV "build" column, keyed by
+  // lowercased input. Falls through to an exact (case-insensitive) match
+  // against the live priority list below for anything not listed here.
+  const PRIORITY_ALIASES = {
+    pvp: 'PvP',
+    pve: 'PvE',
+    'second build': 'Second Build',
+    second: 'Second Build',
+    '2nd': 'Second Build',
+    '2nd build': 'Second Build',
+  };
+
+  // Bulk-backfill older loot awards from a CSV (columns: item, member, date, awarded_by, build).
   router.post('/loot/awards/import', upload.single('file'), async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
     const f = req.file;
@@ -213,6 +237,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
       member: 'member', player: 'member', name: 'member', winner: 'member',
       date: 'date', awarded_at: 'date', awardedat: 'date', 'awarded at': 'date',
       awarded_by: 'awarded_by', awardedby: 'awarded_by', 'awarded by': 'awarded_by', by: 'awarded_by',
+      build: 'priority', priority: 'priority', class: 'priority',
     };
     const parsed = Papa.parse(f.buffer.toString('utf8'), {
       header: true, skipEmptyLines: true,
@@ -256,11 +281,16 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
       const parsedDate = dateRaw ? new Date(dateRaw) : null;
       const awardedAt = parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate.toISOString() : new Date().toISOString();
 
+      const priorityRaw = clean(raw.priority);
+      const priorityMatch = priorityRaw && (PRIORITY_ALIASES[norm(priorityRaw)]
+        || [...lootCatalog.priorities].find((p) => norm(p) === norm(priorityRaw)));
+
       toInsert.push({
         id: crypto.randomUUID(),
         item_key: item.key,
         discord_id: String(discordId),
         display_name: memberRaw,
+        priority: priorityMatch || null,
         awarded_by: clean(raw.awarded_by) || req.user.username || req.user.id,
         awarded_at: awardedAt,
       });
