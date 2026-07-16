@@ -34,8 +34,13 @@ export default function LOA() {
   const [newEventTime, setNewEventTime] = useState('');
 
   // Officers can submit an LOA on someone else's behalf; '' means "myself".
+  // submitFor is the resolved member id (only ever set by picking a suggestion
+  // or an exact-name match on blur); submitForQuery is just what's typed —
+  // keeping them separate means free text can never be sent as a real target.
   const [adminMembers, setAdminMembers] = useState([]);
   const [submitFor, setSubmitFor] = useState('');
+  const [submitForQuery, setSubmitForQuery] = useState('');
+  const [submitForOpen, setSubmitForOpen] = useState(false);
 
   // Which members' rows are expanded in the Recurring weekly grid, to show
   // each day's detail (event/time-of-day scope, reason) instead of just a dot.
@@ -92,6 +97,51 @@ export default function LOA() {
 
   const submitTarget = useMemo(() => adminMembers.find((m) => m.id === submitFor) || null, [adminMembers, submitFor]);
 
+  const submitForSuggestions = useMemo(() => {
+    const q = submitForQuery.trim().toLowerCase();
+    if (!q || submitFor) return [];
+    return adminMembers.filter((m) => m.name.toLowerCase().includes(q)).slice(0, 8);
+  }, [submitForQuery, submitFor, adminMembers]);
+
+  const pickSubmitFor = (m) => {
+    setSubmitFor(m.id);
+    setSubmitForQuery(m.name);
+    setSubmitForOpen(false);
+  };
+
+  const clearSubmitFor = () => {
+    setSubmitFor('');
+    setSubmitForQuery('');
+    setSubmitForOpen(false);
+  };
+
+  const onSubmitForChange = (e) => {
+    setSubmitForQuery(e.target.value);
+    setSubmitForOpen(true);
+    if (submitFor) setSubmitFor(''); // typing again invalidates the previous pick
+  };
+
+  const onSubmitForBlur = () => {
+    // Give a suggestion's onClick a chance to register before we close/validate.
+    setTimeout(() => {
+      setSubmitForOpen(false);
+      if (submitFor) return;
+      const q = submitForQuery.trim().toLowerCase();
+      const exact = q && adminMembers.find((m) => m.name.toLowerCase() === q);
+      if (exact) { setSubmitFor(exact.id); setSubmitForQuery(exact.name); }
+      else setSubmitForQuery(''); // unresolved text can't be sent as a target — fall back to "myself"
+    }, 150);
+  };
+
+  const onSubmitForKeyDown = (e) => {
+    if (e.key === 'Enter' && submitForSuggestions.length > 0) {
+      e.preventDefault();
+      pickSubmitFor(submitForSuggestions[0]);
+    } else if (e.key === 'Escape') {
+      setSubmitForOpen(false);
+    }
+  };
+
   const submit = async () => {
     setSubmitting(true); setError('');
     try {
@@ -109,7 +159,7 @@ export default function LOA() {
       });
       flash(submitTarget ? `LOA submitted for ${submitTarget.name}.` : 'LOA submitted.');
       setEventDate(''); setEventScheduleId(''); setStartDate(''); setEndDate('');
-      setRecurDay(''); setRecurEventScheduleId(''); setRecurStartTime(''); setReason(''); setSubmitFor('');
+      setRecurDay(''); setRecurEventScheduleId(''); setRecurStartTime(''); setReason(''); setSubmitFor(''); setSubmitForQuery('');
       load();
     } catch (err) {
       flash(err.response?.data?.error || 'Failed to submit LOA.', false);
@@ -353,13 +403,34 @@ export default function LOA() {
           {tab === 'submit' && (
             <div className="panel rounded-sm p-6 space-y-5">
               {user?.isAdmin && (
-                <div>
+                <div className="relative w-full md:w-64">
                   <label className="eyebrow text-[10px] text-ash block mb-2">Submit for</label>
-                  <select value={submitFor} onChange={(e) => setSubmitFor(e.target.value)}
-                    className="w-full md:w-64 bg-hall border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass">
-                    <option value="">Myself</option>
-                    {adminMembers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-                  </select>
+                  <div className="relative">
+                    <input
+                      type="text" value={submitForQuery} onChange={onSubmitForChange}
+                      onFocus={() => setSubmitForOpen(true)} onBlur={onSubmitForBlur} onKeyDown={onSubmitForKeyDown}
+                      placeholder="Myself" autoComplete="off"
+                      className="w-full bg-hall border border-line rounded-sm pl-4 pr-9 py-2.5 text-bone focus:outline-none focus:border-brass"
+                    />
+                    {submitFor && (
+                      <button type="button" onClick={clearSubmitFor} title="Clear — submit for myself"
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ash hover:text-oxblood">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {submitForOpen && submitForSuggestions.length > 0 && (
+                      <div className="absolute z-10 mt-1 w-full bg-hall border border-line rounded-sm shadow-lg max-h-56 overflow-auto">
+                        {submitForSuggestions.map((m) => (
+                          <button
+                            key={m.id} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => pickSubmitFor(m)}
+                            className="w-full text-left px-4 py-2 text-sm text-bone hover:bg-panelup transition-colors"
+                          >
+                            {m.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
