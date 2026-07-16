@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../auth';
-import { CalendarOff, CalendarX2, Plus, Trash2, Settings, X, Repeat } from 'lucide-react';
+import { CalendarOff, CalendarX2, Plus, Trash2, Settings, X, Repeat, ChevronDown } from 'lucide-react';
 
 import { fmtTime, fmtTimeEst, todayInGuildTz } from '../timeUtils';
 
@@ -35,6 +35,17 @@ export default function LOA() {
   // Officers can submit an LOA on someone else's behalf; '' means "myself".
   const [adminMembers, setAdminMembers] = useState([]);
   const [submitFor, setSubmitFor] = useState('');
+
+  // Which members' rows are expanded in the Recurring weekly grid, to show
+  // each day's detail (event/time-of-day scope, reason) instead of just a dot.
+  const [expandedRecurring, setExpandedRecurring] = useState(() => new Set());
+  const toggleRecurringExpanded = (discordId) => {
+    setExpandedRecurring((prev) => {
+      const next = new Set(prev);
+      next.has(discordId) ? next.delete(discordId) : next.add(discordId);
+      return next;
+    });
+  };
 
   const load = () => {
     setLoading(true); setError('');
@@ -478,33 +489,60 @@ export default function LOA() {
                   <div className="panel rounded-sm divide-y divide-line">
                     {recurringByMember.map((m) => {
                       const canCancel = user?.isAdmin || m.discord_id === user?.id;
+                      const isOpen = expandedRecurring.has(m.discord_id);
+                      const activeDays = DAYS.map((d, i) => ({ d, i, entry: m.byDay[i] })).filter((x) => x.entry);
                       return (
-                        <div key={m.discord_id} className="flex items-center gap-4 px-5 py-3">
-                          <div className="min-w-0 flex-1 text-bone text-sm font-medium truncate">{m.display_name || 'Member'}</div>
-                          <div className="flex items-center gap-1 shrink-0">
-                            {DAYS.map((d, i) => {
-                              const entry = m.byDay[i];
-                              const active = !!entry;
-                              const title = active
-                                ? `${d} — ${formatRecurringOccurrence(entry)}${user?.isAdmin && entry.reason ? ` · ${entry.reason}` : ''}${canCancel ? ' (click to cancel)' : ''}`
-                                : d;
-                              return (
-                                <button
-                                  key={d}
-                                  onClick={() => active && canCancel && cancel(entry.id)}
-                                  disabled={!active || !canCancel}
-                                  title={title}
-                                  className={`w-6 h-6 rounded-full text-[10px] font-semibold border transition-colors ${
-                                    active
-                                      ? `bg-brass text-ink border-transparent ${canCancel ? 'hover:bg-oxblood hover:text-bone cursor-pointer' : ''}`
-                                      : 'border-line text-ash/30'
-                                  }`}
-                                >
-                                  {d[0]}
-                                </button>
-                              );
-                            })}
+                        <div key={m.discord_id}>
+                          <div className="flex items-center gap-4 px-5 py-3">
+                            <button
+                              onClick={() => toggleRecurringExpanded(m.discord_id)}
+                              className="flex items-center gap-2 min-w-0 flex-1 text-left group"
+                            >
+                              <ChevronDown className={`w-3.5 h-3.5 shrink-0 text-ash transition-transform group-hover:text-brass ${isOpen ? 'rotate-180' : ''}`} />
+                              <span className="text-bone text-sm font-medium truncate">{m.display_name || 'Member'}</span>
+                            </button>
+                            <div className="flex items-center gap-1 shrink-0">
+                              {DAYS.map((d, i) => {
+                                const entry = m.byDay[i];
+                                const active = !!entry;
+                                const title = active
+                                  ? `${d} — ${formatRecurringOccurrence(entry)}${user?.isAdmin && entry.reason ? ` · ${entry.reason}` : ''}${canCancel ? ' (click to cancel)' : ''}`
+                                  : d;
+                                return (
+                                  <button
+                                    key={d}
+                                    onClick={() => active && canCancel && cancel(entry.id)}
+                                    disabled={!active || !canCancel}
+                                    title={title}
+                                    className={`w-6 h-6 rounded-full text-[10px] font-semibold border transition-colors ${
+                                      active
+                                        ? `bg-brass text-ink border-transparent ${canCancel ? 'hover:bg-oxblood hover:text-bone cursor-pointer' : ''}`
+                                        : 'border-line text-ash/30'
+                                    }`}
+                                  >
+                                    {d[0]}
+                                  </button>
+                                );
+                              })}
+                            </div>
                           </div>
+
+                          {isOpen && (
+                            <div className="pl-11 pr-5 pb-3 -mt-1 space-y-1.5">
+                              {activeDays.map(({ d, i, entry }) => (
+                                <div key={i} className="flex items-center gap-2 text-xs">
+                                  <span className="text-brass w-24 shrink-0">{d}</span>
+                                  <span className="text-ash truncate">{formatRecurringOccurrence(entry)}</span>
+                                  {user?.isAdmin && entry.reason && <span className="text-ash/60 truncate">· {entry.reason}</span>}
+                                  {canCancel && (
+                                    <button onClick={() => cancel(entry.id)} className="ml-auto text-ash hover:text-oxblood shrink-0" title="Cancel this day">
+                                      <X className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
