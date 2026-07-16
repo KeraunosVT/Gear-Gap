@@ -166,33 +166,52 @@ export default function LOA() {
   const formatDateHeader = (dateStr) =>
     new Date(dateStr + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
 
+  // Every YYYY-MM-DD from start to end inclusive. Built from UTC-based day math
+  // rather than local Date/toISOString round-tripping, so it can't skip or repeat
+  // a day around a timezone's DST boundary.
+  const eachDate = (start, end) => {
+    const [sy, sm, sd] = start.split('-').map(Number);
+    const [ey, em, ed] = end.split('-').map(Number);
+    const last = Date.UTC(ey, em - 1, ed);
+    const out = [];
+    for (let t = Date.UTC(sy, sm - 1, sd); t <= last; t += 86400000) {
+      out.push(new Date(t).toISOString().slice(0, 10));
+    }
+    return out;
+  };
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+
   const upcomingAbsent = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
     return allEntries.filter((e) => {
-      if (e.type === 'event') return e.event_date >= today;
-      if (e.type === 'range') return e.end_date >= today;
+      if (e.type === 'event') return e.event_date >= todayStr;
+      if (e.type === 'range') return e.end_date >= todayStr;
       return false; // recurring entries have their own section, not the dated agenda
     });
-  }, [allEntries]);
+  }, [allEntries, todayStr]);
 
   // Recurring absences have no fixed date to group under, so the board lists
   // them separately instead of folding them into the chronological agenda.
   const recurringEntries = useMemo(() => allEntries.filter((e) => e.type === 'recurring'), [allEntries]);
 
   // Agenda: the same upcoming absences, grouped under a date header and sorted
-  // chronologically (event date, or a range's start date) instead of a flat list.
+  // chronologically. A range entry appears under every day it covers (clamped to
+  // today onward) rather than just its start date, so "who's out today" is accurate.
   const agendaGroups = useMemo(() => {
     const groups = {};
     upcomingAbsent.forEach((e) => {
-      const anchor = e.type === 'event' ? e.event_date : e.start_date;
-      (groups[anchor] = groups[anchor] || []).push(e);
+      if (e.type === 'range') {
+        eachDate(e.start_date, e.end_date)
+          .filter((d) => d >= todayStr)
+          .forEach((d) => { (groups[d] = groups[d] || []).push(e); });
+      } else {
+        (groups[e.event_date] = groups[e.event_date] || []).push(e);
+      }
     });
     return Object.entries(groups)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([date, entries]) => ({ date, entries }));
-  }, [upcomingAbsent]);
-
-  const todayStr = new Date().toISOString().slice(0, 10);
+  }, [upcomingAbsent, todayStr]);
 
   const canSubmitEvent = loaType === 'event' && eventDate && eventScheduleId && reason.trim();
   const canSubmitRange = loaType === 'range' && startDate && endDate && reason.trim();
