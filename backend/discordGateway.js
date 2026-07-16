@@ -16,6 +16,14 @@ const LOA_CHANNEL_ID = process.env.DISCORD_LOA_CHANNEL_ID;
 const ADMIN_ROLE_IDS = (process.env.DISCORD_ADMIN_ROLE_IDS || '').split(',').map((s) => s.trim()).filter(Boolean);
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
+// "21:00" -> "9:00 PM", for echoing a recurring LOA's start time back in chat.
+function fmt12h(hhmm) {
+  const [h, m] = hhmm.split(':').map(Number);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${String(m).padStart(2, '0')} ${period}`;
+}
+
 const SWEEP_INTERVAL_MS = 60 * 1000;
 const WARNING_WINDOW_MS = 10 * 60 * 1000;
 
@@ -119,6 +127,7 @@ async function registerCommands() {
             .addChoices(...DAY_NAMES.map((name, value) => ({ name, value: String(value) }))))
           .addStringOption((opt) => opt.setName('reason').setDescription('Visible to officers only').setRequired(true))
           .addStringOption((opt) => opt.setName('event').setDescription('Leave blank for the whole day').setRequired(false).setAutocomplete(true))
+          .addStringOption((opt) => opt.setName('start_time').setDescription('Absent from this time onward, e.g. 9:00 PM (blank = all day)').setRequired(false))
           .addUserOption((opt) => opt.setName('member').setDescription('Officers only: submit on behalf of this member').setRequired(false))
       )
       .addSubcommand((sub) =>
@@ -354,7 +363,13 @@ async function handleLoaRecurring(interaction) {
 
   const dow = parseInt(interaction.options.getString('day'), 10);
   const eventScheduleId = interaction.options.getString('event') || null;
+  const startTimeRaw = interaction.options.getString('start_time') || null;
   const reason = interaction.options.getString('reason') || '';
+
+  const startTime = startTimeRaw ? loa.parseTimeOfDay(startTimeRaw) : null;
+  if (startTimeRaw && !startTime) {
+    return interaction.editReply(`Couldn't read "${startTimeRaw}" as a time — try something like 9:00 PM or 21:00.`);
+  }
 
   try {
     const { id, eventName } = await loa.submitRecurring({
@@ -362,13 +377,15 @@ async function handleLoaRecurring(interaction) {
       displayName: target.displayName,
       dayOfWeek: dow,
       eventScheduleId,
+      startTime,
       reason,
     });
     const scope = eventName ? ` for **${eventName}**` : '';
+    const fromTime = startTime ? ` from **${fmt12h(startTime)}**` : '';
     await interaction.editReply(target.onBehalf
-      ? `Recorded ✅ — **${target.displayName}** is now always out on **${DAY_NAMES[dow]}**${scope}.`
-      : `Recorded ✅ — you're now always out on **${DAY_NAMES[dow]}**${scope}.`);
-    const messageId = await announceLoa(`📋 **${target.displayName}** is always on LOA every **${DAY_NAMES[dow]}**${scope}`);
+      ? `Recorded ✅ — **${target.displayName}** is now always out on **${DAY_NAMES[dow]}**${fromTime}${scope}.`
+      : `Recorded ✅ — you're now always out on **${DAY_NAMES[dow]}**${fromTime}${scope}.`);
+    const messageId = await announceLoa(`📋 **${target.displayName}** is always on LOA every **${DAY_NAMES[dow]}**${fromTime}${scope}`);
     if (messageId) await loa.setMessageId(id, messageId);
   } catch (err) {
     await interaction.editReply(err.message || 'Something went wrong submitting that LOA.');

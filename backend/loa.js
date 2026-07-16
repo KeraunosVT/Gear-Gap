@@ -14,6 +14,29 @@ function dayOfWeek(dateStr) {
   return new Date(dateStr + 'T12:00:00').getDay();
 }
 
+// Parses either a 24-hour "HH:MM" (what the website's <input type="time"> sends)
+// or a freeform clock string like "9pm" / "9:00 PM" (what the Discord command
+// takes, since slash commands have no time picker). Returns "HH:MM" or null.
+function parseTimeOfDay(input) {
+  const s = String(input || '').trim();
+  if (!s) return null;
+  const machine = /^([01]\d|2[0-3]):([0-5]\d)(:[0-5]\d)?$/.exec(s);
+  if (machine) return `${machine[1]}:${machine[2]}`;
+  const free = /^(\d{1,2})(?::([0-5]\d))?\s*([ap]\.?m\.?)?$/i.exec(s);
+  if (!free) return null;
+  let hour = parseInt(free[1], 10);
+  const minute = free[2] ? parseInt(free[2], 10) : 0;
+  const ampm = free[3] ? free[3][0].toLowerCase() : null;
+  if (ampm) {
+    if (hour < 1 || hour > 12) return null;
+    if (ampm === 'p' && hour !== 12) hour += 12;
+    if (ampm === 'a' && hour === 12) hour = 0;
+  } else if (hour < 0 || hour > 23) {
+    return null;
+  }
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
 // "Today" as a YYYY-MM-DD string in the guild's own timezone, not the server's.
 // new Date().toISOString() reads the UTC calendar day, which silently rolls
 // over to tomorrow from ~7-8pm ET onward — exactly when people are building
@@ -33,6 +56,7 @@ module.exports = function createLoa(supabase) {
 
   return {
     isValidDate,
+    parseTimeOfDay,
 
     // Events on the recurring schedule for a given day-of-week (0=Sunday..6=Saturday).
     async eventsForDay(dow) {
@@ -93,10 +117,14 @@ module.exports = function createLoa(supabase) {
     // Recurs every week on `dayOfWeek` (0=Sunday..6=Saturday) until cancelled.
     // `eventScheduleId` is optional: set it to cover only that one recurring
     // event (e.g. "always out for Tuesday Wargame"), or leave it null to cover
-    // the whole day regardless of what's scheduled.
-    async submitRecurring({ discordId, displayName, dayOfWeek: dow, eventScheduleId, reason }) {
+    // the whole day regardless of what's scheduled. `startTime` is also optional:
+    // set it to mean "absent from this time onward" rather than the whole day —
+    // /loa/unavailable compares it against each event's own scheduled time.
+    async submitRecurring({ discordId, displayName, dayOfWeek: dow, eventScheduleId, startTime, reason }) {
       if (!Number.isInteger(dow) || dow < 0 || dow > 6) throw httpError(400, 'Day of week must be between 0 and 6.');
       const cleanReason = requireReason(reason);
+      const cleanStartTime = startTime ? parseTimeOfDay(startTime) : null;
+      if (startTime && !cleanStartTime) throw httpError(400, 'Start time must be a valid time, e.g. 9:00 PM.');
       let eventName = null;
       if (eventScheduleId) {
         const { data: ev, error: evErr } = await supabase.from('event_schedule')
@@ -115,6 +143,7 @@ module.exports = function createLoa(supabase) {
         start_date: null,
         end_date: null,
         day_of_week: dow,
+        start_time: cleanStartTime,
         reason: cleanReason.slice(0, 500),
       }).select('id').single();
       if (error) { console.error('loa.submitRecurring error:', error.message); throw httpError(500, 'Failed to submit LOA.'); }

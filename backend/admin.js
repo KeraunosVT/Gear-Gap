@@ -1009,12 +1009,18 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     const date = req.query.date || todayInGuildTz();
     const eventFilter = req.query.event || null;
     const dow = new Date(date + 'T12:00:00').getDay();
-    const { data, error } = await supabase.from('loa_entries')
-      .select('discord_id, display_name, type, event_date, event_schedule_id, start_date, end_date, day_of_week');
+    const [{ data, error }, eventRow] = await Promise.all([
+      supabase.from('loa_entries')
+        .select('discord_id, display_name, type, event_date, event_schedule_id, start_date, end_date, day_of_week, start_time'),
+      eventFilter
+        ? supabase.from('event_schedule').select('event_time').eq('id', eventFilter).single().then((r) => r.data)
+        : Promise.resolve(null),
+    ]);
     if (error) {
       console.error('LOA unavailable error:', error.message);
       return res.status(500).json({ error: 'Failed to load LOAs.', detail: error.message });
     }
+    const eventTime = eventRow?.event_time || null;
     const out = new Map();
     (data || []).forEach((e) => {
       let matches = false;
@@ -1024,9 +1030,14 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
       if (e.type === 'range' && e.start_date <= date && e.end_date >= date) matches = true;
       // Recurring: matches every week on its day-of-week. If it's scoped to one
       // event, it only counts when that event is the one being checked (or when
-      // no specific event filter was given, same as the 'event' type above).
+      // no specific event filter was given, same as the 'event' type above). If it
+      // also has a start_time, it only counts for events at or after that time —
+      // an event with no recorded time (or no event picked at all) can't be
+      // compared, so it falls back to counting the member absent regardless.
       if (e.type === 'recurring' && e.day_of_week === dow) {
-        matches = !e.event_schedule_id || !eventFilter || e.event_schedule_id === eventFilter;
+        const scopeMatches = !e.event_schedule_id || !eventFilter || e.event_schedule_id === eventFilter;
+        const timeMatches = !e.start_time || !eventTime || eventTime >= e.start_time;
+        matches = scopeMatches && timeMatches;
       }
       if (matches) out.set(e.discord_id, { discord_id: e.discord_id, display_name: e.display_name });
     });

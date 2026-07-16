@@ -24,6 +24,7 @@ export default function LOA() {
   const [endDate, setEndDate] = useState('');
   const [recurDay, setRecurDay] = useState('');
   const [recurEventScheduleId, setRecurEventScheduleId] = useState('');
+  const [recurStartTime, setRecurStartTime] = useState('');
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -101,13 +102,14 @@ export default function LOA() {
         start_date: loaType === 'range' ? startDate : undefined,
         end_date: loaType === 'range' ? endDate : undefined,
         day_of_week: loaType === 'recurring' ? Number(recurDay) : undefined,
+        start_time: loaType === 'recurring' ? (recurStartTime || undefined) : undefined,
         reason,
         discord_id: submitTarget?.id,
         display_name: submitTarget?.name,
       });
       flash(submitTarget ? `LOA submitted for ${submitTarget.name}.` : 'LOA submitted.');
       setEventDate(''); setEventScheduleId(''); setStartDate(''); setEndDate('');
-      setRecurDay(''); setRecurEventScheduleId(''); setReason(''); setSubmitFor('');
+      setRecurDay(''); setRecurEventScheduleId(''); setRecurStartTime(''); setReason(''); setSubmitFor('');
       load();
     } catch (err) {
       flash(err.response?.data?.error || 'Failed to submit LOA.', false);
@@ -171,14 +173,16 @@ export default function LOA() {
   const formatRecurringLabel = (entry) => {
     const ev = scheduleById[entry.event_schedule_id];
     const scope = ev ? ` — ${ev.name}${ev.event_time ? ` at ${fmtTime(ev.event_time)}` : ''}` : '';
-    return `Every ${DAYS[entry.day_of_week]}${scope}`;
+    const from = entry.start_time ? ` from ${fmtTime(entry.start_time)}` : '';
+    return `Every ${DAYS[entry.day_of_week]}${from}${scope}`;
   };
 
   // Same recurring entry, but as it reads on one specific occurrence in the
   // dated agenda rather than the standing-rule summary above.
   const formatRecurringOccurrence = (entry) => {
     const ev = scheduleById[entry.event_schedule_id];
-    return ev ? `${ev.name}${ev.event_time ? ` at ${fmtTime(ev.event_time)}` : ''}` : 'All day';
+    if (ev) return `${ev.name}${ev.event_time ? ` at ${fmtTime(ev.event_time)}` : ''}`;
+    return entry.start_time ? `From ${fmtTime(entry.start_time)}` : 'All day';
   };
 
   const formatDateHeader = (dateStr) =>
@@ -429,6 +433,12 @@ export default function LOA() {
                       <option value="">Whole day</option>
                       {eventsOnRecurDay.map((s) => <option key={s.id} value={s.id}>{s.name}{s.event_time ? ` (${fmtTime(s.event_time)})` : ''}</option>)}
                     </select>
+                  </div>
+                  <div>
+                    <label className="eyebrow text-[10px] text-ash block mb-2">Start time <span className="text-ash/50">(optional — blank means absent all day)</span></label>
+                    <input type="time" value={recurStartTime} onChange={(e) => setRecurStartTime(e.target.value)}
+                      className="w-full bg-hall border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass" />
+                    <p className="text-ash/50 text-xs mt-1">Only events at or after this time will count you absent.</p>
                   </div>
                 </div>
               )}
