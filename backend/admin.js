@@ -981,7 +981,10 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     const dow = new Date(date + 'T12:00:00').getDay();
     const { data, error } = await supabase.from('loa_entries')
       .select('discord_id, display_name, type, event_date, event_schedule_id, start_date, end_date, day_of_week');
-    if (error) return res.status(500).json({ error: 'Failed to load LOAs.' });
+    if (error) {
+      console.error('LOA unavailable error:', error.message);
+      return res.status(500).json({ error: 'Failed to load LOAs.', detail: error.message });
+    }
     const out = new Map();
     (data || []).forEach((e) => {
       let matches = false;
