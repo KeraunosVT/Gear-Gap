@@ -201,6 +201,18 @@ export default function LOA() {
   // standing summary in addition to projecting them onto the dated agenda below.
   const recurringEntries = useMemo(() => allEntries.filter((e) => e.type === 'recurring'), [allEntries]);
 
+  // One row per day-of-week per member gets repetitive fast for anyone out
+  // most of the week, so the standing summary groups by member instead and
+  // shows their days as a weekly grid (one dot per day-of-week).
+  const recurringByMember = useMemo(() => {
+    const m = new Map();
+    recurringEntries.forEach((e) => {
+      if (!m.has(e.discord_id)) m.set(e.discord_id, { discord_id: e.discord_id, display_name: e.display_name, byDay: {} });
+      m.get(e.discord_id).byDay[e.day_of_week] = e;
+    });
+    return [...m.values()].sort((a, b) => (a.display_name || '').localeCompare(b.display_name || ''));
+  }, [recurringEntries]);
+
   // How far ahead to project recurring absences onto the agenda. Recurring
   // entries have no end date, so unlike event/range entries the agenda can't
   // just span "however far out the data goes" — it needs an explicit cutoff.
@@ -458,29 +470,44 @@ export default function LOA() {
           {/* LOA Board — recurring absences, then the dated agenda, chronological */}
           {tab === 'board' && (
             <div className="space-y-8">
-              {recurringEntries.length > 0 && (
+              {recurringByMember.length > 0 && (
                 <div>
                   <div className="eyebrow text-[10px] text-brass mb-2 flex items-center gap-2">
                     <Repeat className="w-3.5 h-3.5" /> Recurring
                   </div>
                   <div className="panel rounded-sm divide-y divide-line">
-                    {recurringEntries.map((e) => (
-                      <div key={e.id} className="flex items-center gap-4 px-5 py-3">
-                        <div className="flex items-center gap-2 shrink-0">
-                          <Repeat className="w-4 h-4 text-brass" />
+                    {recurringByMember.map((m) => {
+                      const canCancel = user?.isAdmin || m.discord_id === user?.id;
+                      return (
+                        <div key={m.discord_id} className="flex items-center gap-4 px-5 py-3">
+                          <div className="min-w-0 flex-1 text-bone text-sm font-medium truncate">{m.display_name || 'Member'}</div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            {DAYS.map((d, i) => {
+                              const entry = m.byDay[i];
+                              const active = !!entry;
+                              const title = active
+                                ? `${d} — ${formatRecurringOccurrence(entry)}${user?.isAdmin && entry.reason ? ` · ${entry.reason}` : ''}${canCancel ? ' (click to cancel)' : ''}`
+                                : d;
+                              return (
+                                <button
+                                  key={d}
+                                  onClick={() => active && canCancel && cancel(entry.id)}
+                                  disabled={!active || !canCancel}
+                                  title={title}
+                                  className={`w-6 h-6 rounded-full text-[10px] font-semibold border transition-colors ${
+                                    active
+                                      ? `bg-brass text-ink border-transparent ${canCancel ? 'hover:bg-oxblood hover:text-bone cursor-pointer' : ''}`
+                                      : 'border-line text-ash/30'
+                                  }`}
+                                >
+                                  {d[0]}
+                                </button>
+                              );
+                            })}
+                          </div>
                         </div>
-                        <div className="min-w-0 flex-1">
-                          <div className="text-bone text-sm font-medium">{e.display_name || 'Member'}</div>
-                          <div className="text-xs text-ash">{formatRecurringLabel(e)}</div>
-                          {user?.isAdmin && e.reason && <div className="text-xs text-brass/70 mt-0.5">{e.reason}</div>}
-                        </div>
-                        {(user?.isAdmin || e.discord_id === user?.id) && (
-                          <button onClick={() => cancel(e.id)} className="text-ash hover:text-oxblood shrink-0" title="Cancel LOA">
-                            <X className="w-4 h-4" />
-                          </button>
-                        )}
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               )}
