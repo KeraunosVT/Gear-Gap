@@ -163,6 +163,13 @@ export default function LOA() {
     return `Every ${DAYS[entry.day_of_week]}${scope}`;
   };
 
+  // Same recurring entry, but as it reads on one specific occurrence in the
+  // dated agenda rather than the standing-rule summary above.
+  const formatRecurringOccurrence = (entry) => {
+    const ev = scheduleById[entry.event_schedule_id];
+    return ev ? `${ev.name}${ev.event_time ? ` at ${fmtTime(ev.event_time)}` : ''}` : 'All day';
+  };
+
   const formatDateHeader = (dateStr) =>
     new Date(dateStr + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
 
@@ -186,17 +193,34 @@ export default function LOA() {
     return allEntries.filter((e) => {
       if (e.type === 'event') return e.event_date >= todayStr;
       if (e.type === 'range') return e.end_date >= todayStr;
-      return false; // recurring entries have their own section, not the dated agenda
+      return false; // recurring entries are projected onto the agenda separately below
     });
   }, [allEntries, todayStr]);
 
-  // Recurring absences have no fixed date to group under, so the board lists
-  // them separately instead of folding them into the chronological agenda.
+  // Recurring absences have no fixed date, so the board also lists them as a
+  // standing summary in addition to projecting them onto the dated agenda below.
   const recurringEntries = useMemo(() => allEntries.filter((e) => e.type === 'recurring'), [allEntries]);
+
+  // How far ahead to project recurring absences onto the agenda. Recurring
+  // entries have no end date, so unlike event/range entries the agenda can't
+  // just span "however far out the data goes" — it needs an explicit cutoff.
+  const AGENDA_LOOKAHEAD_DAYS = 14;
+
+  // Calendar dates from today through the lookahead window, built from
+  // UTC-based day math (see eachDate below) so it can't skip or repeat a day
+  // around a timezone's DST boundary.
+  const lookaheadDates = useMemo(() => {
+    const [y, m, d] = todayStr.split('-').map(Number);
+    const start = Date.UTC(y, m - 1, d);
+    return Array.from({ length: AGENDA_LOOKAHEAD_DAYS }, (_, i) =>
+      new Date(start + i * 86400000).toISOString().slice(0, 10));
+  }, [todayStr]);
 
   // Agenda: the same upcoming absences, grouped under a date header and sorted
   // chronologically. A range entry appears under every day it covers (clamped to
   // today onward) rather than just its start date, so "who's out today" is accurate.
+  // Recurring entries are projected onto every matching day-of-week within the
+  // lookahead window, so a standing Tuesday absence shows up under each Tuesday.
   const agendaGroups = useMemo(() => {
     const groups = {};
     upcomingAbsent.forEach((e) => {
@@ -208,10 +232,16 @@ export default function LOA() {
         (groups[e.event_date] = groups[e.event_date] || []).push(e);
       }
     });
+    lookaheadDates.forEach((d) => {
+      const dow = new Date(d + 'T12:00:00').getDay();
+      recurringEntries
+        .filter((e) => e.day_of_week === dow)
+        .forEach((e) => { (groups[d] = groups[d] || []).push(e); });
+    });
     return Object.entries(groups)
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([date, entries]) => ({ date, entries }));
-  }, [upcomingAbsent, todayStr]);
+  }, [upcomingAbsent, todayStr, lookaheadDates, recurringEntries]);
 
   const canSubmitEvent = loaType === 'event' && eventDate && eventScheduleId && reason.trim();
   const canSubmitRange = loaType === 'range' && startDate && endDate && reason.trim();
@@ -471,14 +501,16 @@ export default function LOA() {
                         {entries.map((e) => (
                           <div key={e.id} className="flex items-center gap-4 px-5 py-3">
                             <div className="flex items-center gap-2 shrink-0">
-                              {e.type === 'event'
-                                ? <CalendarX2 className="w-4 h-4 text-brass" />
-                                : <CalendarOff className="w-4 h-4 text-brass" />}
+                              {e.type === 'event' && <CalendarX2 className="w-4 h-4 text-brass" />}
+                              {e.type === 'range' && <CalendarOff className="w-4 h-4 text-brass" />}
+                              {e.type === 'recurring' && <Repeat className="w-4 h-4 text-brass" />}
                             </div>
                             <div className="min-w-0 flex-1">
                               <div className="text-bone text-sm font-medium">{e.display_name || 'Member'}</div>
                               <div className="text-xs text-ash">
-                                {e.type === 'event' ? formatEventName(e) : formatRangeLabel(e)}
+                                {e.type === 'event' && formatEventName(e)}
+                                {e.type === 'range' && formatRangeLabel(e)}
+                                {e.type === 'recurring' && formatRecurringOccurrence(e)}
                               </div>
                               {user?.isAdmin && e.reason && <div className="text-xs text-brass/70 mt-0.5">{e.reason}</div>}
                             </div>
