@@ -108,10 +108,11 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     try {
       const members = await listMembers();
       if (supabase) {
-        const [{ data: roleData }, ids] = await Promise.all([
+        const [{ data: roleData, error: roleError }, ids] = await Promise.all([
           supabase.from('member_roles').select('discord_id, pvp_role, pve_role, pvp_classes, pve_classes'),
           identities.load(),
         ]);
+        if (roleError) console.error('member_roles load error:', roleError.message);
         const roleMap = {};
         const classMap = {};
         (roleData || []).forEach((r) => {

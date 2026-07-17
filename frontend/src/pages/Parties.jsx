@@ -288,6 +288,20 @@ export default function Parties() {
     });
   }, [loaSet]);
 
+  // Re-bucket anyone sitting in an unassigned pool column (never an actual
+  // party or the absent box — those are deliberate placements) to match their
+  // role in whichever mode was just switched to.
+  useEffect(() => {
+    setItems((prev) => {
+      const next = { ...prev };
+      POOL_KEYS.forEach((k) => { next[k] = []; });
+      POOL_KEYS.forEach((k) => {
+        prev[k].forEach((id) => { next[poolForRole(roles[id])].push(id); });
+      });
+      return next;
+    });
+  }, [classMode]);
+
   if (!user?.isAdmin) {
     return (
       <div className="max-w-2xl mx-auto px-6 py-24 text-center">
