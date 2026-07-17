@@ -109,13 +109,13 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
       const members = await listMembers();
       if (supabase) {
         const [{ data: roleData }, ids] = await Promise.all([
-          supabase.from('member_roles').select('discord_id, role, pvp_classes, pve_classes'),
+          supabase.from('member_roles').select('discord_id, pvp_role, pve_role, pvp_classes, pve_classes'),
           identities.load(),
         ]);
         const roleMap = {};
         const classMap = {};
         (roleData || []).forEach((r) => {
-          roleMap[r.discord_id] = r.role;
+          roleMap[r.discord_id] = { pvp: r.pvp_role || '', pve: r.pve_role || '' };
           classMap[r.discord_id] = {
             pvp_classes: Array.isArray(r.pvp_classes) ? r.pvp_classes : [],
             pve_classes: Array.isArray(r.pve_classes) ? r.pve_classes : [],
@@ -123,7 +123,8 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
         });
 
         members.forEach((m) => {
-          m.role = roleMap[m.id] || '';
+          m.pvp_role = roleMap[m.id]?.pvp || '';
+          m.pve_role = roleMap[m.id]?.pve || '';
           m.pvp_classes = classMap[m.id]?.pvp_classes || [];
           m.pve_classes = classMap[m.id]?.pve_classes || [];
           m.name = ids.displayNameFor(m.id, m.name);
@@ -137,12 +138,15 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
   });
 
   // ── Persist a member's role (sticks across rosters) ─────────────────────────
+  // Tracked separately per PvP/PvE mode — someone can be a Tank for one and a
+  // Healer for the other.
   router.put('/member-roles', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-    const { id, role } = req.body || {};
+    const { id, mode, role } = req.body || {};
     if (!id) return res.status(400).json({ error: 'Member id required.' });
+    const column = mode === 'pve' ? 'pve_role' : 'pvp_role';
     const { error } = await supabase.from('member_roles')
-      .upsert({ discord_id: String(id), role: role || null, updated_at: new Date().toISOString() });
+      .upsert({ discord_id: String(id), [column]: role || null, updated_at: new Date().toISOString() });
     if (error) return res.status(500).json({ error: 'Failed to save role.' });
     res.json({ ok: true });
   });

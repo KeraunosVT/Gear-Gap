@@ -161,7 +161,9 @@ export default function Parties() {
   const [extra, setExtra] = useState({});
   const [items, setItems] = useState(initItems);
   const [partyNames, setPartyNames] = useState(initNames);
-  const [roles, setRoles] = useState({});
+  // Role (Tank/DPS/Healer) is tracked separately per PvP/PvE mode, same as
+  // classAssignments — someone can be a Tank for one and a Healer for the other.
+  const [rolesByMode, setRolesByMode] = useState({ pvp: {}, pve: {} });
   const [saved, setSaved] = useState([]);
   const [rosterId, setRosterId] = useState(null);
   const [rosterName, setRosterName] = useState('');
@@ -183,8 +185,12 @@ export default function Parties() {
   const loaSetRef = useRef(loaSet);
   useEffect(() => { loaSetRef.current = loaSet; }, [loaSet]);
 
-  const rolesRef = useRef(roles);
-  useEffect(() => { rolesRef.current = roles; }, [roles]);
+  const rolesByModeRef = useRef(rolesByMode);
+  useEffect(() => { rolesByModeRef.current = rolesByMode; }, [rolesByMode]);
+
+  // The role map for whichever mode is currently active — most of the
+  // component just reads/writes this and doesn't need to know about modes.
+  const roles = rolesByMode[classMode];
 
   const byId = useMemo(() => {
     const m = {};
@@ -206,20 +212,27 @@ export default function Parties() {
       .then((res) => {
         const ms = res.data.members || [];
         setMembers(ms);
-        const seeded = {};
-        ms.forEach((m) => { if (m.role) seeded[m.id] = m.role; });
-        const merged = { ...seeded, ...rolesRef.current };
-        setRoles(merged);
-        // Put any members not already placed into the pool matching their role,
-        // or the absent box if they're on LOA.
+        const seededPvp = {}; const seededPve = {};
+        ms.forEach((m) => {
+          if (m.pvp_role) seededPvp[m.id] = m.pvp_role;
+          if (m.pve_role) seededPve[m.id] = m.pve_role;
+        });
+        const merged = {
+          pvp: { ...seededPvp, ...rolesByModeRef.current.pvp },
+          pve: { ...seededPve, ...rolesByModeRef.current.pve },
+        };
+        setRolesByMode(merged);
+        // Put any members not already placed into the pool matching their role
+        // in the currently active mode, or the absent box if they're on LOA.
         setItems((prev) => {
           const placed = new Set([...PARTY_IDS, 'absent'].flatMap((k) => prev[k]));
           const unplaced = ms.map((m) => m.id).filter((id) => !placed.has(id));
           const loa = loaSetRef.current;
+          const currentRoles = merged[classMode];
           const next = { ...prev };
           POOL_KEYS.forEach((k) => { next[k] = []; });
           unplaced.forEach((id) => {
-            if (!loa.has(id)) next[poolForRole(merged[id])].push(id);
+            if (!loa.has(id)) next[poolForRole(currentRoles[id])].push(id);
           });
           next.absent = [...prev.absent, ...unplaced.filter((id) => loa.has(id))];
           return next;
@@ -334,8 +347,8 @@ export default function Parties() {
 
   const setRole = (id, role) => {
     const next = roles[id] === role ? '' : role;
-    setRoles((r) => ({ ...r, [id]: next }));
-    axios.put('/api/admin/member-roles', { id, role: next }).catch(() => {});
+    setRolesByMode((prev) => ({ ...prev, [classMode]: { ...prev[classMode], [id]: next } }));
+    axios.put('/api/admin/member-roles', { id, mode: classMode, role: next }).catch(() => {});
     // If they're sitting in a pool (not a party or absent), move them to the pool matching their new role.
     setItems((prev) => {
       const container = findContainer(id, prev);
@@ -359,11 +372,11 @@ export default function Parties() {
     PARTY_IDS.map((pid) => ({
       id: pid,
       name: partyNames[pid],
-      members: items[pid].map((id) => ({ id, name: byId[id]?.name || 'Unknown', role: roles[id] || '' })),
+      members: items[pid].map((id) => ({ id, name: byId[id]?.name || 'Unknown' })),
     }));
 
   const buildPayloadAbsent = () =>
-    items.absent.map((id) => ({ id, name: byId[id]?.name || 'Unknown', role: roles[id] || '' }));
+    items.absent.map((id) => ({ id, name: byId[id]?.name || 'Unknown' }));
 
   const resetBoard = () => {
     const next = initItems();
@@ -372,14 +385,14 @@ export default function Parties() {
       else next[poolForRole(roles[m.id])].push(m.id);
     });
     setItems(next);
-    setPartyNames(initNames()); setRoles((r) => r); setRosterId(null); setRosterName(''); setExtra({});
+    setPartyNames(initNames()); setRosterId(null); setRosterName(''); setExtra({});
     setClassAssignments({ pvp: {}, pve: {} });
   };
 
   const save = async () => {
     if (!rosterName.trim()) return flash('Name the roster first.', false);
     setBusy(true);
-    const layout = { parties: buildPayloadParties(), absent: buildPayloadAbsent(), classAssignments };
+    const layout = { parties: buildPayloadParties(), absent: buildPayloadAbsent(), classAssignments, rolesByMode };
     try {
       if (rosterId) await axios.put(`/api/admin/rosters/${rosterId}`, { name: rosterName, layout });
       else { const res = await axios.post('/api/admin/rosters', { name: rosterName, layout }); setRosterId(res.data.id); }
@@ -395,32 +408,38 @@ export default function Parties() {
       const r = res.data.roster;
       const nextItems = initItems();
       const nextNames = initNames();
-      const nextRoles = {};
+      // Rosters saved before roles were split by mode only have a flat m.role —
+      // fall back to applying it to both, same as it behaved before the split.
+      const legacyRoles = {};
       const nextExtra = {};
       (r.layout?.parties || []).forEach((lp) => {
         if (!(lp.id in nextItems)) return;
         nextNames[lp.id] = lp.name || nextNames[lp.id];
         (lp.members || []).forEach((m) => {
           nextItems[lp.id].push(m.id);
-          if (m.role) nextRoles[m.id] = m.role;
+          if (m.role) legacyRoles[m.id] = m.role;
           if (!members.find((x) => x.id === m.id)) nextExtra[m.id] = { id: m.id, name: m.name, missing: true };
         });
       });
       // Absent membership is whatever was saved with the roster, not the current LOA status.
       (r.layout?.absent || []).forEach((m) => {
         nextItems.absent.push(m.id);
-        if (m.role) nextRoles[m.id] = m.role;
+        if (m.role) legacyRoles[m.id] = m.role;
         if (!members.find((x) => x.id === m.id)) nextExtra[m.id] = { id: m.id, name: m.name, missing: true };
       });
+      const savedRolesByMode = r.layout?.rolesByMode || { pvp: legacyRoles, pve: legacyRoles };
+      const mergedRolesByMode = {
+        pvp: { ...rolesByMode.pvp, ...savedRolesByMode.pvp },
+        pve: { ...rolesByMode.pve, ...savedRolesByMode.pve },
+      };
       const assigned = new Set([...PARTY_IDS, 'absent'].flatMap((p) => nextItems[p]));
       const unassigned = members.map((m) => m.id).filter((mid) => !assigned.has(mid));
-      const mergedRoles = { ...roles, ...nextRoles };
       unassigned.forEach((id) => {
         if (loaSet.has(id)) nextItems.absent.push(id);
-        else nextItems[poolForRole(mergedRoles[id])].push(id);
+        else nextItems[poolForRole(mergedRolesByMode[classMode][id])].push(id);
       });
       setItems(nextItems); setPartyNames(nextNames);
-      setRoles((prev) => ({ ...prev, ...nextRoles })); setExtra(nextExtra);
+      setRolesByMode(mergedRolesByMode); setExtra(nextExtra);
       setClassAssignments(r.layout?.classAssignments || { pvp: {}, pve: {} });
       setRosterId(r.id); setRosterName(r.name);
       flash(`Loaded "${r.name}".`);
@@ -484,7 +503,7 @@ export default function Parties() {
           {loaSet.size > 0 && <span className="text-oxblood font-mono">{loaSet.size} out</span>}
         </div>
         <button onClick={() => setClassMode((m) => m === 'pvp' ? 'pve' : 'pvp')}
-          className="inline-flex items-center gap-0 rounded-full border border-line bg-hall p-0.5 cursor-pointer shrink-0" title="Toggle PvP / PvE classes">
+          className="inline-flex items-center gap-0 rounded-full border border-line bg-hall p-0.5 cursor-pointer shrink-0" title="Toggle PvP / PvE classes and roles">
           <span className={`px-3 py-1 rounded-full text-xs font-bold tracking-wide transition-all ${classMode === 'pvp' ? 'bg-oxblood text-bone' : 'text-ash'}`}>PVP</span>
           <span className={`px-3 py-1 rounded-full text-xs font-bold tracking-wide transition-all ${classMode === 'pve' ? 'bg-emerald-500 text-ink' : 'text-ash'}`}>PVE</span>
         </button>
