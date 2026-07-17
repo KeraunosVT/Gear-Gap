@@ -24,10 +24,7 @@ async function main() {
 
   const result = await parseGearScreenshot(buffer, mimeType);
 
-  console.log('\nRaw items detected (%d):', result.items.length);
-  console.table(result.items);
-
-  console.log('\nHighest per category:');
+  console.log('\nParsed equipment level:');
   console.table([{
     weapon: result.weapon,
     armor: result.armor,

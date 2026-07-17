@@ -1,64 +1,45 @@
 // backend/gearIlvl.js — extracts weapon/armor/accessory item levels from a
-// Throne & Liberty character-equipment screenshot (Gemini vision), and persists
-// one entry per member (a new submission replaces their previous one).
+// Throne & Liberty "Equipment Level" info window screenshot (Gemini vision),
+// and persists one entry per member (a new submission replaces their previous one).
 const { GoogleGenAI, Type } = require('@google/genai');
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 
-const PROMPT = `This is a screenshot of a Throne and Liberty character equipment screen.
+const PROMPT = `This is a screenshot of the "Equipment Level" info window from
+Throne and Liberty. It's a small popup/tooltip with the title "Equipment Level",
+a short description below it, and then four labeled lines, each ending in a
+number, e.g.:
 
-IMPORTANT: some of these screenshots also show an "Equippable Items" or similar
-inventory-browser panel, which lists many OWNED items (not just worn ones) for
-swapping gear. If any such panel is visible, IGNORE IT COMPLETELY — every item
-below comes only from the character's currently-worn equipment, shown as small
-circular badges near the character portrait and in a compact equipped-items grid.
+Equipment Lv. 74
+Max Weapon Lv. 74
+Max Armor Lv. 74
+Max Accessory Lv. 75
 
-There are three categories of currently-worn item level ("ilvl") numbers:
-
-1. "weapon": Characters dual-wield TWO weapon types at once, so expect exactly
-   TWO circular weapon badges near the character portrait (not in the grid, and
-   not in any inventory panel) — e.g. one badge with a sword/greatsword icon and
-   one with a dagger/blade icon, each with its own ilvl number. Report both.
-2. "armor": body-worn pieces in the compact equipped-items grid (small circular
-   icons, NOT the inventory panel) — helmet, chest/top, pants/legs, gloves,
-   boots, cloak. Humanoid-silhouette icons.
-3. "accessory": jewelry-style icons in that same compact grid — necklace,
-   bracelet, belt, ring, earring, brooch/pendant.
-
-Ignore any toggle switches below the grid (e.g. "Show Headgear", "Show Cloak") —
-those are display options, not items. Ignore currency/character-level/combat-power
-numbers elsewhere on screen; only worn weapon badges and the equipped-items grid count.
+Read the number at the end of each of those four lines:
+- "Equipment Lv." — the overall equipment level
+- "Max Weapon Lv." — highest weapon item level
+- "Max Armor Lv." — highest armor item level
+- "Max Accessory Lv." — highest accessory item level
 
 Return ONLY a JSON object with this shape:
-{
-  "items": [ { "category": "weapon" | "armor" | "accessory", "ilvl": <number> }, ... ]
-}
-List every worn weapon badge and every circular icon in the equipped-items grid
-as one entry each, even if you're unsure of its exact slot name — category is
-what matters, not the slot name.`;
+{ "equipmentLevel": <number>, "weapon": <number>, "armor": <number>, "accessory": <number> }`;
 
 const RESPONSE_SCHEMA = {
   type: Type.OBJECT,
   properties: {
-    items: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          category: { type: Type.STRING },
-          ilvl: { type: Type.NUMBER },
-        },
-        required: ['category', 'ilvl'],
-      },
-    },
+    equipmentLevel: { type: Type.NUMBER },
+    weapon: { type: Type.NUMBER },
+    armor: { type: Type.NUMBER },
+    accessory: { type: Type.NUMBER },
   },
-  required: ['items'],
+  required: ['equipmentLevel', 'weapon', 'armor', 'accessory'],
 };
 
-// Read a screenshot and return { weapon, armor, accessory, average, items }.
-// weapon/armor/accessory are each the highest ilvl found in that category;
-// average is the mean of those three maxes, rounded to the nearest whole number.
+// Read a screenshot and return { weapon, armor, accessory, average }. weapon/
+// armor/accessory are each read directly off the window's "Max ___ Lv." line;
+// average is its "Equipment Lv." line — the game itself defines that as the
+// mean of the other three, so there's no need to recompute it here.
 async function parseGearScreenshot(buffer, mimeType) {
   if (!GEMINI_API_KEY) {
     throw new Error('GEMINI_API_KEY is not set — gear reading is unavailable.');
@@ -84,15 +65,12 @@ async function parseGearScreenshot(buffer, mimeType) {
     throw new Error('Gemini did not return valid JSON. Try a clearer screenshot.');
   }
 
-  const items = Array.isArray(parsed.items) ? parsed.items : [];
-  const byCategory = (cat) => items.filter((i) => i.category === cat).map((i) => Number(i.ilvl) || 0);
-  const weapon = Math.max(0, ...byCategory('weapon'));
-  const armor = Math.max(0, ...byCategory('armor'));
-  const accessory = Math.max(0, ...byCategory('accessory'));
-  const maxes = [weapon, armor, accessory].filter(Boolean);
-  const average = maxes.length ? Math.round(maxes.reduce((a, b) => a + b, 0) / maxes.length) : 0;
+  const weapon = Number(parsed.weapon) || 0;
+  const armor = Number(parsed.armor) || 0;
+  const accessory = Number(parsed.accessory) || 0;
+  const average = Number(parsed.equipmentLevel) || 0;
 
-  return { weapon, armor, accessory, average, items };
+  return { weapon, armor, accessory, average };
 }
 
 module.exports = function createGearIlvl(supabase) {

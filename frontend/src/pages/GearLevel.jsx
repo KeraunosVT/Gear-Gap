@@ -42,7 +42,7 @@ export default function GearLevel() {
     <div className="max-w-2xl mx-auto px-6 py-12">
       <div className="eyebrow text-brass text-[11px] mb-3">Members Area</div>
       <h1 className="font-display text-4xl md:text-5xl text-bone tracking-[0.08em]">Gear Level</h1>
-      <p className="text-ash mt-2">Upload a screenshot of your equipped gear. A new upload replaces whatever you had on file.</p>
+      <p className="text-ash mt-2">Upload a screenshot of the in-game "Equipment Level" window (the popup showing Equipment Lv. / Max Weapon / Max Armor / Max Accessory). A new upload replaces whatever you had on file.</p>
       <div className="rule-fade my-8" />
 
       {msg && (
