@@ -22,7 +22,7 @@ export default function LOA() {
   const [eventScheduleId, setEventScheduleId] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-  const [recurDay, setRecurDay] = useState('');
+  const [recurDays, setRecurDays] = useState(() => new Set());
   const [recurEventScheduleId, setRecurEventScheduleId] = useState('');
   const [recurStartTime, setRecurStartTime] = useState('');
   const [reason, setReason] = useState('');
@@ -90,10 +90,23 @@ export default function LOA() {
     return schedule.filter((s) => s.day_of_week === dow);
   }, [eventDate, schedule]);
 
+  // An event is tied to one specific weekday, so it can only scope a recurring
+  // LOA when exactly one day is picked — with several days selected there's no
+  // single event that applies to all of them, so it falls back to "whole day".
   const eventsOnRecurDay = useMemo(() => {
-    if (recurDay === '') return [];
-    return schedule.filter((s) => s.day_of_week === Number(recurDay));
-  }, [recurDay, schedule]);
+    if (recurDays.size !== 1) return [];
+    const [dow] = recurDays;
+    return schedule.filter((s) => s.day_of_week === dow);
+  }, [recurDays, schedule]);
+
+  const toggleRecurDay = (i) => {
+    setRecurDays((prev) => {
+      const next = new Set(prev);
+      next.has(i) ? next.delete(i) : next.add(i);
+      if (next.size !== 1) setRecurEventScheduleId('');
+      return next;
+    });
+  };
 
   const submitTarget = useMemo(() => adminMembers.find((m) => m.id === submitFor) || null, [adminMembers, submitFor]);
 
@@ -145,21 +158,38 @@ export default function LOA() {
   const submit = async () => {
     setSubmitting(true); setError('');
     try {
-      await axios.post('/api/loa', {
-        type: loaType,
-        event_date: loaType === 'event' ? eventDate : undefined,
-        event_schedule_id: loaType === 'event' ? eventScheduleId : loaType === 'recurring' ? (recurEventScheduleId || undefined) : undefined,
-        start_date: loaType === 'range' ? startDate : undefined,
-        end_date: loaType === 'range' ? endDate : undefined,
-        day_of_week: loaType === 'recurring' ? Number(recurDay) : undefined,
-        start_time: loaType === 'recurring' ? (recurStartTime || undefined) : undefined,
-        reason,
-        discord_id: submitTarget?.id,
-        display_name: submitTarget?.name,
-      });
-      flash(submitTarget ? `LOA submitted for ${submitTarget.name}.` : 'LOA submitted.');
+      if (loaType === 'recurring') {
+        // One row per selected day — the backend (and the /loa Discord command)
+        // only ever submits a single day at a time, so multi-day just fans out
+        // the same reason/start-time/event scope across each picked bubble.
+        const days = [...recurDays];
+        await Promise.all(days.map((day) => axios.post('/api/loa', {
+          type: 'recurring',
+          day_of_week: day,
+          event_schedule_id: days.length === 1 ? (recurEventScheduleId || undefined) : undefined,
+          start_time: recurStartTime || undefined,
+          reason,
+          discord_id: submitTarget?.id,
+          display_name: submitTarget?.name,
+        })));
+        flash(submitTarget
+          ? `LOA submitted for ${submitTarget.name} — ${days.length} day${days.length === 1 ? '' : 's'}.`
+          : `LOA submitted — ${days.length} day${days.length === 1 ? '' : 's'}.`);
+      } else {
+        await axios.post('/api/loa', {
+          type: loaType,
+          event_date: loaType === 'event' ? eventDate : undefined,
+          event_schedule_id: loaType === 'event' ? eventScheduleId : undefined,
+          start_date: loaType === 'range' ? startDate : undefined,
+          end_date: loaType === 'range' ? endDate : undefined,
+          reason,
+          discord_id: submitTarget?.id,
+          display_name: submitTarget?.name,
+        });
+        flash(submitTarget ? `LOA submitted for ${submitTarget.name}.` : 'LOA submitted.');
+      }
       setEventDate(''); setEventScheduleId(''); setStartDate(''); setEndDate('');
-      setRecurDay(''); setRecurEventScheduleId(''); setRecurStartTime(''); setReason(''); setSubmitFor(''); setSubmitForQuery('');
+      setRecurDays(new Set()); setRecurEventScheduleId(''); setRecurStartTime(''); setReason(''); setSubmitFor(''); setSubmitForQuery('');
       load();
     } catch (err) {
       flash(err.response?.data?.error || 'Failed to submit LOA.', false);
@@ -322,7 +352,7 @@ export default function LOA() {
 
   const canSubmitEvent = loaType === 'event' && eventDate && eventScheduleId && reason.trim();
   const canSubmitRange = loaType === 'range' && startDate && endDate && reason.trim();
-  const canSubmitRecurring = loaType === 'recurring' && recurDay !== '' && reason.trim();
+  const canSubmitRecurring = loaType === 'recurring' && recurDays.size > 0 && reason.trim();
 
   return (
     <div className="max-w-4xl mx-auto px-6 py-12">
@@ -490,20 +520,28 @@ export default function LOA() {
               {loaType === 'recurring' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="eyebrow text-[10px] text-ash block mb-2">Day</label>
-                    <select value={recurDay} onChange={(e) => { setRecurDay(e.target.value); setRecurEventScheduleId(''); }}
-                      className="w-full bg-hall border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass">
-                      <option value="">— select day —</option>
-                      {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
-                    </select>
+                    <label className="eyebrow text-[10px] text-ash block mb-2">Day{recurDays.size > 1 ? 's' : ''} <span className="text-ash/50">(click to select more than one)</span></label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {DAYS.map((d, i) => (
+                        <button
+                          key={i} type="button" onClick={() => toggleRecurDay(i)}
+                          className={`px-3 py-2 rounded-full text-xs font-semibold border transition-colors ${
+                            recurDays.has(i) ? 'border-brass bg-brass text-ink' : 'border-line text-ash hover:text-bone'
+                          }`}
+                        >
+                          {d.slice(0, 3)}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                   <div>
                     <label className="eyebrow text-[10px] text-ash block mb-2">Event <span className="text-ash/50">(optional — blank means the whole day)</span></label>
-                    <select value={recurEventScheduleId} onChange={(e) => setRecurEventScheduleId(e.target.value)} disabled={recurDay === ''}
+                    <select value={recurEventScheduleId} onChange={(e) => setRecurEventScheduleId(e.target.value)} disabled={recurDays.size !== 1}
                       className="w-full bg-hall border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass disabled:opacity-40">
                       <option value="">Whole day</option>
                       {eventsOnRecurDay.map((s) => <option key={s.id} value={s.id}>{s.name}{s.event_time ? ` (${fmtTime(s.event_time)})` : ''}</option>)}
                     </select>
+                    {recurDays.size > 1 && <p className="text-ash/50 text-xs mt-1">Pick a single day to scope this to one event — multiple days always covers the whole day.</p>}
                   </div>
                   <div>
                     <label className="eyebrow text-[10px] text-ash block mb-2">Start time <span className="text-ash/50">(optional — blank means absent all day)</span></label>
