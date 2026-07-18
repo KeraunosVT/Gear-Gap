@@ -193,7 +193,7 @@ async function registerCommands() {
       opt.setName('time').setDescription('e.g. 9:30pm, 930pm, 2130').setRequired(true)
     )
     .addStringOption((opt) =>
-      opt.setName('message').setDescription('What to announce (default: "Get into CTA Comms")').setRequired(false)
+      opt.setName('message').setDescription('Use {time} to place the time inline, e.g. "roll call {time} in CTA comms"').setRequired(false)
     );
   commands.push(announceCommand.toJSON());
 
@@ -604,7 +604,7 @@ async function handleAnnounce(interaction) {
   if (!ANNOUNCE_CHANNEL_ID) return interaction.editReply('Announcements are not configured — set DISCORD_ANNOUNCE_CHANNEL_ID.');
 
   const timeInput = interaction.options.getString('time');
-  const message = interaction.options.getString('message') || 'Get into CTA Comms';
+  const message = interaction.options.getString('message') || 'Get into CTA Comms — {time}';
 
   const when = parseAnnounceTime(timeInput);
   if (!when) return interaction.editReply(`Couldn't understand "${timeInput}" as a time. Try something like \`9:30pm\` or \`2130\`.`);
@@ -616,9 +616,13 @@ async function handleAnnounce(interaction) {
   }
 
   const unix = Math.floor(when.getTime() / 1000);
+  const timeTag = `<t:${unix}:t>`;
+  // {time} lets the officer place the timestamp anywhere in the sentence
+  // ("roll call {time} in CTA comms"); with no placeholder it's appended at the end.
+  const body = /\{time\}/i.test(message) ? message.replace(/\{time\}/i, timeTag) : `${message} — ${timeTag}`;
   const ping = ANNOUNCE_ROLE_ID ? `<@&${ANNOUNCE_ROLE_ID}> ` : '';
   try {
-    await channel.send(`${ping}📢 **${message}** — <t:${unix}:t> (<t:${unix}:R>)`);
+    await channel.send(`${ping}${body}`);
     await interaction.editReply(`Posted ✅ — resolved to <t:${unix}:F>. If that's not what you meant, re-run with an explicit am/pm (e.g. \`9:30pm\`).`);
   } catch (err) {
     console.error('Announce post error:', err.message);
