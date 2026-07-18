@@ -3,7 +3,7 @@ import axios from 'axios';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth';
 import Sigil from '../components/Sigil';
-import { ChevronDown, RefreshCw, Gavel, X, ScrollText, Plus, Pencil, Trash2, Upload, History, UserPlus } from 'lucide-react';
+import { ChevronDown, RefreshCw, Gavel, X, ScrollText, Plus, Pencil, Trash2, Upload, History, UserPlus, Coins } from 'lucide-react';
 import { fmtDatetime } from '../timeUtils';
 import ItemTooltip, { gradeStyle } from '../components/ItemTooltip';
 
@@ -46,6 +46,9 @@ export default function LootTally() {
   const [qlAddCat, setQlAddCat] = useState('');
   const [members, setMembers] = useState([]);
   const [pickBusy, setPickBusy] = useState(false);
+  const [currencyAwards, setCurrencyAwards] = useState([]);
+  const [showCurrency, setShowCurrency] = useState(false);
+  const [currencyBusy, setCurrencyBusy] = useState(false);
 
   const toggleCat = (key) => setCollapsed((prev) => {
     const next = new Set(prev);
@@ -55,18 +58,45 @@ export default function LootTally() {
 
   const load = () => {
     setLoading(true); setError('');
-    Promise.all([axios.get('/api/loot/catalog'), axios.get('/api/loot'), axios.get('/api/admin/loot/awards'), axios.get('/api/admin/members')])
-      .then(([catRes, loot, aw, mem]) => {
+    Promise.all([
+      axios.get('/api/loot/catalog'), axios.get('/api/loot'), axios.get('/api/admin/loot/awards'),
+      axios.get('/api/admin/members'), axios.get('/api/admin/currency-awards'),
+    ])
+      .then(([catRes, loot, aw, mem, cur]) => {
         setCatalog(catRes.data);
         setCounts(loot.data.counts || {});
         setTally(loot.data.tally || {});
         setAwards(aw.data.awards || []);
         setMembers(mem.data.members || []);
+        setCurrencyAwards(cur.data.awards || []);
       })
       .catch((err) => setError(err.response?.data?.error || 'Could not load the tally.'))
       .finally(() => setLoading(false));
   };
   useEffect(() => { load(); }, []);
+
+  const currencyTotals = useMemo(() => {
+    const m = {};
+    currencyAwards.forEach((a) => {
+      if (!m[a.discord_id]) m[a.discord_id] = { discord_id: a.discord_id, display_name: a.display_name, lucent: 0, shards: 0 };
+      m[a.discord_id][a.currency] += a.amount;
+      if (a.display_name) m[a.discord_id].display_name = a.display_name;
+    });
+    return Object.values(m).sort((a, b) => (a.display_name || '').localeCompare(b.display_name || ''));
+  }, [currencyAwards]);
+
+  const giveCurrency = (discordId, currency, amount) => {
+    const member = members.find((m) => m.id === discordId);
+    setCurrencyBusy(true);
+    axios.post('/api/admin/currency-awards', { discord_id: discordId, display_name: member?.name, currency, amount })
+      .then(() => { load(); flash(`Gave ${amount.toLocaleString()} ${currency} to ${member?.name || 'member'}.`); })
+      .catch((err) => flash(err.response?.data?.error || 'Failed to record grant.', false))
+      .finally(() => setCurrencyBusy(false));
+  };
+
+  const revokeCurrency = (id) => {
+    axios.delete(`/api/admin/currency-awards/${id}`).then(load).catch((err) => flash(err.response?.data?.error || 'Revoke failed.', false));
+  };
 
   const PRIO_INDEX = useMemo(() => catalog ? Object.fromEntries(catalog.priorities.map((p, i) => [p, i])) : {}, [catalog]);
 
@@ -203,7 +233,62 @@ export default function LootTally() {
         <Link to="/admin/loot/history" className="inline-flex items-center gap-2 text-sm text-brass hover:text-brassbright transition-colors">
           <History className="w-4 h-4" /> Loot History
         </Link>
+        <button
+          onClick={() => setShowCurrency((v) => !v)}
+          className="inline-flex items-center gap-2 text-sm text-brass hover:text-brassbright transition-colors"
+        >
+          <Coins className="w-4 h-4" /> {showCurrency ? 'Close currency ledger' : 'Lucent & Shards'}
+        </button>
       </div>
+
+      {showCurrency && (
+        <div className="mb-10 panel rounded-sm p-6 space-y-6">
+          <div className="eyebrow text-brass text-[10px] mb-2">Lucent & Shards</div>
+
+          <CurrencyGiveForm members={members} busy={currencyBusy} onGive={giveCurrency} />
+
+          {currencyTotals.length > 0 && (
+            <div>
+              <label className="eyebrow text-[10px] text-ash block mb-2">Totals</label>
+              <div className="panel rounded-sm divide-y divide-line">
+                <div className="flex items-center gap-3 px-4 py-2 eyebrow text-[10px] text-ash">
+                  <span className="flex-1">Member</span>
+                  <span className="w-24 text-right">Lucent</span>
+                  <span className="w-24 text-right">Shards</span>
+                </div>
+                {currencyTotals.map((t) => (
+                  <div key={t.discord_id} className="flex items-center gap-3 px-4 py-2 text-sm">
+                    <span className="flex-1 text-bone truncate">{t.display_name || t.discord_id}</span>
+                    <span className="w-24 text-right font-mono text-brassbright">{t.lucent.toLocaleString()}</span>
+                    <span className="w-24 text-right font-mono text-brassbright">{t.shards.toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div>
+            <label className="eyebrow text-[10px] text-ash block mb-2">Recent grants</label>
+            {currencyAwards.length === 0 ? (
+              <p className="text-ash text-sm">Nothing given yet.</p>
+            ) : (
+              <div className="space-y-1.5 max-h-72 overflow-auto pr-1">
+                {currencyAwards.map((a) => (
+                  <div key={a.id} className="flex items-center gap-3 bg-hall border border-line rounded-sm px-3 py-2 text-sm">
+                    <span className="text-bone flex-1 truncate">{a.display_name || a.discord_id}</span>
+                    <span className="font-mono text-brassbright shrink-0">{a.amount.toLocaleString()}</span>
+                    <span className="text-ash text-xs w-14 shrink-0 capitalize">{a.currency}</span>
+                    <span className="text-ash/60 text-[10px] w-28 text-right shrink-0">{fmtDatetime(a.awarded_at)}</span>
+                    <button onClick={() => revokeCurrency(a.id)} className="text-ash hover:text-oxblood shrink-0" title="Revoke">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {managing && catalog && (
         <div className="mb-10 panel rounded-sm p-6 space-y-6">
@@ -633,6 +718,49 @@ function AddPickRow({ itemName, members, priorities, busy, onAdd }) {
         title={`Add to wishlist for ${itemName}`}
         className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors disabled:opacity-40">
         <UserPlus className="w-3.5 h-3.5" /> Add
+      </button>
+    </div>
+  );
+}
+
+// Quick "give lucent/shards to a member" form — kept as its own component so its
+// in-progress selection resets after each submit without touching page state.
+function CurrencyGiveForm({ members, busy, onGive }) {
+  const [memberId, setMemberId] = useState('');
+  const [currency, setCurrency] = useState('lucent');
+  const [amount, setAmount] = useState('');
+
+  const sortedMembers = useMemo(() => [...members].sort((a, b) => (a.name || '').localeCompare(b.name || '')), [members]);
+
+  const submit = () => {
+    const amt = parseInt(amount, 10);
+    if (!memberId || !Number.isFinite(amt) || amt <= 0) return;
+    onGive(memberId, currency, amt);
+    setAmount('');
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <select value={memberId} onChange={(e) => setMemberId(e.target.value)}
+        className="bg-hall border border-line rounded-sm px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass flex-1 min-w-[160px]">
+        <option value="">— member —</option>
+        {sortedMembers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+      </select>
+      <div className="inline-flex rounded-sm border border-line overflow-hidden">
+        {['lucent', 'shards'].map((c) => (
+          <button key={c} type="button" onClick={() => setCurrency(c)}
+            className={`px-3 py-2 text-sm capitalize transition-colors ${currency === c ? 'bg-brass text-ink font-semibold' : 'text-ash hover:text-bone'}`}>
+            {c}
+          </button>
+        ))}
+      </div>
+      <input
+        type="number" min={1} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount"
+        className="bg-hall border border-line rounded-sm px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass w-28"
+      />
+      <button type="button" onClick={submit} disabled={busy || !memberId || !amount}
+        className="inline-flex items-center gap-1.5 px-4 py-2 text-sm bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors disabled:opacity-40">
+        <Coins className="w-4 h-4" /> Give
       </button>
     </div>
   );

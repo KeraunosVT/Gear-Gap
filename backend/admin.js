@@ -220,6 +220,52 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     res.json({ ok: true });
   });
 
+  // ── Loot council: currency (Lucent / Shards) given ────────────────────────────
+  // Kept separate from loot_awards — currency grants have no wishlist, build, or
+  // catalog item behind them, just a recipient, a type, and an amount, and (unlike
+  // gear) the same currency is routinely given to the same person more than once.
+  const CURRENCIES = new Set(['lucent', 'shards']);
+
+  router.get('/currency-awards', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const [{ data, error }, ids] = await Promise.all([
+      supabase.from('currency_awards').select('*').order('awarded_at', { ascending: false }),
+      identities.load(),
+    ]);
+    if (error) return res.status(500).json({ error: 'Failed to load currency grants.' });
+    const awards = (data || []).map((a) => ({
+      ...a,
+      display_name: ids.displayNameFor(a.discord_id, a.display_name),
+    }));
+    res.json({ awards });
+  });
+
+  router.post('/currency-awards', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const { discord_id, display_name, currency, amount } = req.body || {};
+    if (!discord_id) return res.status(400).json({ error: 'Member is required.' });
+    if (!CURRENCIES.has(currency)) return res.status(400).json({ error: 'Currency must be lucent or shards.' });
+    const amt = parseInt(amount, 10);
+    if (!Number.isFinite(amt) || amt <= 0) return res.status(400).json({ error: 'Amount must be a positive number.' });
+
+    const id = crypto.randomUUID();
+    const { error } = await supabase.from('currency_awards').insert({
+      id, discord_id: String(discord_id), display_name: display_name || null,
+      currency, amount: amt,
+      awarded_by: req.user.username || req.user.id,
+      awarded_at: new Date().toISOString(),
+    });
+    if (error) return res.status(500).json({ error: 'Failed to record grant.' });
+    res.json({ id });
+  });
+
+  router.delete('/currency-awards/:id', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const { error } = await supabase.from('currency_awards').delete().eq('id', req.params.id);
+    if (error) return res.status(500).json({ error: 'Failed to revoke grant.' });
+    res.json({ ok: true });
+  });
+
   // Recognized spellings for the optional CSV "build" column, keyed by
   // lowercased input. Falls through to an exact (case-insensitive) match
   // against the live priority list below for anything not listed here.
