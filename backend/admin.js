@@ -6,6 +6,7 @@ const Papa = require('papaparse');
 const { parseScreenshot, parseCsv, WEAPONS } = require('./ingest');
 const { listMembers, postEmbed, postImage } = require('./discord');
 const { todayInGuildTz } = require('./loa');
+const createAttendance = require('./attendance');
 
 const ROLE_EMOJI = { Tank: '🛡️', DPS: '⚔️', Healer: '💚' };
 
@@ -98,6 +99,7 @@ const team = (v) => {
 
 module.exports = function createAdminRouter(supabase, gateway, lootCatalog, identities) {
   const router = express.Router();
+  const attendance = supabase ? createAttendance(supabase) : null;
 
   router.get('/whoami', (req, res) => {
     res.json({ admin: true, username: req.user.username });
@@ -858,34 +860,18 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
 
   router.post('/events', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-    const { title, event_date, attendees } = req.body || {};
-    if (!title) return res.status(400).json({ error: 'Title is required.' });
-    if (!Array.isArray(attendees) || attendees.length === 0) {
-      return res.status(400).json({ error: 'At least one attendee is required.' });
+    const { title, event_date, event_schedule_id, attendees } = req.body || {};
+
+    let result;
+    try {
+      result = await attendance.createEvent({
+        title, eventDate: event_date, eventScheduleId: event_schedule_id, attendees,
+      });
+    } catch (err) {
+      return res.status(err.status || 500).json({ error: err.message || 'Failed to create event.' });
     }
 
-    const eventId = crypto.randomUUID();
-    const now = new Date().toISOString();
-
-    const { error: eErr } = await supabase.from('events').insert({
-      id: eventId, title: String(title).slice(0, 200),
-      event_date: event_date || null, created_at: now,
-    });
-    if (eErr) { console.error('Event insert error:', eErr.message); return res.status(500).json({ error: 'Failed to create event.' }); }
-
-    const rows = attendees.map((a) => ({
-      id: crypto.randomUUID(), event_id: eventId,
-      discord_id: String(a.id), display_name: String(a.name || '').slice(0, 120),
-      joined_at: now,
-    }));
-    const { error: aErr } = await supabase.from('event_attendance').insert(rows);
-    if (aErr) {
-      console.error('Attendance insert error:', aErr.message);
-      await supabase.from('events').delete().eq('id', eventId);
-      return res.status(500).json({ error: 'Failed to save attendees — event rolled back.' });
-    }
-
-    res.json({ id: eventId, attendees: rows.length });
+    res.json(result);
 
     // Best-effort — DMs go out after responding so a slow/failed Discord send
     // can't delay or break the save itself.

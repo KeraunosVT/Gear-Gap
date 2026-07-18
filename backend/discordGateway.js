@@ -2,9 +2,11 @@
 // Maintains a WebSocket connection so we can read voice-channel state (which the
 // REST API does not expose), and handles the /elitetimer slash command plus its
 // 10-minute-before-spawn reminder sweep.
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, MessageFlags } = require('discord.js');
+const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, MessageFlags, ChannelType } = require('discord.js');
 const createEliteTimers = require('./eliteTimers');
 const createLoa = require('./loa');
+const createIdentities = require('./identities');
+const createAttendance = require('./attendance');
 
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
@@ -31,6 +33,8 @@ let client = null;
 let ready = false;
 let eliteTimers = null;
 let loa = null;
+let identities = null;
+let attendance = null;
 
 function start(supabase) {
   if (!BOT_TOKEN || !GUILD_ID) {
@@ -40,6 +44,8 @@ function start(supabase) {
 
   eliteTimers = supabase ? createEliteTimers(supabase) : null;
   loa = supabase ? createLoa(supabase) : null;
+  identities = supabase ? createIdentities(supabase) : null;
+  attendance = supabase ? createAttendance(supabase) : null;
 
   client = new Client({
     intents: [
@@ -51,7 +57,7 @@ function start(supabase) {
   client.once('clientReady', async () => {
     ready = true;
     console.log('✅ Discord gateway connected');
-    if (eliteTimers || loa) {
+    if (eliteTimers || loa || attendance) {
       await registerCommands();
     }
     if (eliteTimers) {
@@ -139,6 +145,24 @@ async function registerCommands() {
     commands.push(loaCommand.toJSON());
   }
 
+  if (attendance) {
+    const attendanceCommand = new SlashCommandBuilder()
+      .setName('attendance')
+      .setDescription('Officers: snap a voice channel and log attendance for a scheduled event.')
+      .addStringOption((opt) =>
+        opt.setName('event').setDescription('Which scheduled event').setRequired(true).setAutocomplete(true)
+      )
+      .addChannelOption((opt) =>
+        opt.setName('channel').setDescription('Voice channel to snap (defaults to your current voice channel)')
+          .addChannelTypes(ChannelType.GuildVoice).setRequired(false)
+      )
+      .addStringOption((opt) =>
+        opt.setName('date').setDescription('Event date, YYYY-MM-DD (defaults to today)').setRequired(false)
+      );
+
+    commands.push(attendanceCommand.toJSON());
+  }
+
   try {
     const rest = new REST({ version: '10' }).setToken(BOT_TOKEN);
     await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
@@ -154,6 +178,7 @@ async function handleInteraction(interaction) {
   if (interaction.commandName === 'elitetimer') return handleReport(interaction);
   if (interaction.commandName === 'elitetimers') return handleList(interaction);
   if (interaction.commandName === 'loa') return handleLoa(interaction);
+  if (interaction.commandName === 'attendance') return handleAttendance(interaction);
 }
 
 async function handleReport(interaction) {
@@ -412,12 +437,27 @@ async function handleLoaCancel(interaction) {
 }
 
 async function handleAutocomplete(interaction) {
+  if (interaction.commandName === 'attendance') return autocompleteAttendanceEvent(interaction);
   if (interaction.commandName !== 'loa') return interaction.respond([]).catch(() => {});
   const sub = interaction.options.getSubcommand();
   if (sub === 'event') return autocompleteLoaEvent(interaction);
   if (sub === 'recurring') return autocompleteLoaRecurring(interaction);
   if (sub === 'cancel') return autocompleteLoaCancel(interaction);
   return interaction.respond([]).catch(() => {});
+}
+
+async function autocompleteAttendanceEvent(interaction) {
+  if (!attendance) return interaction.respond([]).catch(() => {});
+  const focused = interaction.options.getFocused().toLowerCase();
+  const events = await attendance.listSchedule();
+  const choices = events
+    .filter((e) => e.name.toLowerCase().includes(focused))
+    .slice(0, 25)
+    .map((e) => ({
+      name: e.event_time ? `${e.name} (${DAY_NAMES[e.day_of_week]}, ${fmt12h(e.event_time)})` : `${e.name} (${DAY_NAMES[e.day_of_week]})`,
+      value: e.id,
+    }));
+  await interaction.respond(choices).catch(() => {});
 }
 
 async function autocompleteLoaEvent(interaction) {
@@ -480,6 +520,46 @@ async function autocompleteLoaCancel(interaction) {
     .filter((c) => c.name.toLowerCase().includes(focused))
     .slice(0, 25);
   await interaction.respond(choices).catch(() => {});
+}
+
+// ── /attendance ───────────────────────────────────────────────────────────
+async function handleAttendance(interaction) {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  if (!attendance) return interaction.editReply('Attendance tracking is not configured right now.');
+  if (!isAdminMember(interaction)) return interaction.editReply('Officers only.');
+
+  const eventScheduleId = interaction.options.getString('event');
+  const ev = await attendance.getScheduleEvent(eventScheduleId);
+  if (!ev) return interaction.editReply('Unknown event — pick one from the list.');
+
+  const channelOpt = interaction.options.getChannel('channel');
+  const channel = channelOpt || interaction.member?.voice?.channel;
+  if (!channel) return interaction.editReply("You're not in a voice channel — specify one with the channel option.");
+
+  const dateInput = interaction.options.getString('date');
+  const eventDate = dateInput || createLoa.todayInGuildTz();
+  if (!loa.isValidDate(eventDate)) return interaction.editReply('Date must be in YYYY-MM-DD format.');
+
+  const members = getVoiceMembers(channel.id);
+  if (members.length === 0) return interaction.editReply('No one is in that voice channel right now.');
+
+  const ids = await identities.load();
+  members.forEach((m) => { m.name = ids.displayNameFor(m.id, m.name); });
+
+  try {
+    await attendance.createEvent({ title: ev.name, eventDate, eventScheduleId, attendees: members });
+  } catch (err) {
+    return interaction.editReply(err.message || 'Something went wrong saving that attendance.');
+  }
+
+  let names = members.map((m) => m.name).join(', ');
+  const header = `✅ Logged attendance for **${ev.name}** — ${eventDate} — ${members.length} member(s): `;
+  if (header.length + names.length > 1900) {
+    names = `${names.slice(0, 1900 - header.length)}…`;
+  }
+  await interaction.editReply(`${header}${names}`);
+
+  notifyAttendance(members, ev.name, eventDate).catch(() => {});
 }
 
 async function sweepEliteTimers() {

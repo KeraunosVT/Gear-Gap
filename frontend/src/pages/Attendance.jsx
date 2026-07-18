@@ -3,6 +3,9 @@ import axios from 'axios';
 import { useAuth } from '../auth';
 import Sigil from '../components/Sigil';
 import { RefreshCw, Camera, Trash2, ChevronDown, Users, CalendarDays, Loader2, ArrowUp, ArrowDown, BarChart3, Wand2 } from 'lucide-react';
+import { fmtTimeEst } from '../timeUtils';
+
+const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 export default function Attendance() {
   const { user } = useAuth();
@@ -10,6 +13,8 @@ export default function Attendance() {
   const [channels, setChannels] = useState([]);
   const [selectedChannel, setSelectedChannel] = useState('');
   const [snapped, setSnapped] = useState([]);
+  const [schedule, setSchedule] = useState([]);
+  const [eventScheduleId, setEventScheduleId] = useState('');
   const [title, setTitle] = useState('');
   const [eventDate, setEventDate] = useState('');
   const [saving, setSaving] = useState(false);
@@ -49,7 +54,13 @@ export default function Attendance() {
       .finally(() => setLoadingStats(false));
   };
 
-  useEffect(() => { loadChannels(); loadEvents(); loadStats(); }, []);
+  const loadSchedule = () => {
+    axios.get('/api/event-schedule')
+      .then((res) => setSchedule(res.data.schedule || []))
+      .catch(() => setSchedule([]));
+  };
+
+  useEffect(() => { loadChannels(); loadEvents(); loadStats(); loadSchedule(); }, []);
 
   if (!user?.isAdmin) {
     return (
@@ -90,16 +101,22 @@ export default function Attendance() {
 
   const removeSnapped = (id) => setSnapped((prev) => prev.filter((m) => m.id !== id));
 
+  const selectScheduleEvent = (id) => {
+    setEventScheduleId(id);
+    const ev = schedule.find((s) => s.id === id);
+    if (ev) setTitle(ev.name);
+  };
+
   const save = async () => {
     if (!title.trim()) { flash('Give this event a title.', false); return; }
     if (snapped.length === 0) { flash('Snap a voice channel first.', false); return; }
     setSaving(true); setError('');
     try {
       const res = await axios.post('/api/admin/events', {
-        title, event_date: eventDate || null, attendees: snapped,
+        title, event_date: eventDate || null, event_schedule_id: eventScheduleId || null, attendees: snapped,
       });
       flash(`Saved — ${res.data.attendees} attendees logged.`);
-      setSnapped([]); setTitle(''); setEventDate('');
+      setSnapped([]); setTitle(''); setEventDate(''); setEventScheduleId('');
       loadEvents(); loadStats();
     } catch (err) {
       flash(err.response?.data?.error || 'Could not save event.', false);
@@ -224,6 +241,20 @@ export default function Attendance() {
         </div>
 
         <div className="space-y-4">
+          <div>
+            <label className="eyebrow text-[10px] text-ash block mb-2">Scheduled event</label>
+            <select
+              value={eventScheduleId} onChange={(e) => selectScheduleEvent(e.target.value)}
+              className="w-full bg-panel border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
+            >
+              <option value="">— custom / none —</option>
+              {schedule.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name} — {DAYS[s.day_of_week]}{s.event_time ? ` at ${fmtTimeEst(s.event_time)}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
           <div>
             <label className="eyebrow text-[10px] text-ash block mb-2">Event title</label>
             <input
