@@ -20,6 +20,18 @@ function tzOffsetMs(date, timeZone) {
   return asUtc - date.getTime();
 }
 
+// Resolves an hour/minute (already disambiguated — no am/pm parsing here) to the
+// UTC instant that clock time occurs today in the guild's timezone. Shared by
+// parseGuildTimeToday below and by the /announce command (backend/discordGateway.js),
+// which needs the same DST-aware conversion but without the kill-report rollback rule.
+function guildTimeToday(hour, minute) {
+  const now = new Date();
+  const [y, mo, d] = now.toLocaleDateString('en-CA', { timeZone: GUILD_TZ }).split('-').map(Number);
+  const utcGuess = Date.UTC(y, mo - 1, d, hour, minute);
+  const offset = tzOffsetMs(new Date(utcGuess), GUILD_TZ);
+  return new Date(utcGuess - offset);
+}
+
 // Parse a clock-time string ("6:40pm", "6:40 PM", "18:40") as happening today in the
 // guild's timezone. If the result lands more than an hour in the future, assume the
 // kill was actually just before midnight and the report came in after — shift back a day.
@@ -39,10 +51,7 @@ function parseGuildTimeToday(input) {
   }
 
   const now = new Date();
-  const [y, mo, d] = now.toLocaleDateString('en-CA', { timeZone: GUILD_TZ }).split('-').map(Number);
-  const utcGuess = Date.UTC(y, mo - 1, d, hour, minute);
-  const offset = tzOffsetMs(new Date(utcGuess), GUILD_TZ);
-  let result = new Date(utcGuess - offset);
+  let result = guildTimeToday(hour, minute);
   if (result.getTime() - now.getTime() > 60 * 60 * 1000) {
     result = new Date(result.getTime() - 24 * 60 * 60 * 1000);
   }
@@ -96,3 +105,6 @@ module.exports = function createEliteTimers(supabase) {
     },
   };
 };
+
+module.exports.parseGuildTimeToday = parseGuildTimeToday;
+module.exports.guildTimeToday = guildTimeToday;

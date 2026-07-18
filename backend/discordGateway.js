@@ -13,6 +13,8 @@ const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
 const GUILD_ID = process.env.DISCORD_GUILD_ID;
 const ELITE_CHANNEL_ID = process.env.DISCORD_ELITE_CHANNEL_ID;
 const LOA_CHANNEL_ID = process.env.DISCORD_LOA_CHANNEL_ID;
+const ANNOUNCE_CHANNEL_ID = process.env.DISCORD_ANNOUNCE_CHANNEL_ID;
+const ANNOUNCE_ROLE_ID = process.env.DISCORD_ANNOUNCE_ROLE_ID;
 // Same admin role list auth.js uses to gate the website's admin area, so
 // "officer" means the same thing in Discord as it does on the site.
 const ADMIN_ROLE_IDS = (process.env.DISCORD_ADMIN_ROLE_IDS || '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -24,6 +26,24 @@ function fmt12h(hhmm) {
   const period = h >= 12 ? 'PM' : 'AM';
   const h12 = h % 12 === 0 ? 12 : h % 12;
   return `${h12}:${String(m).padStart(2, '0')} ${period}`;
+}
+
+// Resolves a freeform time like "9:30pm", "930pm", "2130" or "930et" to the UTC
+// instant it occurs today in the guild's timezone, for the /announce command.
+// Strips a trailing ET/EST/EDT (redundant — the guild only operates in one zone)
+// and expands compact digit shorthand ("930" -> "9:30") before handing off to
+// loa.js's am/pm resolution — bare digits with no am/pm are read as 24-hour,
+// same convention used everywhere else in this file, so the confirmation
+// message always echoes the resolved time back for the officer to sanity-check.
+function parseAnnounceTime(input) {
+  let s = String(input || '').trim().replace(/\s*(et|est|edt)$/i, '').trim();
+  const compact = /^(\d{1,2})(\d{2})\s*([ap]\.?m\.?)?$/i.exec(s);
+  if (compact) s = `${compact[1]}:${compact[2]}${compact[3] ? ` ${compact[3]}` : ''}`;
+
+  const hhmm = createLoa.parseTimeOfDay(s);
+  if (!hhmm) return null;
+  const [hour, minute] = hhmm.split(':').map(Number);
+  return createEliteTimers.guildTimeToday(hour, minute);
 }
 
 const SWEEP_INTERVAL_MS = 60 * 1000;
@@ -57,9 +77,9 @@ function start(supabase) {
   client.once('clientReady', async () => {
     ready = true;
     console.log('✅ Discord gateway connected');
-    if (eliteTimers || loa || attendance) {
-      await registerCommands();
-    }
+    // /announce has no supabase dependency, so commands are always (re)registered
+    // once the bot connects, regardless of which optional modules are configured.
+    await registerCommands();
     if (eliteTimers) {
       setInterval(sweepEliteTimers, SWEEP_INTERVAL_MS);
     }
@@ -163,6 +183,20 @@ async function registerCommands() {
     commands.push(attendanceCommand.toJSON());
   }
 
+  // No supabase dependency — this just posts a message, so it's always available
+  // once the bot itself is running (missing channel/role config is reported at
+  // run time instead of skipping registration).
+  const announceCommand = new SlashCommandBuilder()
+    .setName('announce')
+    .setDescription('Officers: post a timed announcement (e.g. "get into CTA Comms") with a dynamic timestamp.')
+    .addStringOption((opt) =>
+      opt.setName('time').setDescription('e.g. 9:30pm, 930pm, 2130').setRequired(true)
+    )
+    .addStringOption((opt) =>
+      opt.setName('message').setDescription('What to announce (default: "Get into CTA Comms")').setRequired(false)
+    );
+  commands.push(announceCommand.toJSON());
+
   try {
     const rest = new REST({ version: '10' }).setToken(BOT_TOKEN);
     await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
@@ -179,6 +213,7 @@ async function handleInteraction(interaction) {
   if (interaction.commandName === 'elitetimers') return handleList(interaction);
   if (interaction.commandName === 'loa') return handleLoa(interaction);
   if (interaction.commandName === 'attendance') return handleAttendance(interaction);
+  if (interaction.commandName === 'announce') return handleAnnounce(interaction);
 }
 
 async function handleReport(interaction) {
@@ -560,6 +595,35 @@ async function handleAttendance(interaction) {
   await interaction.editReply(`${header}${names}`);
 
   notifyAttendance(members, ev.name, eventDate).catch(() => {});
+}
+
+// ── /announce ─────────────────────────────────────────────────────────────
+async function handleAnnounce(interaction) {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  if (!isAdminMember(interaction)) return interaction.editReply('Officers only.');
+  if (!ANNOUNCE_CHANNEL_ID) return interaction.editReply('Announcements are not configured — set DISCORD_ANNOUNCE_CHANNEL_ID.');
+
+  const timeInput = interaction.options.getString('time');
+  const message = interaction.options.getString('message') || 'Get into CTA Comms';
+
+  const when = parseAnnounceTime(timeInput);
+  if (!when) return interaction.editReply(`Couldn't understand "${timeInput}" as a time. Try something like \`9:30pm\` or \`2130\`.`);
+
+  const guild = getGuild();
+  const channel = guild?.channels.cache.get(ANNOUNCE_CHANNEL_ID);
+  if (!channel?.isTextBased()) {
+    return interaction.editReply('Announcement channel not found — check DISCORD_ANNOUNCE_CHANNEL_ID and bot permissions.');
+  }
+
+  const unix = Math.floor(when.getTime() / 1000);
+  const ping = ANNOUNCE_ROLE_ID ? `<@&${ANNOUNCE_ROLE_ID}> ` : '';
+  try {
+    await channel.send(`${ping}📢 **${message}** — <t:${unix}:t> (<t:${unix}:R>)`);
+    await interaction.editReply(`Posted ✅ — resolved to <t:${unix}:F>. If that's not what you meant, re-run with an explicit am/pm (e.g. \`9:30pm\`).`);
+  } catch (err) {
+    console.error('Announce post error:', err.message);
+    await interaction.editReply('Something went wrong posting that announcement.');
+  }
 }
 
 async function sweepEliteTimers() {

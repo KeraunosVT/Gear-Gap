@@ -189,3 +189,4 @@ module.exports = function createLoa(supabase) {
 };
 
 module.exports.todayInGuildTz = todayInGuildTz;
+module.exports.parseTimeOfDay = parseTimeOfDay;
