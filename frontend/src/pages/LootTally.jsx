@@ -727,10 +727,42 @@ function AddPickRow({ itemName, members, priorities, busy, onAdd }) {
 // in-progress selection resets after each submit without touching page state.
 function CurrencyGiveForm({ members, busy, onGive }) {
   const [memberId, setMemberId] = useState('');
+  const [query, setQuery] = useState('');
+  const [open, setOpen] = useState(false);
   const [currency, setCurrency] = useState('lucent');
   const [amount, setAmount] = useState('');
 
-  const sortedMembers = useMemo(() => [...members].sort((a, b) => (a.name || '').localeCompare(b.name || '')), [members]);
+  const suggestions = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q || memberId) return [];
+    return members.filter((m) => (m.name || '').toLowerCase().includes(q)).slice(0, 8);
+  }, [query, memberId, members]);
+
+  const pick = (m) => { setMemberId(m.id); setQuery(m.name); setOpen(false); };
+  const clear = () => { setMemberId(''); setQuery(''); setOpen(false); };
+
+  const onQueryChange = (e) => {
+    setQuery(e.target.value);
+    setOpen(true);
+    if (memberId) setMemberId(''); // typing again invalidates the previous pick
+  };
+
+  const onQueryBlur = () => {
+    // Give a suggestion's onClick a chance to register before we close/validate.
+    setTimeout(() => {
+      setOpen(false);
+      if (memberId) return;
+      const q = query.trim().toLowerCase();
+      const exact = q && members.find((m) => (m.name || '').toLowerCase() === q);
+      if (exact) { setMemberId(exact.id); setQuery(exact.name); }
+      else setQuery(''); // unresolved text can't be sent as a target
+    }, 150);
+  };
+
+  const onQueryKeyDown = (e) => {
+    if (e.key === 'Enter' && suggestions.length > 0) { e.preventDefault(); pick(suggestions[0]); }
+    else if (e.key === 'Escape') setOpen(false);
+  };
 
   const submit = () => {
     const amt = parseInt(amount, 10);
@@ -741,11 +773,32 @@ function CurrencyGiveForm({ members, busy, onGive }) {
 
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <select value={memberId} onChange={(e) => setMemberId(e.target.value)}
-        className="bg-hall border border-line rounded-sm px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass flex-1 min-w-[160px]">
-        <option value="">— member —</option>
-        {sortedMembers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-      </select>
+      <div className="relative flex-1 min-w-[160px]">
+        <input
+          type="text" value={query} onChange={onQueryChange}
+          onFocus={() => setOpen(true)} onBlur={onQueryBlur} onKeyDown={onQueryKeyDown}
+          placeholder="Member…" autoComplete="off"
+          className="w-full bg-hall border border-line rounded-sm pl-3 pr-8 py-2 text-sm text-bone focus:outline-none focus:border-brass"
+        />
+        {memberId && (
+          <button type="button" onClick={clear} title="Clear"
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-ash hover:text-oxblood">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        )}
+        {open && suggestions.length > 0 && (
+          <div className="absolute z-10 mt-1 w-full bg-hall border border-line rounded-sm shadow-lg max-h-56 overflow-auto">
+            {suggestions.map((m) => (
+              <button
+                key={m.id} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => pick(m)}
+                className="w-full text-left px-3 py-1.5 text-sm text-bone hover:bg-panelup transition-colors"
+              >
+                {m.name}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
       <div className="inline-flex rounded-sm border border-line overflow-hidden">
         {['lucent', 'shards'].map((c) => (
           <button key={c} type="button" onClick={() => setCurrency(c)}
