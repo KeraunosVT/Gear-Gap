@@ -127,15 +127,15 @@ export default function Shards() {
       ) : ordered.length === 0 ? (
         <div className="py-20 text-center text-ash">No members found.</div>
       ) : (
-        <div className="panel rounded-sm overflow-x-auto">
+        <div className="panel rounded-sm overflow-auto max-h-[70vh]">
           <table className="w-full min-w-[1160px] text-sm border-separate border-spacing-0">
             <thead>
               <tr className="eyebrow text-[10px] text-ash">
-                <th className="sticky top-16 z-10 bg-panel p-4 text-left font-normal border-b border-line">Member</th>
-                {TYPES.map((t) => <th key={t.key} className="sticky top-16 z-10 bg-panel p-4 text-center font-normal border-b border-line">{t.label}</th>)}
-                <th className="sticky top-16 z-10 bg-panel p-4 text-center font-normal border-b border-line">Total</th>
-                <th className="sticky top-16 z-10 bg-panel p-4 text-left font-normal border-b border-line">Weapons</th>
-                <th className="sticky top-16 z-10 bg-panel p-3 w-8 border-b border-line"></th>
+                <th className="sticky top-0 z-10 bg-panel p-4 text-left font-normal border-b border-line">Member</th>
+                {TYPES.map((t) => <th key={t.key} className="sticky top-0 z-10 bg-panel p-4 text-center font-normal border-b border-line">{t.label}</th>)}
+                <th className="sticky top-0 z-10 bg-panel p-4 text-center font-normal border-b border-line">Total</th>
+                <th className="sticky top-0 z-10 bg-panel p-4 text-left font-normal border-b border-line">Weapons</th>
+                <th className="sticky top-0 z-10 bg-panel p-3 w-8 border-b border-line"></th>
               </tr>
             </thead>
             <tbody>
