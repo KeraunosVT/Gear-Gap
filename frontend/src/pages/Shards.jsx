@@ -128,7 +128,7 @@ export default function Shards() {
         <div className="py-20 text-center text-ash">No members found.</div>
       ) : (
         <div className="panel rounded-sm overflow-x-auto">
-          <table className="w-full min-w-[1160px] text-sm">
+          <table className="w-full min-w-[1160px] text-sm border-separate border-spacing-0">
             <thead>
               <tr className="eyebrow text-[10px] text-ash">
                 <th className="sticky top-16 z-10 bg-panel p-4 text-left font-normal border-b border-line">Member</th>
@@ -144,7 +144,7 @@ export default function Shards() {
                 const editable = canEdit(m.id);
                 const weapons = m.shards.weapons || [];
                 return (
-                  <tr key={m.id} className={`border-b border-line/60 ${mine ? 'bg-brass/5' : ''}`}>
+                  <tr key={m.id} className={`[&>td]:border-b [&>td]:border-line/60 ${mine ? 'bg-brass/5' : ''}`}>
                     <td className="p-3">
                       <div className="flex items-center gap-2">
                         {m.avatar
@@ -195,7 +195,7 @@ export default function Shards() {
               })}
             </tbody>
             <tfoot>
-              <tr className="border-t border-line bg-panelup/60">
+              <tr className="[&>td]:border-t [&>td]:border-line bg-panelup/60">
                 <td className="p-4 eyebrow text-[10px] text-brass">Guild Total</td>
                 {TYPES.map((t) => <td key={t.key} className="p-4 text-center font-mono text-brassbright">{totals[t.key]}</td>)}
                 <td className="p-4 text-center font-mono text-brassbright">{TYPES.reduce((a, t) => a + totals[t.key], 0)}</td>
