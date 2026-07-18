@@ -127,7 +127,7 @@ export default function Shards() {
       ) : ordered.length === 0 ? (
         <div className="py-20 text-center text-ash">No members found.</div>
       ) : (
-        <div className="panel rounded-sm overflow-auto">
+        <div className="panel rounded-sm overflow-x-auto">
           <table className="w-full min-w-[1160px] text-sm">
             <thead>
               <tr className="eyebrow text-[10px] text-ash">
