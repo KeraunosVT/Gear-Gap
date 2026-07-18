@@ -7,6 +7,7 @@ const { parseScreenshot, parseCsv, WEAPONS } = require('./ingest');
 const { listMembers, postEmbed, postImage } = require('./discord');
 const { todayInGuildTz } = require('./loa');
 const createAttendance = require('./attendance');
+const SHARDS = require('../shared/shards.json');
 
 const ROLE_EMOJI = { Tank: '🛡️', DPS: '⚔️', Healer: '💚' };
 
@@ -220,11 +221,13 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     res.json({ ok: true });
   });
 
-  // ── Loot council: currency (Lucent / Shards) given ────────────────────────────
+  // ── Loot council: currency (Lucent / archboss shards) given ───────────────────
   // Kept separate from loot_awards — currency grants have no wishlist, build, or
   // catalog item behind them, just a recipient, a type, and an amount, and (unlike
   // gear) the same currency is routinely given to the same person more than once.
-  const CURRENCIES = new Set(['lucent', 'shards']);
+  // Shard types come from shared/shards.json — the same list the "Archboss Shards"
+  // wishlist page uses — so both features track the same 4 shards under the same keys.
+  const CURRENCIES = new Set(['lucent', ...SHARDS.types.map((t) => t.key)]);
 
   router.get('/currency-awards', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
@@ -244,7 +247,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
     const { discord_id, display_name, currency, amount } = req.body || {};
     if (!discord_id) return res.status(400).json({ error: 'Member is required.' });
-    if (!CURRENCIES.has(currency)) return res.status(400).json({ error: 'Currency must be lucent or shards.' });
+    if (!CURRENCIES.has(currency)) return res.status(400).json({ error: 'Unknown currency type.' });
     const amt = parseInt(amount, 10);
     if (!Number.isFinite(amt) || amt <= 0) return res.status(400).json({ error: 'Amount must be a positive number.' });
 

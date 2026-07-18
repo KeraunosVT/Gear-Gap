@@ -6,6 +6,12 @@ import Sigil from '../components/Sigil';
 import { ChevronDown, RefreshCw, Gavel, X, ScrollText, Plus, Pencil, Trash2, Upload, History, UserPlus, Coins } from 'lucide-react';
 import { fmtDatetime } from '../timeUtils';
 import ItemTooltip, { gradeStyle } from '../components/ItemTooltip';
+import SHARDS from '../../../shared/shards.json';
+
+// Same list the "Archboss Shards" wishlist page uses, so grants here line up
+// with the same 4 shard types under the same keys.
+const CURRENCY_TYPES = [{ key: 'lucent', label: 'Lucent' }, ...SHARDS.types];
+const CURRENCY_LABEL = Object.fromEntries(CURRENCY_TYPES.map((c) => [c.key, c.label]));
 
 const PRIO_SHORT = { 'PvP': 'PvP', 'Second Build': '2nd', 'PvE': 'PvE' };
 const PRIO_DOT = { 'PvP': 'bg-oxblood', 'Second Build': 'bg-brass', 'PvE': 'bg-emerald-500' };
@@ -78,8 +84,8 @@ export default function LootTally() {
   const currencyTotals = useMemo(() => {
     const m = {};
     currencyAwards.forEach((a) => {
-      if (!m[a.discord_id]) m[a.discord_id] = { discord_id: a.discord_id, display_name: a.display_name, lucent: 0, shards: 0 };
-      m[a.discord_id][a.currency] += a.amount;
+      if (!m[a.discord_id]) m[a.discord_id] = { discord_id: a.discord_id, display_name: a.display_name, byType: {} };
+      m[a.discord_id].byType[a.currency] = (m[a.discord_id].byType[a.currency] || 0) + a.amount;
       if (a.display_name) m[a.discord_id].display_name = a.display_name;
     });
     return Object.values(m).sort((a, b) => (a.display_name || '').localeCompare(b.display_name || ''));
@@ -251,16 +257,16 @@ export default function LootTally() {
             <div>
               <label className="eyebrow text-[10px] text-ash block mb-2">Totals</label>
               <div className="panel rounded-sm divide-y divide-line">
-                <div className="flex items-center gap-3 px-4 py-2 eyebrow text-[10px] text-ash">
-                  <span className="flex-1">Member</span>
-                  <span className="w-24 text-right">Lucent</span>
-                  <span className="w-24 text-right">Shards</span>
-                </div>
                 {currencyTotals.map((t) => (
-                  <div key={t.discord_id} className="flex items-center gap-3 px-4 py-2 text-sm">
-                    <span className="flex-1 text-bone truncate">{t.display_name || t.discord_id}</span>
-                    <span className="w-24 text-right font-mono text-brassbright">{t.lucent.toLocaleString()}</span>
-                    <span className="w-24 text-right font-mono text-brassbright">{t.shards.toLocaleString()}</span>
+                  <div key={t.discord_id} className="flex items-center gap-3 px-4 py-2 text-sm flex-wrap">
+                    <span className="text-bone w-36 shrink-0 truncate">{t.display_name || t.discord_id}</span>
+                    <div className="flex flex-wrap gap-1.5">
+                      {CURRENCY_TYPES.filter((c) => t.byType[c.key]).map((c) => (
+                        <span key={c.key} className="inline-flex items-center gap-1 text-xs bg-hall border border-line rounded-full px-2.5 py-0.5 text-ash">
+                          {c.label} <span className="font-mono text-brassbright">{t.byType[c.key].toLocaleString()}</span>
+                        </span>
+                      ))}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -277,7 +283,7 @@ export default function LootTally() {
                   <div key={a.id} className="flex items-center gap-3 bg-hall border border-line rounded-sm px-3 py-2 text-sm">
                     <span className="text-bone flex-1 truncate">{a.display_name || a.discord_id}</span>
                     <span className="font-mono text-brassbright shrink-0">{a.amount.toLocaleString()}</span>
-                    <span className="text-ash text-xs w-14 shrink-0 capitalize">{a.currency}</span>
+                    <span className="text-ash text-xs w-32 shrink-0 truncate">{CURRENCY_LABEL[a.currency] || a.currency}</span>
                     <span className="text-ash/60 text-[10px] w-28 text-right shrink-0">{fmtDatetime(a.awarded_at)}</span>
                     <button onClick={() => revokeCurrency(a.id)} className="text-ash hover:text-oxblood shrink-0" title="Revoke">
                       <X className="w-3.5 h-3.5" />
@@ -799,14 +805,10 @@ function CurrencyGiveForm({ members, busy, onGive }) {
           </div>
         )}
       </div>
-      <div className="inline-flex rounded-sm border border-line overflow-hidden">
-        {['lucent', 'shards'].map((c) => (
-          <button key={c} type="button" onClick={() => setCurrency(c)}
-            className={`px-3 py-2 text-sm capitalize transition-colors ${currency === c ? 'bg-brass text-ink font-semibold' : 'text-ash hover:text-bone'}`}>
-            {c}
-          </button>
-        ))}
-      </div>
+      <select value={currency} onChange={(e) => setCurrency(e.target.value)}
+        className="bg-hall border border-line rounded-sm px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass">
+        {CURRENCY_TYPES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+      </select>
       <input
         type="number" min={1} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount"
         className="bg-hall border border-line rounded-sm px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass w-28"
