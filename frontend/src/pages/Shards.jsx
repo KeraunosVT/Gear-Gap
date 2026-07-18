@@ -129,13 +129,13 @@ export default function Shards() {
       ) : (
         <div className="panel rounded-sm overflow-auto">
           <table className="w-full min-w-[1160px] text-sm">
-            <thead className="border-b border-line">
+            <thead>
               <tr className="eyebrow text-[10px] text-ash">
-                <th className="p-4 text-left font-normal">Member</th>
-                {TYPES.map((t) => <th key={t.key} className="p-4 text-center font-normal">{t.label}</th>)}
-                <th className="p-4 text-center font-normal">Total</th>
-                <th className="p-4 text-left font-normal">Weapons</th>
-                <th className="p-3 w-8"></th>
+                <th className="sticky top-16 z-10 bg-panel p-4 text-left font-normal border-b border-line">Member</th>
+                {TYPES.map((t) => <th key={t.key} className="sticky top-16 z-10 bg-panel p-4 text-center font-normal border-b border-line">{t.label}</th>)}
+                <th className="sticky top-16 z-10 bg-panel p-4 text-center font-normal border-b border-line">Total</th>
+                <th className="sticky top-16 z-10 bg-panel p-4 text-left font-normal border-b border-line">Weapons</th>
+                <th className="sticky top-16 z-10 bg-panel p-3 w-8 border-b border-line"></th>
               </tr>
             </thead>
             <tbody>
