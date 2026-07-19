@@ -1065,8 +1065,13 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     const out = new Map();
     (data || []).forEach((e) => {
       let matches = false;
+      // Event (one-off, this date): scoped to one event, a start-time cutoff
+      // ("out for anything from this time onward"), or both — same two knobs
+      // as recurring below, just for a single date instead of every week.
       if (e.type === 'event' && e.event_date === date) {
-        matches = !eventFilter || e.event_schedule_id === eventFilter;
+        const scopeMatches = !e.event_schedule_id || !eventFilter || e.event_schedule_id === eventFilter;
+        const timeMatches = !e.start_time || !eventTime || eventTime >= e.start_time;
+        matches = scopeMatches && timeMatches;
       }
       if (e.type === 'range' && e.start_date <= date && e.end_date >= date) matches = true;
       // Recurring: matches every week on its day-of-week. If it's scoped to one

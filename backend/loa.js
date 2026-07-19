@@ -72,27 +72,40 @@ module.exports = function createLoa(supabase) {
       return this.eventsForDay(dayOfWeek(dateStr));
     },
 
-    async submitEvent({ discordId, displayName, eventDate, eventScheduleId, reason }) {
+    // `eventScheduleId` and `startTime` are each optional, but at least one is
+    // required: pick an event to be out for just that one, a start time to be
+    // out for everything on the date at or after that time (e.g. "I can make
+    // the 6pm AB but nothing after"), or both to narrow to one event only if
+    // it's at/after a given time. Mirrors submitRecurring's same two knobs.
+    async submitEvent({ discordId, displayName, eventDate, eventScheduleId, startTime, reason }) {
       if (!isValidDate(eventDate)) throw httpError(400, 'Date must be in YYYY-MM-DD format.');
-      if (!eventScheduleId) throw httpError(400, 'Event is required.');
+      const cleanStartTime = startTime ? parseTimeOfDay(startTime) : null;
+      if (startTime && !cleanStartTime) throw httpError(400, 'Start time must be a valid time, e.g. 9:00 PM.');
+      if (!eventScheduleId && !cleanStartTime) throw httpError(400, 'Pick an event or a start time.');
       const cleanReason = requireReason(reason);
-      const { data: ev, error: evErr } = await supabase.from('event_schedule')
-        .select('id, name, day_of_week').eq('id', eventScheduleId).single();
-      if (evErr || !ev) throw httpError(400, 'Unknown event.');
-      if (ev.day_of_week !== dayOfWeek(eventDate)) throw httpError(400, "That event isn't scheduled on that date.");
+
+      let eventName = null;
+      if (eventScheduleId) {
+        const { data: ev, error: evErr } = await supabase.from('event_schedule')
+          .select('id, name, day_of_week').eq('id', eventScheduleId).single();
+        if (evErr || !ev) throw httpError(400, 'Unknown event.');
+        if (ev.day_of_week !== dayOfWeek(eventDate)) throw httpError(400, "That event isn't scheduled on that date.");
+        eventName = ev.name;
+      }
 
       const { data: row, error } = await supabase.from('loa_entries').insert({
         discord_id: discordId,
         display_name: (displayName || '').slice(0, 120),
         type: 'event',
         event_date: eventDate,
-        event_schedule_id: eventScheduleId,
+        event_schedule_id: eventScheduleId || null,
         start_date: null,
         end_date: null,
+        start_time: cleanStartTime,
         reason: cleanReason.slice(0, 500),
       }).select('id').single();
       if (error) { console.error('loa.submitEvent error:', error.message); throw httpError(500, 'Failed to submit LOA.'); }
-      return { id: row.id, eventName: ev.name };
+      return { id: row.id, eventName };
     },
 
     async submitRange({ discordId, displayName, startDate, endDate, reason }) {

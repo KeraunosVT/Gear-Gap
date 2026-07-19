@@ -20,6 +20,7 @@ export default function LOA() {
   const [loaType, setLoaType] = useState('event');
   const [eventDate, setEventDate] = useState('');
   const [eventScheduleId, setEventScheduleId] = useState('');
+  const [eventStartTime, setEventStartTime] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [recurDays, setRecurDays] = useState(() => new Set());
@@ -158,7 +159,18 @@ export default function LOA() {
   const submit = async () => {
     setSubmitting(true); setError('');
     try {
-      if (loaType === 'recurring') {
+      if (loaType === 'event') {
+        await axios.post('/api/loa', {
+          type: 'event',
+          event_date: eventDate,
+          event_schedule_id: eventScheduleId || undefined,
+          start_time: eventStartTime || undefined,
+          reason,
+          discord_id: submitTarget?.id,
+          display_name: submitTarget?.name,
+        });
+        flash(submitTarget ? `LOA submitted for ${submitTarget.name}.` : 'LOA submitted.');
+      } else if (loaType === 'recurring') {
         // One row per selected day — the backend (and the /loa Discord command)
         // only ever submits a single day at a time, so multi-day just fans out
         // the same reason/start-time/event scope across each picked bubble.
@@ -177,18 +189,16 @@ export default function LOA() {
           : `LOA submitted — ${days.length} day${days.length === 1 ? '' : 's'}.`);
       } else {
         await axios.post('/api/loa', {
-          type: loaType,
-          event_date: loaType === 'event' ? eventDate : undefined,
-          event_schedule_id: loaType === 'event' ? eventScheduleId : undefined,
-          start_date: loaType === 'range' ? startDate : undefined,
-          end_date: loaType === 'range' ? endDate : undefined,
+          type: 'range',
+          start_date: startDate,
+          end_date: endDate,
           reason,
           discord_id: submitTarget?.id,
           display_name: submitTarget?.name,
         });
         flash(submitTarget ? `LOA submitted for ${submitTarget.name}.` : 'LOA submitted.');
       }
-      setEventDate(''); setEventScheduleId(''); setStartDate(''); setEndDate('');
+      setEventDate(''); setEventScheduleId(''); setEventStartTime(''); setStartDate(''); setEndDate('');
       setRecurDays(new Set()); setRecurEventScheduleId(''); setRecurStartTime(''); setReason(''); setSubmitFor(''); setSubmitForQuery('');
       load();
     } catch (err) {
@@ -230,20 +240,21 @@ export default function LOA() {
     }
   };
 
-  const formatEventLabel = (entry) => {
-    const ev = scheduleById[entry.event_schedule_id];
-    const name = ev ? ev.name : 'Event';
-    const time = ev?.event_time ? ` at ${fmtTime(ev.event_time)}` : '';
-    return `${name}${time} — ${new Date(entry.event_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
-  };
-
-  // Same as above minus the trailing date — used in the agenda, where the date is already a section header.
+  // A one-off "event" entry is scoped to a picked event, a start-time cutoff
+  // ("out for everything from this time onward"), or both — mirrors how
+  // formatRecurringOccurrence reads a recurring entry's same two knobs.
   const formatEventName = (entry) => {
     const ev = scheduleById[entry.event_schedule_id];
-    const name = ev ? ev.name : 'Event';
-    const time = ev?.event_time ? ` at ${fmtTime(ev.event_time)}` : '';
-    return `${name}${time}`;
+    if (ev) {
+      const time = ev.event_time ? ` at ${fmtTime(ev.event_time)}` : '';
+      const from = entry.start_time ? ` (from ${fmtTime(entry.start_time)})` : '';
+      return `${ev.name}${time}${from}`;
+    }
+    return entry.start_time ? `From ${fmtTime(entry.start_time)}` : 'Event';
   };
+
+  const formatEventLabel = (entry) =>
+    `${formatEventName(entry)} — ${new Date(entry.event_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
 
   const formatRangeLabel = (entry) => {
     const fmt = (d) => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -350,7 +361,7 @@ export default function LOA() {
       .map(([date, entries]) => ({ date, entries }));
   }, [upcomingAbsent, todayStr, lookaheadDates, recurringEntries]);
 
-  const canSubmitEvent = loaType === 'event' && eventDate && eventScheduleId && reason.trim();
+  const canSubmitEvent = loaType === 'event' && eventDate && (eventScheduleId || eventStartTime) && reason.trim();
   const canSubmitRange = loaType === 'range' && startDate && endDate && reason.trim();
   const canSubmitRecurring = loaType === 'recurring' && recurDays.size > 0 && reason.trim();
 
@@ -487,7 +498,7 @@ export default function LOA() {
                       className="w-full bg-hall border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass" />
                   </div>
                   <div>
-                    <label className="eyebrow text-[10px] text-ash block mb-2">Event</label>
+                    <label className="eyebrow text-[10px] text-ash block mb-2">Event <span className="text-ash/50">(optional — leave blank to use a start time instead)</span></label>
                     {eventsOnDate.length === 0 && eventDate ? (
                       <p className="text-ash text-sm py-2.5">No events scheduled for {DAYS[new Date(eventDate + 'T12:00:00').getDay()]}.</p>
                     ) : (
@@ -498,6 +509,12 @@ export default function LOA() {
 
                       </select>
                     )}
+                  </div>
+                  <div>
+                    <label className="eyebrow text-[10px] text-ash block mb-2">Start time <span className="text-ash/50">(optional — "I'm out after this time")</span></label>
+                    <input type="time" value={eventStartTime} onChange={(e) => setEventStartTime(e.target.value)}
+                      className="w-full bg-hall border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass" />
+                    <p className="text-ash/50 text-xs mt-1">e.g. you can make the 6pm AB but nothing scheduled after — leave Event blank and set 6:00 PM here.</p>
                   </div>
                 </div>
               )}

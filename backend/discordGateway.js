@@ -132,10 +132,11 @@ async function registerCommands() {
       .setDescription('Manage your leave of absence.')
       .addSubcommand((sub) =>
         sub.setName('event')
-          .setDescription('Request LOA for a single scheduled event.')
+          .setDescription('Request LOA for a single date — one event, or everything from a time onward.')
           .addStringOption((opt) => opt.setName('date').setDescription('Event date, YYYY-MM-DD').setRequired(true))
-          .addStringOption((opt) => opt.setName('event').setDescription('Which event').setRequired(true).setAutocomplete(true))
           .addStringOption((opt) => opt.setName('reason').setDescription('Visible to officers only').setRequired(true))
+          .addStringOption((opt) => opt.setName('event').setDescription('Which event (leave blank + set a start time for "everything after X")').setRequired(false).setAutocomplete(true))
+          .addStringOption((opt) => opt.setName('start_time').setDescription('Absent from this time onward, e.g. 9:00 PM (blank = just the picked event)').setRequired(false))
           .addUserOption((opt) => opt.setName('member').setDescription('Officers only: submit on behalf of this member').setRequired(false))
       )
       .addSubcommand((sub) =>
@@ -366,8 +367,14 @@ async function handleLoaEvent(interaction) {
 
   const date = interaction.options.getString('date');
   const eventScheduleId = interaction.options.getString('event');
+  const startTimeRaw = interaction.options.getString('start_time');
   const reason = interaction.options.getString('reason') || '';
-  if (!eventScheduleId) return interaction.editReply('No event selected — pick one from the list.');
+  if (!eventScheduleId && !startTimeRaw) return interaction.editReply('Pick an event, a start time, or both.');
+
+  const startTime = startTimeRaw ? loa.parseTimeOfDay(startTimeRaw) : null;
+  if (startTimeRaw && !startTime) {
+    return interaction.editReply(`Couldn't read "${startTimeRaw}" as a time — try something like 9:00 PM or 21:00.`);
+  }
 
   try {
     const { id, eventName } = await loa.submitEvent({
@@ -375,12 +382,15 @@ async function handleLoaEvent(interaction) {
       displayName: target.displayName,
       eventDate: date,
       eventScheduleId,
+      startTime,
       reason,
     });
+    const scope = eventName ? ` for **${eventName}**` : '';
+    const fromTime = startTime ? ` from **${fmt12h(startTime)}**` : '';
     await interaction.editReply(target.onBehalf
-      ? `Recorded ✅ — LOA submitted for **${target.displayName}** on ${date}.`
-      : `Recorded ✅ — LOA submitted for ${date}.`);
-    const messageId = await announceLoa(`📋 **${target.displayName}** is on LOA for **${eventName}** — ${discordDate(date)}`);
+      ? `Recorded ✅ — LOA submitted for **${target.displayName}** on ${date}${fromTime}${scope}.`
+      : `Recorded ✅ — LOA submitted for ${date}${fromTime}${scope}.`);
+    const messageId = await announceLoa(`📋 **${target.displayName}** is on LOA${scope} — ${discordDate(date)}${fromTime}`);
     if (messageId) await loa.setMessageId(id, messageId);
   } catch (err) {
     await interaction.editReply(err.message || 'Something went wrong submitting that LOA.');

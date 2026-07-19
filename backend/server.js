@@ -369,7 +369,7 @@ app.post('/api/loa', async (req, res) => {
   const targetName = onBehalf ? (display_name || 'Member') : req.user.username;
   try {
     if (type === 'event') {
-      await loa.submitEvent({ discordId: targetId, displayName: targetName, eventDate: event_date, eventScheduleId: event_schedule_id, reason });
+      await loa.submitEvent({ discordId: targetId, displayName: targetName, eventDate: event_date, eventScheduleId: event_schedule_id, startTime: start_time, reason });
     } else if (type === 'range') {
       await loa.submitRange({ discordId: targetId, displayName: targetName, startDate: start_date, endDate: end_date, reason });
     } else if (type === 'recurring') {
