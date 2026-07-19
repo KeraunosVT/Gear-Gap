@@ -10,7 +10,7 @@ A guild-management web app for a *Throne & Liberty* guild, built around Discord:
 - **Archboss Shards** — track how many of each archboss shard type you need, plus a weapon wishlist
 - **Gear Level** — upload an in-game Equipment Level screenshot, parsed automatically (Gemini)
 - **My Classes** — rank up to 3 classes per mode so officers can plan parties around your build
-- **Leave of Absence** — submit LOA for a single event, a date range, or recurring days (also via `/loa` in Discord)
+- **Leave of Absence** — submit LOA for a single event, a date range, or recurring days (pick more than one at once); optionally scope any of these to a time window (e.g. "I can make the 6pm event but I'm out after that," or "out 7–8pm, back after") — also via `/loa` in Discord
 
 **For officers**
 - **Attendance** — snap a voice channel's members into a logged event, tied to the recurring event schedule; also runnable straight from Discord via `/attendance`
