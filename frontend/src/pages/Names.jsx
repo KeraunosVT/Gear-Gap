@@ -17,6 +17,9 @@ export default function Names() {
   const [error, setError] = useState('');
   const [msg, setMsg] = useState(null);
   const [busy, setBusy] = useState('');
+  const [newPlayerName, setNewPlayerName] = useState('');
+  const [newPlayerDiscordId, setNewPlayerDiscordId] = useState('');
+  const [addingPlayer, setAddingPlayer] = useState(false);
 
   const load = () => {
     setLoading(true); setError('');
@@ -125,6 +128,28 @@ export default function Names() {
     } catch (err) { flash(err.response?.data?.error || 'Delete failed.', false); }
   };
 
+  // Create a player directly — for a new member who hasn't shown up in any
+  // wargame yet, so there's no unmapped in-game name to hang the "Create" flow
+  // off of. Uses the same two backend calls the Unmapped flow already makes
+  // (create identity, then optionally link Discord), just triggered by hand.
+  const addPlayer = async () => {
+    const name = newPlayerName.trim();
+    if (!name) return;
+    setAddingPlayer(true);
+    try {
+      const res = await axios.post('/api/admin/identities', { display_name: name });
+      if (newPlayerDiscordId) await axios.put(`/api/admin/identities/${res.data.id}/discord`, { discord_id: newPlayerDiscordId });
+      setIdentities((prev) => [...prev, { id: res.data.id, display_name: name, ingame_names: [], discord_id: newPlayerDiscordId || null }]
+        .sort((a, b) => (a.display_name || '').localeCompare(b.display_name || '')));
+      flash(`Added "${name}".`);
+      setNewPlayerName(''); setNewPlayerDiscordId('');
+    } catch (err) {
+      flash(err.response?.data?.error || 'Failed to add player.', false);
+    } finally {
+      setAddingPlayer(false);
+    }
+  };
+
   const linkedDiscordIds = useMemo(() => new Set(identities.map((i) => i.discord_id).filter(Boolean)), [identities]);
 
   const sortedIdentities = useMemo(
@@ -191,6 +216,36 @@ export default function Names() {
               </button>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Add a player directly — for a new member who hasn't played a wargame
+          yet, so there's no unmapped in-game name to build them from below. */}
+      {!loading && (
+        <div className="mt-14">
+          <h2 className="font-display text-2xl text-bone tracking-[0.08em] mb-2">Add a Player</h2>
+          <p className="text-ash text-sm mb-4">For a new member who hasn't attended a wargame yet. Once they play, assign their in-game name to this player from the Unmapped list above instead of creating a duplicate.</p>
+          <div className="panel rounded-sm p-4 flex flex-wrap items-center gap-3">
+            <input
+              value={newPlayerName} onChange={(e) => setNewPlayerName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') addPlayer(); }}
+              placeholder="Display name"
+              className="bg-hall border border-line rounded-sm px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass flex-1 min-w-[160px]"
+            />
+            <select
+              value={newPlayerDiscordId} onChange={(e) => setNewPlayerDiscordId(e.target.value)}
+              className="bg-hall border border-line rounded-sm px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass w-48"
+            >
+              <option value="">No Discord link yet</option>
+              {members.filter((m) => !linkedDiscordIds.has(m.id)).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+            <button
+              onClick={addPlayer} disabled={!newPlayerName.trim() || addingPlayer}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm text-sm transition-colors disabled:opacity-40"
+            >
+              <UserPlus className="w-4 h-4" /> {addingPlayer ? 'Adding…' : 'Add'}
+            </button>
+          </div>
         </div>
       )}
 
