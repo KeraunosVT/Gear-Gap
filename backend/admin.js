@@ -1044,6 +1044,19 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
   });
 
   // ── LOA: who's out on a given date/event (for party builder) ────────────────
+  // Shared by the 'event' and 'recurring' branches below: does an event at
+  // `eventTime` fall inside this LOA entry's absence window? No start_time
+  // means no restriction at all; a start with no end is an open-ended cutoff
+  // ("out from this time onward"); both means a bounded window they're back
+  // after (e.g. out 7-8pm, available again at 8). An event with no recorded
+  // time can't be compared, so it falls back to counting the member absent.
+  const withinLoaWindow = (entry, eventTime) => {
+    if (!entry.start_time || !eventTime) return true;
+    if (eventTime < entry.start_time) return false;
+    if (entry.end_time && eventTime >= entry.end_time) return false;
+    return true;
+  };
+
   router.get('/loa/unavailable', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
     const date = req.query.date || todayInGuildTz();
@@ -1051,7 +1064,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     const dow = new Date(date + 'T12:00:00').getDay();
     const [{ data, error }, eventRow] = await Promise.all([
       supabase.from('loa_entries')
-        .select('discord_id, display_name, type, event_date, event_schedule_id, start_date, end_date, day_of_week, start_time'),
+        .select('discord_id, display_name, type, event_date, event_schedule_id, start_date, end_date, day_of_week, start_time, end_time'),
       eventFilter
         ? supabase.from('event_schedule').select('event_time').eq('id', eventFilter).single().then((r) => r.data)
         : Promise.resolve(null),
@@ -1065,29 +1078,25 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     const out = new Map();
     (data || []).forEach((e) => {
       let matches = false;
-      // Event (one-off, this date): scoped to one event, a start-time cutoff
-      // ("out for anything from this time onward"), or both — same two knobs
-      // as recurring below, just for a single date instead of every week.
+      // Event (one-off, this date): scoped to one event, a time window, or
+      // both — same two knobs as recurring below, just for a single date
+      // instead of every week.
       if (e.type === 'event' && e.event_date === date) {
         const scopeMatches = !e.event_schedule_id || !eventFilter || e.event_schedule_id === eventFilter;
-        const timeMatches = !e.start_time || !eventTime || eventTime >= e.start_time;
-        matches = scopeMatches && timeMatches;
+        matches = scopeMatches && withinLoaWindow(e, eventTime);
       }
       if (e.type === 'range' && e.start_date <= date && e.end_date >= date) matches = true;
       // Recurring: matches every week on its day-of-week. If it's scoped to one
       // event, it only counts when that event is the one being checked (or when
-      // no specific event filter was given, same as the 'event' type above). If it
-      // also has a start_time, it only counts for events at or after that time —
-      // an event with no recorded time (or no event picked at all) can't be
-      // compared, so it falls back to counting the member absent regardless.
+      // no specific event filter was given, same as the 'event' type above).
       if (e.type === 'recurring' && e.day_of_week === dow) {
         const scopeMatches = !e.event_schedule_id || !eventFilter || e.event_schedule_id === eventFilter;
-        const timeMatches = !e.start_time || !eventTime || eventTime >= e.start_time;
+        const timeMatches = withinLoaWindow(e, eventTime);
         matches = scopeMatches && timeMatches;
         if (eventFilter) {
           console.log('loa.unavailable debug recurring entry:', {
             discord_id: e.discord_id, event_schedule_id: e.event_schedule_id,
-            start_time: e.start_time, scopeMatches, timeMatches, matches,
+            start_time: e.start_time, end_time: e.end_time, scopeMatches, timeMatches, matches,
           });
         }
       }

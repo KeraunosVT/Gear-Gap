@@ -21,11 +21,13 @@ export default function LOA() {
   const [eventDate, setEventDate] = useState('');
   const [eventScheduleId, setEventScheduleId] = useState('');
   const [eventStartTime, setEventStartTime] = useState('');
+  const [eventEndTime, setEventEndTime] = useState('');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [recurDays, setRecurDays] = useState(() => new Set());
   const [recurEventScheduleId, setRecurEventScheduleId] = useState('');
   const [recurStartTime, setRecurStartTime] = useState('');
+  const [recurEndTime, setRecurEndTime] = useState('');
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
@@ -165,6 +167,7 @@ export default function LOA() {
           event_date: eventDate,
           event_schedule_id: eventScheduleId || undefined,
           start_time: eventStartTime || undefined,
+          end_time: eventEndTime || undefined,
           reason,
           discord_id: submitTarget?.id,
           display_name: submitTarget?.name,
@@ -173,13 +176,14 @@ export default function LOA() {
       } else if (loaType === 'recurring') {
         // One row per selected day — the backend (and the /loa Discord command)
         // only ever submits a single day at a time, so multi-day just fans out
-        // the same reason/start-time/event scope across each picked bubble.
+        // the same reason/time-window/event scope across each picked bubble.
         const days = [...recurDays];
         await Promise.all(days.map((day) => axios.post('/api/loa', {
           type: 'recurring',
           day_of_week: day,
           event_schedule_id: days.length === 1 ? (recurEventScheduleId || undefined) : undefined,
           start_time: recurStartTime || undefined,
+          end_time: recurEndTime || undefined,
           reason,
           discord_id: submitTarget?.id,
           display_name: submitTarget?.name,
@@ -198,8 +202,8 @@ export default function LOA() {
         });
         flash(submitTarget ? `LOA submitted for ${submitTarget.name}.` : 'LOA submitted.');
       }
-      setEventDate(''); setEventScheduleId(''); setEventStartTime(''); setStartDate(''); setEndDate('');
-      setRecurDays(new Set()); setRecurEventScheduleId(''); setRecurStartTime(''); setReason(''); setSubmitFor(''); setSubmitForQuery('');
+      setEventDate(''); setEventScheduleId(''); setEventStartTime(''); setEventEndTime(''); setStartDate(''); setEndDate('');
+      setRecurDays(new Set()); setRecurEventScheduleId(''); setRecurStartTime(''); setRecurEndTime(''); setReason(''); setSubmitFor(''); setSubmitForQuery('');
       load();
     } catch (err) {
       flash(err.response?.data?.error || 'Failed to submit LOA.', false);
@@ -245,12 +249,15 @@ export default function LOA() {
   // formatRecurringOccurrence reads a recurring entry's same two knobs.
   const formatEventName = (entry) => {
     const ev = scheduleById[entry.event_schedule_id];
+    const window = entry.start_time
+      ? (entry.end_time ? `${fmtTime(entry.start_time)} – ${fmtTime(entry.end_time)}` : `from ${fmtTime(entry.start_time)}`)
+      : '';
     if (ev) {
       const time = ev.event_time ? ` at ${fmtTime(ev.event_time)}` : '';
-      const from = entry.start_time ? ` (from ${fmtTime(entry.start_time)})` : '';
-      return `${ev.name}${time}${from}`;
+      return `${ev.name}${time}${window ? ` (${window})` : ''}`;
     }
-    return entry.start_time ? `From ${fmtTime(entry.start_time)}` : 'Event';
+    if (!entry.start_time) return 'Event';
+    return entry.end_time ? window : `From ${fmtTime(entry.start_time)}`;
   };
 
   const formatEventLabel = (entry) =>
@@ -264,8 +271,10 @@ export default function LOA() {
   const formatRecurringLabel = (entry) => {
     const ev = scheduleById[entry.event_schedule_id];
     const scope = ev ? ` — ${ev.name}${ev.event_time ? ` at ${fmtTime(ev.event_time)}` : ''}` : '';
-    const from = entry.start_time ? ` from ${fmtTime(entry.start_time)}` : '';
-    return `Every ${DAYS[entry.day_of_week]}${from}${scope}`;
+    const window = entry.start_time
+      ? (entry.end_time ? ` ${fmtTime(entry.start_time)} – ${fmtTime(entry.end_time)}` : ` from ${fmtTime(entry.start_time)}`)
+      : '';
+    return `Every ${DAYS[entry.day_of_week]}${window}${scope}`;
   };
 
   // Same recurring entry, but as it reads on one specific occurrence in the
@@ -273,7 +282,8 @@ export default function LOA() {
   const formatRecurringOccurrence = (entry) => {
     const ev = scheduleById[entry.event_schedule_id];
     if (ev) return `${ev.name}${ev.event_time ? ` at ${fmtTime(ev.event_time)}` : ''}`;
-    return entry.start_time ? `From ${fmtTime(entry.start_time)}` : 'All day';
+    if (!entry.start_time) return 'All day';
+    return entry.end_time ? `${fmtTime(entry.start_time)} – ${fmtTime(entry.end_time)}` : `From ${fmtTime(entry.start_time)}`;
   };
 
   const formatDateHeader = (dateStr) =>
@@ -512,9 +522,16 @@ export default function LOA() {
                   </div>
                   <div>
                     <label className="eyebrow text-[10px] text-ash block mb-2">Start time <span className="text-ash/50">(optional — "I'm out after this time")</span></label>
-                    <input type="time" value={eventStartTime} onChange={(e) => setEventStartTime(e.target.value)}
+                    <input type="time" value={eventStartTime}
+                      onChange={(e) => { setEventStartTime(e.target.value); if (!e.target.value) setEventEndTime(''); }}
                       className="w-full bg-hall border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass" />
                     <p className="text-ash/50 text-xs mt-1">e.g. you can make the 6pm AB but nothing scheduled after — leave Event blank and set 6:00 PM here.</p>
+                  </div>
+                  <div>
+                    <label className="eyebrow text-[10px] text-ash block mb-2">End time <span className="text-ash/50">(optional — "but I'll be back after this")</span></label>
+                    <input type="time" value={eventEndTime} onChange={(e) => setEventEndTime(e.target.value)} disabled={!eventStartTime}
+                      className="w-full bg-hall border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass disabled:opacity-40" />
+                    <p className="text-ash/50 text-xs mt-1">e.g. out 7–8pm, back for anything after — set a start time first.</p>
                   </div>
                 </div>
               )}
@@ -562,9 +579,16 @@ export default function LOA() {
                   </div>
                   <div>
                     <label className="eyebrow text-[10px] text-ash block mb-2">Start time <span className="text-ash/50">(optional — blank means absent all day)</span></label>
-                    <input type="time" value={recurStartTime} onChange={(e) => setRecurStartTime(e.target.value)}
+                    <input type="time" value={recurStartTime}
+                      onChange={(e) => { setRecurStartTime(e.target.value); if (!e.target.value) setRecurEndTime(''); }}
                       className="w-full bg-hall border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass" />
                     <p className="text-ash/50 text-xs mt-1">Only events at or after this time will count you absent.</p>
+                  </div>
+                  <div>
+                    <label className="eyebrow text-[10px] text-ash block mb-2">End time <span className="text-ash/50">(optional — "but I'll be back after this")</span></label>
+                    <input type="time" value={recurEndTime} onChange={(e) => setRecurEndTime(e.target.value)} disabled={!recurStartTime}
+                      className="w-full bg-hall border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass disabled:opacity-40" />
+                    <p className="text-ash/50 text-xs mt-1">Leave blank to stay out for the rest of the day — set a start time first.</p>
                   </div>
                 </div>
               )}

@@ -137,6 +137,7 @@ async function registerCommands() {
           .addStringOption((opt) => opt.setName('reason').setDescription('Visible to officers only').setRequired(true))
           .addStringOption((opt) => opt.setName('event').setDescription('Which event (leave blank + set a start time for "everything after X")').setRequired(false).setAutocomplete(true))
           .addStringOption((opt) => opt.setName('start_time').setDescription('Absent from this time onward, e.g. 9:00 PM (blank = just the picked event)').setRequired(false))
+          .addStringOption((opt) => opt.setName('end_time').setDescription('Back after this time, e.g. 10:00 PM (blank = out for the rest of the day)').setRequired(false))
           .addUserOption((opt) => opt.setName('member').setDescription('Officers only: submit on behalf of this member').setRequired(false))
       )
       .addSubcommand((sub) =>
@@ -155,6 +156,7 @@ async function registerCommands() {
           .addStringOption((opt) => opt.setName('reason').setDescription('Visible to officers only').setRequired(true))
           .addStringOption((opt) => opt.setName('event').setDescription('Leave blank for the whole day').setRequired(false).setAutocomplete(true))
           .addStringOption((opt) => opt.setName('start_time').setDescription('Absent from this time onward, e.g. 9:00 PM (blank = all day)').setRequired(false))
+          .addStringOption((opt) => opt.setName('end_time').setDescription('Back after this time, e.g. 10:00 PM (blank = out for the rest of the day)').setRequired(false))
           .addUserOption((opt) => opt.setName('member').setDescription('Officers only: submit on behalf of this member').setRequired(false))
       )
       .addSubcommand((sub) =>
@@ -368,12 +370,17 @@ async function handleLoaEvent(interaction) {
   const date = interaction.options.getString('date');
   const eventScheduleId = interaction.options.getString('event');
   const startTimeRaw = interaction.options.getString('start_time');
+  const endTimeRaw = interaction.options.getString('end_time');
   const reason = interaction.options.getString('reason') || '';
   if (!eventScheduleId && !startTimeRaw) return interaction.editReply('Pick an event, a start time, or both.');
 
   const startTime = startTimeRaw ? loa.parseTimeOfDay(startTimeRaw) : null;
   if (startTimeRaw && !startTime) {
     return interaction.editReply(`Couldn't read "${startTimeRaw}" as a time — try something like 9:00 PM or 21:00.`);
+  }
+  const endTime = endTimeRaw ? loa.parseTimeOfDay(endTimeRaw) : null;
+  if (endTimeRaw && !endTime) {
+    return interaction.editReply(`Couldn't read "${endTimeRaw}" as a time — try something like 9:00 PM or 21:00.`);
   }
 
   try {
@@ -383,14 +390,15 @@ async function handleLoaEvent(interaction) {
       eventDate: date,
       eventScheduleId,
       startTime,
+      endTime,
       reason,
     });
     const scope = eventName ? ` for **${eventName}**` : '';
-    const fromTime = startTime ? ` from **${fmt12h(startTime)}**` : '';
+    const timeRange = startTime ? (endTime ? ` from **${fmt12h(startTime)}** to **${fmt12h(endTime)}**` : ` from **${fmt12h(startTime)}**`) : '';
     await interaction.editReply(target.onBehalf
-      ? `Recorded ✅ — LOA submitted for **${target.displayName}** on ${date}${fromTime}${scope}.`
-      : `Recorded ✅ — LOA submitted for ${date}${fromTime}${scope}.`);
-    const messageId = await announceLoa(`📋 **${target.displayName}** is on LOA${scope} — ${discordDate(date)}${fromTime}`);
+      ? `Recorded ✅ — LOA submitted for **${target.displayName}** on ${date}${timeRange}${scope}.`
+      : `Recorded ✅ — LOA submitted for ${date}${timeRange}${scope}.`);
+    const messageId = await announceLoa(`📋 **${target.displayName}** is on LOA${scope} — ${discordDate(date)}${timeRange}`);
     if (messageId) await loa.setMessageId(id, messageId);
   } catch (err) {
     await interaction.editReply(err.message || 'Something went wrong submitting that LOA.');
@@ -434,11 +442,16 @@ async function handleLoaRecurring(interaction) {
   const dow = parseInt(interaction.options.getString('day'), 10);
   const eventScheduleId = interaction.options.getString('event') || null;
   const startTimeRaw = interaction.options.getString('start_time') || null;
+  const endTimeRaw = interaction.options.getString('end_time') || null;
   const reason = interaction.options.getString('reason') || '';
 
   const startTime = startTimeRaw ? loa.parseTimeOfDay(startTimeRaw) : null;
   if (startTimeRaw && !startTime) {
     return interaction.editReply(`Couldn't read "${startTimeRaw}" as a time — try something like 9:00 PM or 21:00.`);
+  }
+  const endTime = endTimeRaw ? loa.parseTimeOfDay(endTimeRaw) : null;
+  if (endTimeRaw && !endTime) {
+    return interaction.editReply(`Couldn't read "${endTimeRaw}" as a time — try something like 9:00 PM or 21:00.`);
   }
 
   try {
@@ -448,14 +461,15 @@ async function handleLoaRecurring(interaction) {
       dayOfWeek: dow,
       eventScheduleId,
       startTime,
+      endTime,
       reason,
     });
     const scope = eventName ? ` for **${eventName}**` : '';
-    const fromTime = startTime ? ` from **${fmt12h(startTime)}**` : '';
+    const timeRange = startTime ? (endTime ? ` from **${fmt12h(startTime)}** to **${fmt12h(endTime)}**` : ` from **${fmt12h(startTime)}**`) : '';
     await interaction.editReply(target.onBehalf
-      ? `Recorded ✅ — **${target.displayName}** is now always out on **${DAY_NAMES[dow]}**${fromTime}${scope}.`
-      : `Recorded ✅ — you're now always out on **${DAY_NAMES[dow]}**${fromTime}${scope}.`);
-    const messageId = await announceLoa(`📋 **${target.displayName}** is always on LOA every **${DAY_NAMES[dow]}**${fromTime}${scope}`);
+      ? `Recorded ✅ — **${target.displayName}** is now always out on **${DAY_NAMES[dow]}**${timeRange}${scope}.`
+      : `Recorded ✅ — you're now always out on **${DAY_NAMES[dow]}**${timeRange}${scope}.`);
+    const messageId = await announceLoa(`📋 **${target.displayName}** is always on LOA every **${DAY_NAMES[dow]}**${timeRange}${scope}`);
     if (messageId) await loa.setMessageId(id, messageId);
   } catch (err) {
     await interaction.editReply(err.message || 'Something went wrong submitting that LOA.');

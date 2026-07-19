@@ -37,6 +37,20 @@ function parseTimeOfDay(input) {
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
 }
 
+// Validates and normalizes the optional start/end time pair shared by
+// submitEvent and submitRecurring. `end` requires a `start` (an end alone,
+// with no defined start, is ambiguous), and must be later in the day — this
+// only models a same-day window, not one that crosses midnight.
+function parseTimeWindow(start, end) {
+  const cleanStart = start ? parseTimeOfDay(start) : null;
+  if (start && !cleanStart) throw httpError(400, 'Start time must be a valid time, e.g. 9:00 PM.');
+  const cleanEnd = end ? parseTimeOfDay(end) : null;
+  if (end && !cleanEnd) throw httpError(400, 'End time must be a valid time, e.g. 9:00 PM.');
+  if (cleanEnd && !cleanStart) throw httpError(400, 'End time needs a start time too.');
+  if (cleanEnd && cleanEnd <= cleanStart) throw httpError(400, 'End time must be after start time.');
+  return { cleanStart, cleanEnd };
+}
+
 // "Today" as a YYYY-MM-DD string in the guild's own timezone, not the server's.
 // new Date().toISOString() reads the UTC calendar day, which silently rolls
 // over to tomorrow from ~7-8pm ET onward — exactly when people are building
@@ -76,12 +90,13 @@ module.exports = function createLoa(supabase) {
     // required: pick an event to be out for just that one, a start time to be
     // out for everything on the date at or after that time (e.g. "I can make
     // the 6pm AB but nothing after"), or both to narrow to one event only if
-    // it's at/after a given time. Mirrors submitRecurring's same two knobs.
-    async submitEvent({ discordId, displayName, eventDate, eventScheduleId, startTime, reason }) {
+    // it's at/after a given time. `endTime` is optional on top of `startTime`
+    // and turns the open-ended cutoff into a window ("out from 7 to 8, back
+    // after") — mirrors submitRecurring's same three knobs.
+    async submitEvent({ discordId, displayName, eventDate, eventScheduleId, startTime, endTime, reason }) {
       if (!isValidDate(eventDate)) throw httpError(400, 'Date must be in YYYY-MM-DD format.');
-      const cleanStartTime = startTime ? parseTimeOfDay(startTime) : null;
-      if (startTime && !cleanStartTime) throw httpError(400, 'Start time must be a valid time, e.g. 9:00 PM.');
-      if (!eventScheduleId && !cleanStartTime) throw httpError(400, 'Pick an event or a start time.');
+      const { cleanStart, cleanEnd } = parseTimeWindow(startTime, endTime);
+      if (!eventScheduleId && !cleanStart) throw httpError(400, 'Pick an event or a start time.');
       const cleanReason = requireReason(reason);
 
       let eventName = null;
@@ -101,7 +116,8 @@ module.exports = function createLoa(supabase) {
         event_schedule_id: eventScheduleId || null,
         start_date: null,
         end_date: null,
-        start_time: cleanStartTime,
+        start_time: cleanStart,
+        end_time: cleanEnd,
         reason: cleanReason.slice(0, 500),
       }).select('id').single();
       if (error) { console.error('loa.submitEvent error:', error.message); throw httpError(500, 'Failed to submit LOA.'); }
@@ -133,11 +149,11 @@ module.exports = function createLoa(supabase) {
     // the whole day regardless of what's scheduled. `startTime` is also optional:
     // set it to mean "absent from this time onward" rather than the whole day —
     // /loa/unavailable compares it against each event's own scheduled time.
-    async submitRecurring({ discordId, displayName, dayOfWeek: dow, eventScheduleId, startTime, reason }) {
+    // `endTime` narrows that further into a window ("out 7-8, back after").
+    async submitRecurring({ discordId, displayName, dayOfWeek: dow, eventScheduleId, startTime, endTime, reason }) {
       if (!Number.isInteger(dow) || dow < 0 || dow > 6) throw httpError(400, 'Day of week must be between 0 and 6.');
       const cleanReason = requireReason(reason);
-      const cleanStartTime = startTime ? parseTimeOfDay(startTime) : null;
-      if (startTime && !cleanStartTime) throw httpError(400, 'Start time must be a valid time, e.g. 9:00 PM.');
+      const { cleanStart, cleanEnd } = parseTimeWindow(startTime, endTime);
       let eventName = null;
       if (eventScheduleId) {
         const { data: ev, error: evErr } = await supabase.from('event_schedule')
@@ -156,7 +172,8 @@ module.exports = function createLoa(supabase) {
         start_date: null,
         end_date: null,
         day_of_week: dow,
-        start_time: cleanStartTime,
+        start_time: cleanStart,
+        end_time: cleanEnd,
         reason: cleanReason.slice(0, 500),
       }).select('id').single();
       if (error) { console.error('loa.submitRecurring error:', error.message); throw httpError(500, 'Failed to submit LOA.'); }
