@@ -20,7 +20,7 @@ A guild-management web app for a *Throne & Liberty* guild, built around Discord:
 - **Admin** — match/screenshot ingestion, member role management, event schedule management
 
 **Discord bot**
-- `/elitetimer`, `/elitetimers` — report and check elite boss respawn timers, with an automatic 10-minutes-before ping
+- `/elitetimer`, `/elitetimers` — report and check elite boss respawn timers
 - `/loa` — submit or cancel leave of absence from Discord
 - `/attendance` — snap the caller's voice channel and log attendance for a scheduled event
 - `/announce` — post a timed announcement (e.g. "get into CTA Comms") with a timestamp that renders in each viewer's own timezone
@@ -69,7 +69,7 @@ All configuration is environment variables, read from `backend/.env` (see `requi
 | `DISCORD_ALLOWED_ROLE_IDS` | Comma-separated role IDs allowed to log in (empty = any member) |
 | `DISCORD_ADMIN_ROLE_IDS` | Comma-separated role IDs granted officer/admin access |
 | `DISCORD_MEMBER_ROLE_IDS` | Roles counted as "member" for roster display |
-| `DISCORD_ROSTER_CHANNEL_ID`, `DISCORD_ELITE_CHANNEL_ID`, `DISCORD_LOA_CHANNEL_ID`, `DISCORD_ANNOUNCE_CHANNEL_ID` | Channels each feature posts to |
+| `DISCORD_ROSTER_CHANNEL_ID`, `DISCORD_LOA_CHANNEL_ID`, `DISCORD_ANNOUNCE_CHANNEL_ID` | Channels each feature posts to |
 | `DISCORD_ANNOUNCE_ROLE_ID` | Role pinged by `/announce` |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` | Database connection |
 | `JWT_SECRET` | Signs the session cookie |

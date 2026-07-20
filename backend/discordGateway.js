@@ -1,7 +1,6 @@
 // backend/discordGateway.js — Lightweight discord.js gateway client.
 // Maintains a WebSocket connection so we can read voice-channel state (which the
-// REST API does not expose), and handles the /elitetimer slash command plus its
-// 10-minute-before-spawn reminder sweep.
+// REST API does not expose), and handles the guild's slash commands.
 const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, MessageFlags, ChannelType } = require('discord.js');
 const createEliteTimers = require('./eliteTimers');
 const createLoa = require('./loa');
@@ -11,7 +10,6 @@ const createAttendance = require('./attendance');
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
 const GUILD_ID = process.env.DISCORD_GUILD_ID;
-const ELITE_CHANNEL_ID = process.env.DISCORD_ELITE_CHANNEL_ID;
 const LOA_CHANNEL_ID = process.env.DISCORD_LOA_CHANNEL_ID;
 const ANNOUNCE_CHANNEL_ID = process.env.DISCORD_ANNOUNCE_CHANNEL_ID;
 const ANNOUNCE_ROLE_ID = process.env.DISCORD_ANNOUNCE_ROLE_ID;
@@ -46,9 +44,6 @@ function parseAnnounceTime(input) {
   return createEliteTimers.guildTimeToday(hour, minute);
 }
 
-const SWEEP_INTERVAL_MS = 60 * 1000;
-const WARNING_WINDOW_MS = 10 * 60 * 1000;
-
 let client = null;
 let ready = false;
 let eliteTimers = null;
@@ -80,9 +75,6 @@ function start(supabase) {
     // /announce has no supabase dependency, so commands are always (re)registered
     // once the bot connects, regardless of which optional modules are configured.
     await registerCommands();
-    if (eliteTimers) {
-      setInterval(sweepEliteTimers, SWEEP_INTERVAL_MS);
-    }
   });
 
   client.on('interactionCreate', handleInteraction);
@@ -651,40 +643,6 @@ async function handleAnnounce(interaction) {
   } catch (err) {
     console.error('Announce post error:', err.message);
     await interaction.editReply('Something went wrong posting that announcement.');
-  }
-}
-
-async function sweepEliteTimers() {
-  if (!eliteTimers || !ready) return;
-  if (!ELITE_CHANNEL_ID) return;
-
-  let due;
-  try {
-    due = await eliteTimers.getDue(WARNING_WINDOW_MS);
-  } catch (err) {
-    console.error('Elite timer sweep error:', err.message);
-    return;
-  }
-  if (due.length === 0) return;
-
-  const guild = getGuild();
-  const channel = guild?.channels.cache.get(ELITE_CHANNEL_ID);
-  if (!channel?.isTextBased()) {
-    console.error(`Elite timer sweep error: channel ${ELITE_CHANNEL_ID} not found or not text-based (check DISCORD_ELITE_CHANNEL_ID and bot permissions).`);
-    return;
-  }
-
-  // Each location pings independently — one failure (e.g. a permissions issue)
-  // shouldn't block the others, and a failed send leaves `pinged` false so it
-  // retries next sweep instead of being silently skipped forever.
-  for (const row of due) {
-    try {
-      const spawnUnix = Math.floor(new Date(row.next_spawn_at).getTime() / 1000);
-      await channel.send(`⏰ **${row.location}** spawns <t:${spawnUnix}:R> (<t:${spawnUnix}:t>)!`);
-      await eliteTimers.markPinged(row.location);
-    } catch (err) {
-      console.error(`Elite timer sweep error for ${row.location}:`, err.message);
-    }
   }
 }
 

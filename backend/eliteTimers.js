@@ -86,23 +86,6 @@ module.exports = function createEliteTimers(supabase) {
       if (error) { console.error('eliteTimers.all error:', error.message); return []; }
       return data || [];
     },
-
-    // Timers spawning within `withinMs` that haven't been pinged yet.
-    async getDue(withinMs) {
-      const now = new Date();
-      const horizon = new Date(now.getTime() + withinMs);
-      const { data, error } = await supabase.from('elite_timers')
-        .select('*')
-        .eq('pinged', false)
-        .gt('next_spawn_at', now.toISOString())
-        .lte('next_spawn_at', horizon.toISOString());
-      if (error) { console.error('eliteTimers.getDue error:', error.message); return []; }
-      return data || [];
-    },
-
-    async markPinged(location) {
-      await supabase.from('elite_timers').update({ pinged: true }).eq('location', location);
-    },
   };
 };
 
