@@ -37,7 +37,7 @@ function Layout() {
 
 function Splash() {
   return (
-    <div className="min-h-screen bg-ink hall-grain flex flex-col items-center justify-center gap-5">
+    <div className="min-h-screen bg-ink flex flex-col items-center justify-center gap-5">
       <Sigil className="w-12 h-16 text-brass rise" />
       <div className="eyebrow text-[10px] text-ash">Verifying standing…</div>
     </div>

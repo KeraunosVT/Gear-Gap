@@ -21,7 +21,7 @@ export default function Login() {
   const message = gateMessage(GUILD.house);
 
   return (
-    <div className="min-h-screen bg-ink text-bone hall-grain flex flex-col items-center justify-center px-6 text-center">
+    <div className="min-h-screen bg-ink text-bone flex flex-col items-center justify-center px-6 text-center">
       <div className="rise">
         <Sigil className="w-16 h-20 text-brass mx-auto" />
       </div>

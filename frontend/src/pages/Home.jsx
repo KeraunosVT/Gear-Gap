@@ -47,7 +47,7 @@ export default function Home() {
   return (
     <div>
       {/* ── BANNER HERO ─────────────────────────────────────────── */}
-      <section className="hall-grain border-b border-line">
+      <section className="border-b border-line">
         <div className="max-w-6xl mx-auto px-6 pt-20 pb-16 flex flex-col items-center text-center">
           {/* Heraldic banner */}
           <div className="rise relative mb-8">
