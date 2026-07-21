@@ -6,6 +6,8 @@ import BOSS_WEAPONS from '../../../shared/archbossWeapons.json';
 import { Check, Loader2, AlertCircle, RefreshCw, Pencil } from 'lucide-react';
 import Modal from '../components/ui/Modal';
 import Button from '../components/ui/Button';
+import { PageShell, PageHeader } from '../components/ui/PageShell';
+import EmptyState from '../components/ui/EmptyState';
 
 const MAX = SHARDS.max;
 const TYPES = SHARDS.types;
@@ -101,16 +103,19 @@ export default function Shards() {
   const weaponModalMember = weaponModalId ? members.find((m) => m.id === weaponModalId) : null;
 
   return (
-    <div className="max-w-6xl mx-auto px-6 py-12">
-      <div className="eyebrow text-brass text-[11px] mb-3">Members Area</div>
-      <h1 className="font-display text-4xl md:text-5xl text-bone tracking-[0.08em]">Archboss Shards</h1>
-      <p className="text-ash mt-2">
-        {user?.isAdmin
-          ? 'Track every member’s shard requests. You can edit any row.'
-          : 'Track your shard requests. You can edit your own row; others are read-only.'} Max {MAX} of each.
-      </p>
-      <p className="text-bone font-bold uppercase mt-2">Put how many you need, not how many you have AND keep it updated</p>
-      <div className="rule-fade my-8" />
+    <PageShell>
+      <PageHeader
+        eyebrow="Members Area"
+        title="Archboss Shards"
+        subtitle={
+          <>
+            {user?.isAdmin
+              ? 'Track every member’s shard requests. You can edit any row.'
+              : 'Track your shard requests. You can edit your own row; others are read-only.'} Max {MAX} of each.
+            <span className="block text-bone font-bold uppercase mt-2">Put how many you need, not how many you have AND keep it updated</span>
+          </>
+        }
+      />
 
       <div className="flex items-center justify-between mb-5 gap-4">
         <input
@@ -125,9 +130,9 @@ export default function Shards() {
       )}
 
       {loading ? (
-        <div className="py-20 text-center text-ash">Reading the vault…</div>
+        <EmptyState>Reading the vault…</EmptyState>
       ) : ordered.length === 0 ? (
-        <div className="py-20 text-center text-ash">No members found.</div>
+        <EmptyState>No members found.</EmptyState>
       ) : (
         <div className="panel rounded-sm overflow-auto max-h-[70vh]">
           <table className="w-full min-w-[1160px] text-sm border-separate border-spacing-0">
@@ -216,7 +221,7 @@ export default function Shards() {
           onSave={(weapons) => saveWeapons(weaponModalMember.id, weapons)}
         />
       )}
-    </div>
+    </PageShell>
   );
 }
 

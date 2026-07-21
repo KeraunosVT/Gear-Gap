@@ -3,10 +3,10 @@ import { ArrowDown, ArrowUp } from 'lucide-react';
 // The panel-wrapped, sortable table shape duplicated identically between
 // Roster and GearLevels (single header row, sort-icon wiring, row hover).
 
-export function Table({ maxHeight, children }) {
+export function Table({ maxHeight, minWidth, children }) {
   return (
     <div className={`panel rounded-sm overflow-auto ${maxHeight || ''}`}>
-      <table className="w-full text-sm">{children}</table>
+      <table className={`w-full text-sm ${minWidth || ''}`}>{children}</table>
     </div>
   );
 }

@@ -216,8 +216,8 @@ function TrendSection({ history }) {
   const chronological = useMemo(() => [...history].reverse(), [history]);
 
   const trends = useMemo(() => [
-    { label: 'Kills', field: 'kills', color: '#c9973a', format: (v) => v.toFixed(0), icon: <Sword className="w-4 h-4" /> },
-    { label: 'Damage Dealt', field: 'damage_dealt', color: '#e2c07a', format: (v) => (v / 1e6).toFixed(1) + 'M', icon: <Target className="w-4 h-4" /> },
+    { label: 'Kills', field: 'kills', color: '#d64545', format: (v) => v.toFixed(0), icon: <Sword className="w-4 h-4" /> },
+    { label: 'Damage Dealt', field: 'damage_dealt', color: '#ff6b5f', format: (v) => (v / 1e6).toFixed(1) + 'M', icon: <Target className="w-4 h-4" /> },
     { label: 'Healing', field: 'healing', color: '#4ade80', format: (v) => (v / 1e6).toFixed(1) + 'M', icon: <Heart className="w-4 h-4" /> },
   ], []);
 
