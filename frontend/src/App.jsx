@@ -1,8 +1,8 @@
 import { BrowserRouter as Router, Routes, Route, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth';
-import Masthead from './components/Masthead';
+import Sidebar from './components/Sidebar';
+import Topbar from './components/Topbar';
 import EliteTimerBar from './components/EliteTimerBar';
-import Footer from './components/Footer';
 import Sigil from './components/Sigil';
 import Home from './pages/Home';
 import MatchStats from './pages/MatchStats';
@@ -24,13 +24,15 @@ import GearLevels from './pages/GearLevels';
 
 function Layout() {
   return (
-    <div className="min-h-screen bg-ink text-bone flex flex-col">
-      <Masthead />
-      <EliteTimerBar />
-      <main className="flex-1">
-        <Outlet />
-      </main>
-      <Footer />
+    <div className="h-screen bg-ink text-bone flex">
+      <Sidebar />
+      <div className="flex-1 min-w-0 flex flex-col">
+        <Topbar />
+        <EliteTimerBar />
+        <main className="flex-1 overflow-y-auto">
+          <Outlet />
+        </main>
+      </div>
     </div>
   );
 }
