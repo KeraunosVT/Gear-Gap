@@ -9,6 +9,9 @@ import ItemTooltip, { gradeStyle } from '../components/ItemTooltip';
 import SHARDS from '../../../shared/shards.json';
 import Modal from '../components/ui/Modal';
 import Button from '../components/ui/Button';
+import { PageShell, PageHeader } from '../components/ui/PageShell';
+import { useFlash } from '../components/ui/useFlash';
+import Toast from '../components/ui/Toast';
 
 // Same list the "Archboss Shards" wishlist page uses, so grants here line up
 // with the same 4 shard types under the same keys.
@@ -32,7 +35,7 @@ export default function LootTally() {
   const [awards, setAwards] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [msg, setMsg] = useState(null);
+  const [msg, flash] = useFlash(3500);
   const [filter, setFilter] = useState('');
   const [category, setCategory] = useState('');
   const [open, setOpen] = useState(() => new Set());
@@ -154,7 +157,6 @@ export default function LootTally() {
       .filter((cat) => cat.items.length > 0 && (!category || cat.label === category));
   }, [counts, tally, awardsByItem, filter, category, catalog, PRIO_INDEX]);
 
-  const flash = (text, ok = true) => { setMsg({ text, ok }); setTimeout(() => setMsg(null), 3500); };
 
   const toggle = (key) => setOpen((prev) => {
     const next = new Set(prev);
@@ -216,14 +218,15 @@ export default function LootTally() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto px-6 py-12">
-      <div className="eyebrow text-brass text-[11px] mb-3">War Table</div>
-      <h1 className="font-display text-4xl md:text-5xl text-bone tracking-[0.08em]">Loot Council</h1>
-      <p className="text-ash mt-2">Every wishlisted item by demand. Award an item to mark it Loot Counciled.</p>
-      <div className="rule-fade my-8" />
+    <PageShell>
+      <PageHeader
+        eyebrow="War Table"
+        title="Loot Council"
+        subtitle="Every wishlisted item by demand. Award an item to mark it Loot Counciled."
+      />
 
       {error && <div className="mb-6 px-5 py-3 rounded-sm border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
-      {msg && <div className={`mb-6 px-5 py-3 rounded-sm border text-sm ${msg.ok ? 'border-brass/40 bg-panel text-bone' : 'border-oxblood/50 bg-oxblooddeep/20 text-bone'}`}>{msg.text}</div>}
+      <Toast msg={msg} />
 
       <div className="mb-8 flex items-center gap-5">
         <button
@@ -501,7 +504,7 @@ export default function LootTally() {
                                 axios.put(`/api/admin/loot/unlink-questlog/${item.key}`)
                                   .then(() => { load(); flash('Unlinked.'); })
                                   .catch((err) => setError(err.response?.data?.error || 'Unlink failed.'));
-                              }} className="text-emerald-400 hover:text-oxblood text-[10px]">linked ✕</button>
+                              }} className="text-emerald-400 hover:text-oxblood text-[10px] inline-flex items-center gap-0.5">linked <X className="w-2.5 h-2.5" /></button>
                             )}
                             <div className="flex-1" />
                             <button onClick={() => {
@@ -685,7 +688,7 @@ export default function LootTally() {
           </div>
         </Modal>
       )}
-    </div>
+    </PageShell>
   );
 }
 

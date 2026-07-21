@@ -10,6 +10,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { useAuth } from '../auth';
 import RestrictedGate from '../components/ui/RestrictedGate';
 import Button from '../components/ui/Button';
+import { PageShell, PageHeader } from '../components/ui/PageShell';
 import { todayInGuildTz } from '../timeUtils';
 import { Save, Trash2, Send, Plus, RefreshCw, Users, CalendarOff } from 'lucide-react';
 
@@ -41,7 +42,7 @@ const initItems = () => ({
 const initNames = () => Object.fromEntries(PARTY_IDS.map((id, i) => [id, `Party ${i + 1}`]));
 const findContainer = (id, src) => (id in src ? id : Object.keys(src).find((k) => src[k].includes(id)));
 
-const ROLE_COLOR = { Tank: '#38bdf8', DPS: '#b33a3a', Healer: '#4ade80' };
+const ROLE_COLOR = { Tank: '#38bdf8', DPS: '#b0423a', Healer: '#4ade80' };
 const ROLE_SYMBOL = { Tank: '🛡️', DPS: '⚔️', Healer: '💚' };
 
 function renderRosterImage(partyIds, items, partyNames, roles, byId, classMode, classAssignments) {
@@ -71,15 +72,15 @@ function renderRosterImage(partyIds, items, partyNames, roles, byId, classMode, 
   ctx.scale(2, 2);
 
   // Background
-  ctx.fillStyle = '#121210';
+  ctx.fillStyle = '#121214';
   ctx.fillRect(0, 0, w, h);
 
   // Title
-  ctx.fillStyle = '#c9973a';
+  ctx.fillStyle = '#d64545';
   ctx.font = 'bold 11px sans-serif';
   ctx.textAlign = 'center';
   ctx.fillText('ROSTER', w / 2, padY + 14);
-  ctx.fillStyle = '#e8dcc8';
+  ctx.fillStyle = '#ececeb';
   ctx.font = 'bold 20px sans-serif';
   ctx.fillText(partyNames[parties[0]]?.replace(/Party \d+/, '').trim() ? '' : 'Parties', w / 2, padY + 36);
 
@@ -90,8 +91,8 @@ function renderRosterImage(partyIds, items, partyNames, roles, byId, classMode, 
     const y = padY + titleH + row * (cardH + gapY);
 
     // Card background
-    ctx.fillStyle = '#1a1a18';
-    ctx.strokeStyle = '#2a2a26';
+    ctx.fillStyle = '#1b1b1e';
+    ctx.strokeStyle = '#2c2c30';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.roundRect(x, y, colW, cardH, 4);
@@ -99,13 +100,13 @@ function renderRosterImage(partyIds, items, partyNames, roles, byId, classMode, 
     ctx.stroke();
 
     // Party name header
-    ctx.fillStyle = '#c9973a';
+    ctx.fillStyle = '#d64545';
     ctx.font = 'bold 13px sans-serif';
     ctx.textAlign = 'left';
     ctx.fillText(partyNames[pid] || `Party ${idx + 1}`, x + 10, y + 22);
 
     // Count
-    ctx.fillStyle = '#6b6b60';
+    ctx.fillStyle = '#8a8a8d';
     ctx.font = '11px monospace';
     ctx.textAlign = 'right';
     ctx.fillText(`${items[pid].length}/${PARTY_SIZE}`, x + colW - 10, y + 22);
@@ -128,7 +129,7 @@ function renderRosterImage(partyIds, items, partyNames, roles, byId, classMode, 
       // Role symbol
       ctx.font = '12px sans-serif';
       ctx.textAlign = 'left';
-      ctx.fillStyle = '#6b6b60';
+      ctx.fillStyle = '#8a8a8d';
       if (ROLE_SYMBOL[role]) {
         ctx.fillText(ROLE_SYMBOL[role], x + 16, my + 20);
       }
@@ -136,14 +137,14 @@ function renderRosterImage(partyIds, items, partyNames, roles, byId, classMode, 
       // Class (right-aligned)
       const classW = 78;
       if (cls) {
-        ctx.fillStyle = '#c9973a';
+        ctx.fillStyle = '#d64545';
         ctx.font = '10px sans-serif';
         ctx.textAlign = 'right';
         ctx.fillText(cls, x + colW - 10, my + 20, classW);
       }
 
       // Name
-      ctx.fillStyle = '#e8dcc8';
+      ctx.fillStyle = '#ececeb';
       ctx.font = '13px sans-serif';
       ctx.textAlign = 'left';
       const nameX = x + (role ? 36 : 16);
@@ -480,11 +481,12 @@ export default function Parties() {
   const activeMember = activeId ? byId[activeId] : null;
 
   return (
-    <div className="max-w-[1600px] mx-auto px-6 py-12">
-      <div className="eyebrow text-brass text-[11px] mb-3">War Table</div>
-      <h1 className="font-display text-4xl md:text-5xl text-bone tracking-[0.08em]">Parties</h1>
-      <p className="text-ash mt-2">Drag members between and within parties, set roles, save rosters, and post to Discord.</p>
-      <div className="rule-fade my-8" />
+    <PageShell maxWidth="max-w-[1600px]">
+      <PageHeader
+        eyebrow="War Table"
+        title="Parties"
+        subtitle="Drag members between and within parties, set roles, save rosters, and post to Discord."
+      />
 
       <div className="panel rounded-sm p-4 mb-6 flex flex-wrap items-center gap-3">
         <input value={rosterName} onChange={(e) => setRosterName(e.target.value)} placeholder="Roster name"
@@ -594,7 +596,7 @@ export default function Parties() {
 
         <DragOverlay>{activeMember ? <MemberCardBase member={activeMember} role={roles[activeMember.id]} overlay /> : null}</DragOverlay>
       </DndContext>
-    </div>
+    </PageShell>
   );
 }
 
