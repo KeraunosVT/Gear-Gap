@@ -3,7 +3,7 @@ import axios from 'axios';
 import { useAuth } from '../auth';
 import { CalendarOff, CalendarX2, Plus, Trash2, Settings, X, Repeat, ChevronDown } from 'lucide-react';
 
-import { fmtTime, fmtTimeEst, todayInGuildTz } from '../timeUtils';
+import { fmtTimeEst, todayInGuildTz } from '../timeUtils';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -250,14 +250,14 @@ export default function LOA() {
   const formatEventName = (entry) => {
     const ev = scheduleById[entry.event_schedule_id];
     const window = entry.start_time
-      ? (entry.end_time ? `${fmtTime(entry.start_time)} – ${fmtTime(entry.end_time)}` : `from ${fmtTime(entry.start_time)}`)
+      ? (entry.end_time ? `${fmtTimeEst(entry.start_time)} – ${fmtTimeEst(entry.end_time)}` : `from ${fmtTimeEst(entry.start_time)}`)
       : '';
     if (ev) {
-      const time = ev.event_time ? ` at ${fmtTime(ev.event_time)}` : '';
+      const time = ev.event_time ? ` at ${fmtTimeEst(ev.event_time)}` : '';
       return `${ev.name}${time}${window ? ` (${window})` : ''}`;
     }
     if (!entry.start_time) return 'Event';
-    return entry.end_time ? window : `From ${fmtTime(entry.start_time)}`;
+    return entry.end_time ? window : `From ${fmtTimeEst(entry.start_time)}`;
   };
 
   const formatEventLabel = (entry) =>
@@ -270,9 +270,9 @@ export default function LOA() {
 
   const formatRecurringLabel = (entry) => {
     const ev = scheduleById[entry.event_schedule_id];
-    const scope = ev ? ` — ${ev.name}${ev.event_time ? ` at ${fmtTime(ev.event_time)}` : ''}` : '';
+    const scope = ev ? ` — ${ev.name}${ev.event_time ? ` at ${fmtTimeEst(ev.event_time)}` : ''}` : '';
     const window = entry.start_time
-      ? (entry.end_time ? ` ${fmtTime(entry.start_time)} – ${fmtTime(entry.end_time)}` : ` from ${fmtTime(entry.start_time)}`)
+      ? (entry.end_time ? ` ${fmtTimeEst(entry.start_time)} – ${fmtTimeEst(entry.end_time)}` : ` from ${fmtTimeEst(entry.start_time)}`)
       : '';
     return `Every ${DAYS[entry.day_of_week]}${window}${scope}`;
   };
@@ -281,9 +281,9 @@ export default function LOA() {
   // dated agenda rather than the standing-rule summary above.
   const formatRecurringOccurrence = (entry) => {
     const ev = scheduleById[entry.event_schedule_id];
-    if (ev) return `${ev.name}${ev.event_time ? ` at ${fmtTime(ev.event_time)}` : ''}`;
+    if (ev) return `${ev.name}${ev.event_time ? ` at ${fmtTimeEst(ev.event_time)}` : ''}`;
     if (!entry.start_time) return 'All day';
-    return entry.end_time ? `${fmtTime(entry.start_time)} – ${fmtTime(entry.end_time)}` : `From ${fmtTime(entry.start_time)}`;
+    return entry.end_time ? `${fmtTimeEst(entry.start_time)} – ${fmtTimeEst(entry.end_time)}` : `From ${fmtTimeEst(entry.start_time)}`;
   };
 
   const formatDateHeader = (dateStr) =>
@@ -515,7 +515,7 @@ export default function LOA() {
                       <select value={eventScheduleId} onChange={(e) => setEventScheduleId(e.target.value)}
                         className="w-full bg-hall border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass">
                         <option value="">— select event —</option>
-                        {eventsOnDate.map((s) => <option key={s.id} value={s.id}>{s.name}{s.event_time ? ` (${fmtTime(s.event_time)})` : ''}</option>)}
+                        {eventsOnDate.map((s) => <option key={s.id} value={s.id}>{s.name}{s.event_time ? ` (${fmtTimeEst(s.event_time)})` : ''}</option>)}
 
                       </select>
                     )}
@@ -573,7 +573,7 @@ export default function LOA() {
                     <select value={recurEventScheduleId} onChange={(e) => setRecurEventScheduleId(e.target.value)} disabled={recurDays.size !== 1}
                       className="w-full bg-hall border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass disabled:opacity-40">
                       <option value="">Whole day</option>
-                      {eventsOnRecurDay.map((s) => <option key={s.id} value={s.id}>{s.name}{s.event_time ? ` (${fmtTime(s.event_time)})` : ''}</option>)}
+                      {eventsOnRecurDay.map((s) => <option key={s.id} value={s.id}>{s.name}{s.event_time ? ` (${fmtTimeEst(s.event_time)})` : ''}</option>)}
                     </select>
                     {recurDays.size > 1 && <p className="text-ash/50 text-xs mt-1">Pick a single day to scope this to one event — multiple days always covers the whole day.</p>}
                   </div>

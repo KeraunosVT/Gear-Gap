@@ -9,15 +9,6 @@ export function todayInGuildTz() {
   return new Date().toLocaleDateString('en-CA', { timeZone: GUILD_TZ });
 }
 
-export function fmtTime(t) {
-  if (!t) return '';
-  const [h, m] = t.split(':').map(Number);
-  const today = new Date().toLocaleDateString('en-CA', { timeZone: GUILD_TZ });
-  const inGuildTz = new Date(`${today}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`);
-  const utcMs = inGuildTz.getTime() - tzOffsetMs(inGuildTz);
-  return new Date(utcMs).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-}
-
 export function fmtTimeEst(t) {
   if (!t) return '';
   const [h, m] = t.split(':').map(Number);
@@ -32,10 +23,4 @@ export function fmtDatetime(iso) {
     month: 'short', day: 'numeric',
     hour: 'numeric', minute: '2-digit',
   });
-}
-
-function tzOffsetMs(ref) {
-  const utc = new Date(ref.toLocaleString('en-US', { timeZone: 'UTC' }));
-  const tz = new Date(ref.toLocaleString('en-US', { timeZone: GUILD_TZ }));
-  return tz.getTime() - utc.getTime();
 }
