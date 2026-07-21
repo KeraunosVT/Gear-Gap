@@ -4,6 +4,8 @@ import { useAuth } from '../auth';
 import SHARDS from '../../../shared/shards.json';
 import BOSS_WEAPONS from '../../../shared/archbossWeapons.json';
 import { Check, Loader2, AlertCircle, RefreshCw, Pencil } from 'lucide-react';
+import Modal from '../components/ui/Modal';
+import Button from '../components/ui/Button';
 
 const MAX = SHARDS.max;
 const TYPES = SHARDS.types;
@@ -238,10 +240,9 @@ function WeaponModal({ member, onClose, onSave }) {
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-ink/70 backdrop-blur-sm" onClick={onClose}>
-      <div className="panel rounded-sm p-6 max-w-lg w-full max-h-[85vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
-        <div className="eyebrow text-brass text-[11px] mb-3">Weapon Wishlist</div>
-        <h2 className="font-display text-xl text-bone tracking-[0.06em] mb-4">{member.name}</h2>
+    <Modal onClose={onClose} maxWidth="max-w-lg" scrollable>
+      <div className="eyebrow text-brass text-[11px] mb-3">Weapon Wishlist</div>
+      <h2 className="font-display text-xl text-bone tracking-[0.06em] mb-4">{member.name}</h2>
 
         <div className="space-y-5">
           {Object.entries(BOSS_WEAPONS).map(([boss, weaponList]) => (
@@ -277,13 +278,10 @@ function WeaponModal({ member, onClose, onSave }) {
           ))}
         </div>
 
-        <div className="flex justify-end gap-3 mt-6">
-          <button onClick={onClose} className="px-4 py-2 text-ash hover:text-bone transition-colors">Cancel</button>
-          <button onClick={() => onSave(picks)} className="px-5 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors">
-            Save
-          </button>
-        </div>
+      <div className="flex justify-end gap-3 mt-6">
+        <Button variant="neutral" size="none" className="px-4 py-2" onClick={onClose}>Cancel</Button>
+        <Button size="none" className="px-5 py-2" onClick={() => onSave(picks)}>Save</Button>
       </div>
-    </div>
+    </Modal>
   );
 }

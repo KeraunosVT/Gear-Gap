@@ -1,8 +1,13 @@
 import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../auth';
-import Sigil from '../components/Sigil';
 import { RefreshCw, UserPlus, Check, X, Trash2 } from 'lucide-react';
+import RestrictedGate from '../components/ui/RestrictedGate';
+import { PageShell, PageHeader } from '../components/ui/PageShell';
+import ErrorState from '../components/ui/ErrorState';
+import EmptyState from '../components/ui/EmptyState';
+import { useFlash } from '../components/ui/useFlash';
+import Toast from '../components/ui/Toast';
 
 const NEW = '__new__';
 
@@ -15,7 +20,7 @@ export default function Names() {
   const [nameDraft, setNameDraft] = useState({}); // identityId -> in-progress display name edit
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [msg, setMsg] = useState(null);
+  const [msg, flash] = useFlash(3500);
   const [busy, setBusy] = useState('');
   const [newPlayerName, setNewPlayerName] = useState('');
   const [newPlayerDiscordId, setNewPlayerDiscordId] = useState('');
@@ -43,16 +48,9 @@ export default function Names() {
   useEffect(() => { load(); }, []);
 
   if (!user?.isAdmin) {
-    return (
-      <div className="max-w-2xl mx-auto px-6 py-24 text-center">
-        <Sigil className="w-12 h-16 text-oxblood mx-auto mb-6" />
-        <h1 className="font-display text-2xl text-bone tracking-[0.08em] mb-3">Restricted</h1>
-        <p className="text-ash">The war table is open to officers of the house alone.</p>
-      </div>
-    );
+    return <RestrictedGate />;
   }
 
-  const flash = (text, ok = true) => { setMsg({ text, ok }); setTimeout(() => setMsg(null), 3500); };
   const removeRow = (name) => setUnmapped((prev) => prev.filter((u) => u.name !== name));
 
   const assign = async (u) => {
@@ -158,15 +156,14 @@ export default function Names() {
   );
 
   return (
-    <div className="max-w-6xl mx-auto px-6 py-12">
-      <div className="eyebrow text-brass text-[11px] mb-3">War Table</div>
-      <h1 className="font-display text-4xl md:text-5xl text-bone tracking-[0.08em]">Merge Names</h1>
-      <p className="text-ash mt-2">Assign misread in-game names to the right player. Mapped names roll up automatically across all stats.</p>
-      <div className="rule-fade my-8" />
+    <PageShell>
+      <PageHeader
+        eyebrow="War Table"
+        title="Merge Names"
+        subtitle="Assign misread in-game names to the right player. Mapped names roll up automatically across all stats."
+      />
 
-      {msg && (
-        <div className={`mb-6 px-5 py-3 rounded-sm border text-sm ${msg.ok ? 'border-brass/40 bg-panel text-bone' : 'border-oxblood/50 bg-oxblooddeep/20 text-bone'}`}>{msg.text}</div>
-      )}
+      <Toast msg={msg} />
 
       <div className="flex items-center justify-between mb-5">
         <h2 className="font-display text-2xl text-bone tracking-[0.08em]">
@@ -176,12 +173,9 @@ export default function Names() {
       </div>
 
       {error ? (
-        <div className="panel rounded-sm p-8 text-center">
-          <p className="text-ash mb-6">{error}</p>
-          <button onClick={load} className="px-6 py-2.5 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm">Try again</button>
-        </div>
+        <ErrorState message={error} onRetry={load} />
       ) : loading ? (
-        <div className="py-16 text-center text-ash">Reading the rolls…</div>
+        <EmptyState>Reading the rolls…</EmptyState>
       ) : unmapped.length === 0 ? (
         <div className="panel rounded-sm p-10 text-center">
           <div className="font-display text-brassbright text-lg tracking-[0.06em] mb-1">All names are mapped</div>
@@ -302,6 +296,6 @@ export default function Names() {
           </div>
         </div>
       )}
-    </div>
+    </PageShell>
   );
 }

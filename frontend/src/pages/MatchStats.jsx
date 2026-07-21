@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../auth';
 import weaponToClass from '../../../shared/weaponClasses.json';
+import ErrorState from '../components/ui/ErrorState';
 
 function getClassName(weapon1, weapon2) {
   if (!weapon1) return 'Unknown';
@@ -130,7 +131,7 @@ export default function MatchStats() {
 
       {/* List failure */}
       {listError && (
-        <RecordError
+        <ErrorState
           onRetry={loadMatches}
           title="The record could not be summoned"
           message="The hall may be offline. Try again."
@@ -139,7 +140,7 @@ export default function MatchStats() {
 
       {/* Detail failure */}
       {detailError && !listError && (
-        <RecordError
+        <ErrorState
           onRetry={() => loadDetail(selectedMatchId)}
           title="This engagement could not be read"
           message="Something went wrong fetching the details."
@@ -370,21 +371,6 @@ function DifferentialCard({ red, yellow }) {
           );
         })}
       </div>
-    </div>
-  );
-}
-
-function RecordError({ onRetry, title, message }) {
-  return (
-    <div className="panel rounded-sm p-8 text-center">
-      <div className="font-display text-oxblood tracking-wide text-lg mb-2">{title}</div>
-      <p className="text-ash mb-6">{message}</p>
-      <button
-        onClick={onRetry}
-        className="px-6 py-2.5 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors"
-      >
-        Try again
-      </button>
     </div>
   );
 }

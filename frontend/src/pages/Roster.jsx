@@ -1,7 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
-import { ArrowUp, ArrowDown } from 'lucide-react';
+import { PageShell, PageHeader } from '../components/ui/PageShell';
+import ErrorState from '../components/ui/ErrorState';
+import EmptyState from '../components/ui/EmptyState';
+import { Table, Thead, SortableTh, Tr } from '../components/ui/Table';
+import Tabs from '../components/ui/Tabs';
 
 const fmt = (n) => (Number(n) || 0).toLocaleString();
 const fmtM = (n) => ((Number(n) || 0) / 1e6).toFixed(1) + 'M';
@@ -100,11 +104,12 @@ export default function Roster() {
   }, [players, filter, sortKey, sortDir, membersOnly]);
 
   return (
-    <div className="max-w-6xl mx-auto px-6 py-12">
-      <div className="eyebrow text-brass text-[11px] mb-3">The Roll</div>
-      <h1 className="font-display text-4xl md:text-5xl text-bone tracking-[0.08em]">Roster of the House</h1>
-      <p className="text-ash mt-2">Every member's all-time record across every engagement.</p>
-      <div className="rule-fade my-8" />
+    <PageShell>
+      <PageHeader
+        eyebrow="The Roll"
+        title="Roster of the House"
+        subtitle="Every member's all-time record across every engagement."
+      />
 
       <div className="flex flex-wrap items-center justify-between mb-5 gap-4">
         <div className="flex items-center gap-4">
@@ -122,59 +127,43 @@ export default function Roster() {
             <span className={`px-3 py-1 rounded-full text-xs font-bold tracking-wide transition-all ${!lastTen ? 'bg-brass text-ink' : 'text-ash'}`}>All Time</span>
             <span className={`px-3 py-1 rounded-full text-xs font-bold tracking-wide transition-all ${lastTen ? 'bg-oxblood text-bone' : 'text-ash'}`}>Last 10</span>
           </button>
-          <div className="inline-flex items-center gap-0 rounded-full border border-line bg-hall p-0.5 shrink-0">
-            {Object.entries(TABS).map(([key, t]) => (
-              <button key={key} onClick={() => switchTab(key)}
-                className={`px-3 py-1 rounded-full text-xs font-bold tracking-wide transition-all cursor-pointer ${tab === key ? 'bg-brass text-ink' : 'text-ash'}`}>
-                {t.label}
-              </button>
-            ))}
-          </div>
+          <Tabs
+            items={Object.entries(TABS).map(([key, t]) => ({ key, label: t.label }))}
+            active={tab}
+            onChange={switchTab}
+          />
         </div>
         {!loading && !error && <span className="text-sm text-ash shrink-0">{rows.length} members</span>}
       </div>
 
       {error ? (
-        <div className="panel rounded-sm p-8 text-center">
-          <div className="font-display text-oxblood tracking-wide text-lg mb-2">The roll is sealed</div>
-          <p className="text-ash mb-6">The record couldn't be read. Try again.</p>
-          <button onClick={fetchPlayers} className="px-6 py-2.5 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors">Try again</button>
-        </div>
+        <ErrorState title="The roll is sealed" message="The record couldn't be read. Try again." onRetry={fetchPlayers} />
       ) : loading ? (
-        <div className="py-20 text-center text-ash">Reading the roll…</div>
+        <EmptyState>Reading the roll…</EmptyState>
       ) : rows.length === 0 ? (
-        <div className="py-20 text-center text-ash">No members on record yet.</div>
+        <EmptyState>No members on record yet.</EmptyState>
       ) : (
-        <div className="panel rounded-sm overflow-auto">
-          <table className="w-full text-sm">
-            <thead className="border-b border-line">
-              <tr className="eyebrow text-[10px] text-ash whitespace-nowrap">
-                <th className="p-4 text-center font-normal w-12">#</th>
+        <Table>
+          <Thead>
+            <th className="p-4 text-center font-normal w-12">#</th>
+            {columns.map((c) => (
+              <SortableTh key={c.key} label={c.label} sortKey={c.key} activeKey={sortKey} dir={sortDir} onSort={sortBy} align={c.align} />
+            ))}
+          </Thead>
+          <tbody>
+            {rows.map((p, i) => (
+              <Tr key={p.player_name + i}>
+                <td className="p-4 text-center font-mono text-ash">{i + 1}</td>
                 {columns.map((c) => (
-                  <th key={c.key} className={`p-4 font-normal cursor-pointer hover:text-bone select-none ${c.align === 'right' ? 'text-right' : 'text-left'}`} onClick={() => sortBy(c.key)}>
-                    <span className="inline-flex items-center gap-1">
-                      {c.label}
-                      {sortKey === c.key && (sortDir === 'desc' ? <ArrowDown className="w-3 h-3 text-brass" /> : <ArrowUp className="w-3 h-3 text-brass" />)}
-                    </span>
-                  </th>
+                  <td key={c.key} className={`p-4 whitespace-nowrap ${c.align === 'right' ? 'text-right font-mono' : ''} ${c.cls || 'text-bone'}`}>
+                    {c.render(p)}
+                  </td>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((p, i) => (
-                <tr key={p.player_name + i} className="border-b border-line/60 hover:bg-panelup transition-colors">
-                  <td className="p-4 text-center font-mono text-ash">{i + 1}</td>
-                  {columns.map((c) => (
-                    <td key={c.key} className={`p-4 whitespace-nowrap ${c.align === 'right' ? 'text-right font-mono' : ''} ${c.cls || 'text-bone'}`}>
-                      {c.render(p)}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+              </Tr>
+            ))}
+          </tbody>
+        </Table>
       )}
-    </div>
+    </PageShell>
   );
 }

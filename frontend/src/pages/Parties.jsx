@@ -8,7 +8,8 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useAuth } from '../auth';
-import Sigil from '../components/Sigil';
+import RestrictedGate from '../components/ui/RestrictedGate';
+import Button from '../components/ui/Button';
 import { todayInGuildTz } from '../timeUtils';
 import { Save, Trash2, Send, Plus, RefreshCw, Users, CalendarOff } from 'lucide-react';
 
@@ -303,13 +304,7 @@ export default function Parties() {
   }, [classMode]);
 
   if (!user?.isAdmin) {
-    return (
-      <div className="max-w-2xl mx-auto px-6 py-24 text-center">
-        <Sigil className="w-12 h-16 text-oxblood mx-auto mb-6" />
-        <h1 className="font-display text-2xl text-bone tracking-[0.08em] mb-3">Restricted</h1>
-        <p className="text-ash">The war table is open to officers of the house alone.</p>
-      </div>
-    );
+    return <RestrictedGate />;
   }
 
   const flash = (text, ok = true) => { setMsg({ text, ok }); setTimeout(() => setMsg(null), 4000); };
@@ -503,7 +498,7 @@ export default function Parties() {
           {saved.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
         </select>
         <button onClick={resetBoard} className="inline-flex items-center gap-2 px-3 py-2 text-ash hover:text-bone transition-colors"><Plus className="w-4 h-4" /> New</button>
-        <button onClick={del} className="inline-flex items-center gap-2 px-3 py-2 text-ash hover:text-oxblood transition-colors"><Trash2 className="w-4 h-4" /> Delete</button>
+        <Button variant="destructive" size="none" className="px-3 py-2" onClick={del}><Trash2 className="w-4 h-4" /> Delete</Button>
         <div className="flex items-center gap-2 text-sm text-ash">
           <CalendarOff className="w-4 h-4" />
           <input type="date" value={loaDate} onChange={(e) => setLoaDate(e.target.value)}
@@ -522,7 +517,7 @@ export default function Parties() {
           <span className={`px-3 py-1 rounded-full text-xs font-bold tracking-wide transition-all ${classMode === 'pve' ? 'bg-emerald-500 text-ink' : 'text-ash'}`}>PVE</span>
         </button>
         <div className="flex-1" />
-        <button onClick={post} disabled={busy} className="inline-flex items-center gap-2 px-5 py-2 border border-brass/50 text-brassbright hover:bg-panelup rounded-sm transition-colors disabled:opacity-40"><Send className="w-4 h-4" /> Post to Discord</button>
+        <Button variant="secondary" size="none" className="px-5 py-2" disabled={busy} onClick={post}><Send className="w-4 h-4" /> Post to Discord</Button>
       </div>
 
       {msg && (

@@ -4,6 +4,7 @@ import { useAuth } from '../auth';
 import { CalendarOff, CalendarX2, Plus, Trash2, Settings, X, Repeat, ChevronDown } from 'lucide-react';
 
 import { fmtTimeEst, todayInGuildTz } from '../timeUtils';
+import Tabs from '../components/ui/Tabs';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -441,14 +442,16 @@ export default function LOA() {
       ) : (
         <>
           {/* Tabs */}
-          <div className="flex gap-1 mb-6">
-            {[['submit', 'Submit LOA'], ['mine', 'My LOAs'], ['board', 'LOA Board']].map(([key, label]) => (
-              <button key={key} onClick={() => setTab(key)}
-                className={`px-4 py-2 rounded-sm text-sm font-medium transition-colors ${tab === key ? 'bg-panel text-brassbright' : 'text-ash hover:text-bone'}`}>
-                {label}
-              </button>
-            ))}
-          </div>
+          <Tabs
+            variant="flat"
+            items={[
+              { key: 'submit', label: 'Submit LOA' },
+              { key: 'mine', label: 'My LOAs' },
+              { key: 'board', label: 'LOA Board' },
+            ]}
+            active={tab}
+            onChange={setTab}
+          />
 
           {/* Submit */}
           {tab === 'submit' && (

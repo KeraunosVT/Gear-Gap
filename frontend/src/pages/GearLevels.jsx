@@ -1,8 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../auth';
-import Sigil from '../components/Sigil';
-import { ArrowUp, ArrowDown, RefreshCw } from 'lucide-react';
+import { RefreshCw } from 'lucide-react';
+import RestrictedGate from '../components/ui/RestrictedGate';
+import { PageShell, PageHeader } from '../components/ui/PageShell';
+import ErrorState from '../components/ui/ErrorState';
+import EmptyState from '../components/ui/EmptyState';
+import { Table, Thead, SortableTh, Tr } from '../components/ui/Table';
 
 const COLUMNS = [
   { key: 'display_name', label: 'Member', align: 'left' },
@@ -47,21 +51,16 @@ export default function GearLevels() {
   }, [entries, filter, sortKey, sortDir]);
 
   if (!user?.isAdmin) {
-    return (
-      <div className="max-w-2xl mx-auto px-6 py-24 text-center">
-        <Sigil className="w-12 h-16 text-oxblood mx-auto mb-6" />
-        <h1 className="font-display text-2xl text-bone tracking-[0.08em] mb-3">Restricted</h1>
-        <p className="text-ash">The war table is open to officers of the house alone.</p>
-      </div>
-    );
+    return <RestrictedGate />;
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-6 py-12">
-      <div className="eyebrow text-brass text-[11px] mb-3">War Table</div>
-      <h1 className="font-display text-4xl md:text-5xl text-bone tracking-[0.08em]">Gear Levels</h1>
-      <p className="text-ash mt-2">Every member's submitted gear, highest item level per category.</p>
-      <div className="rule-fade my-8" />
+    <PageShell maxWidth="max-w-4xl">
+      <PageHeader
+        eyebrow="War Table"
+        title="Gear Levels"
+        subtitle="Every member's submitted gear, highest item level per category."
+      />
 
       <div className="flex flex-wrap items-center justify-between mb-5 gap-4">
         <input
@@ -75,43 +74,31 @@ export default function GearLevels() {
       </div>
 
       {error ? (
-        <div className="panel rounded-sm p-8 text-center">
-          <p className="text-ash mb-6">{error}</p>
-          <button onClick={load} className="px-6 py-2.5 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm">Try again</button>
-        </div>
+        <ErrorState message={error} onRetry={load} />
       ) : loading ? (
-        <div className="py-20 text-center text-ash">Reading the vault…</div>
+        <EmptyState>Reading the vault…</EmptyState>
       ) : rows.length === 0 ? (
-        <div className="py-20 text-center text-ash">No one has submitted their gear yet.</div>
+        <EmptyState>No one has submitted their gear yet.</EmptyState>
       ) : (
-        <div className="panel rounded-sm overflow-auto">
-          <table className="w-full text-sm">
-            <thead className="border-b border-line">
-              <tr className="eyebrow text-[10px] text-ash whitespace-nowrap">
-                {COLUMNS.map((c) => (
-                  <th key={c.key} className={`p-4 font-normal cursor-pointer hover:text-bone select-none ${c.align === 'right' ? 'text-right' : 'text-left'}`} onClick={() => sortBy(c.key)}>
-                    <span className="inline-flex items-center gap-1">
-                      {c.label}
-                      {sortKey === c.key && (sortDir === 'desc' ? <ArrowDown className="w-3 h-3 text-brass" /> : <ArrowUp className="w-3 h-3 text-brass" />)}
-                    </span>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((e) => (
-                <tr key={e.discord_id} className="border-b border-line/60 hover:bg-panelup transition-colors">
-                  <td className="p-4 text-bone font-semibold">{e.display_name || 'Member'}</td>
-                  <td className="p-4 text-right font-mono text-bone">{e.weapon || '—'}</td>
-                  <td className="p-4 text-right font-mono text-bone">{e.armor || '—'}</td>
-                  <td className="p-4 text-right font-mono text-bone">{e.accessory || '—'}</td>
-                  <td className="p-4 text-right font-mono text-brassbright">{e.average || '—'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Table>
+          <Thead>
+            {COLUMNS.map((c) => (
+              <SortableTh key={c.key} label={c.label} sortKey={c.key} activeKey={sortKey} dir={sortDir} onSort={sortBy} align={c.align} />
+            ))}
+          </Thead>
+          <tbody>
+            {rows.map((e) => (
+              <Tr key={e.discord_id}>
+                <td className="p-4 text-bone font-semibold">{e.display_name || 'Member'}</td>
+                <td className="p-4 text-right font-mono text-bone">{e.weapon || '—'}</td>
+                <td className="p-4 text-right font-mono text-bone">{e.armor || '—'}</td>
+                <td className="p-4 text-right font-mono text-bone">{e.accessory || '—'}</td>
+                <td className="p-4 text-right font-mono text-brassbright">{e.average || '—'}</td>
+              </Tr>
+            ))}
+          </tbody>
+        </Table>
       )}
-    </div>
+    </PageShell>
   );
 }

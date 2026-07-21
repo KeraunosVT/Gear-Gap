@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom';
 import axios from 'axios';
 import Sigil from '../components/Sigil';
 import { GUILD } from '../guild';
+import Button from '../components/ui/Button';
+import ErrorState from '../components/ui/ErrorState';
 
 export default function Home() {
   const [stats, setStats] = useState({});
@@ -72,13 +74,10 @@ export default function Home() {
             {GUILD.creed}
           </p>
 
-          <Link
-            to="/war-record"
-            className="rise rise-3 mt-10 inline-flex items-center gap-2 px-8 py-3.5 bg-brass hover:bg-brassbright text-ink font-semibold tracking-wide rounded-sm transition-colors"
-          >
+          <Button as={Link} to="/war-record" size="lg" className="rise rise-3 mt-10 tracking-wide">
             Enter the War Record
             <span aria-hidden>→</span>
-          </Link>
+          </Button>
         </div>
       </section>
 
@@ -90,7 +89,11 @@ export default function Home() {
           </div>
 
           {error ? (
-            <HallError onRetry={fetchData} message="The standing could not be read from the records." />
+            <ErrorState
+              title="The record is sealed"
+              message="The standing could not be read from the records. The hall may be offline — try again."
+              onRetry={fetchData}
+            />
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-4">
               {ledger.map((item, i) => (
@@ -129,7 +132,11 @@ export default function Home() {
         <div className="rule-fade mb-8" />
 
         {error && !loading ? (
-          <HallError onRetry={fetchData} message="The war record could not be summoned." />
+          <ErrorState
+            title="The record is sealed"
+            message="The war record could not be summoned. The hall may be offline — try again."
+            onRetry={fetchData}
+          />
         ) : loading ? (
           <div className="py-16 text-center text-ash">Reading the record…</div>
         ) : recentMatches.length === 0 ? (
@@ -193,20 +200,5 @@ function EngagementRow({ match }) {
         )}
       </div>
     </Link>
-  );
-}
-
-function HallError({ onRetry, message }) {
-  return (
-    <div className="panel rounded-sm p-8 text-center">
-      <div className="font-display text-oxblood tracking-wide text-lg mb-2">The record is sealed</div>
-      <p className="text-ash mb-6">{message} The hall may be offline — try again.</p>
-      <button
-        onClick={onRetry}
-        className="px-6 py-2.5 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors"
-      >
-        Try again
-      </button>
-    </div>
   );
 }
