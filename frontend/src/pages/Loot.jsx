@@ -3,6 +3,8 @@ import axios from 'axios';
 import { useAuth } from '../auth';
 import { Users, Check, Loader2, ChevronDown, Gavel } from 'lucide-react';
 import ItemTooltip, { gradeStyle } from '../components/ItemTooltip';
+import { PageShell } from '../components/ui/PageShell';
+import EmptyState from '../components/ui/EmptyState';
 
 const PRIO_SHORT = { 'PvP': 'PvP', 'Second Build': '2nd', 'PvE': 'PvE' };
 const PRIO_STYLE = {
@@ -69,7 +71,7 @@ export default function Loot() {
   const myCount = Object.keys(picks).length;
 
   return (
-    <div className="max-w-6xl mx-auto px-6 py-12">
+    <PageShell>
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <div className="eyebrow text-brass text-[11px] mb-3">Members Area</div>
@@ -98,9 +100,9 @@ export default function Loot() {
       {error && <div className="mb-6 px-5 py-3 rounded-sm border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
 
       {loading ? (
-        <div className="py-20 text-center text-ash">Reading the ledger…</div>
+        <EmptyState>Reading the ledger…</EmptyState>
       ) : categories.length === 0 ? (
-        <div className="py-20 text-center text-ash">No items match.</div>
+        <EmptyState>No items match.</EmptyState>
       ) : (
         <div className="space-y-8">
           {categories.map((cat) => (
@@ -182,7 +184,7 @@ export default function Loot() {
           ))}
         </div>
       )}
-    </div>
+    </PageShell>
   );
 }
 
