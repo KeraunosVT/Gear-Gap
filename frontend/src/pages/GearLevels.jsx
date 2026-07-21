@@ -80,8 +80,8 @@ export default function GearLevels() {
       ) : rows.length === 0 ? (
         <EmptyState>No one has submitted their gear yet.</EmptyState>
       ) : (
-        <Table>
-          <Thead>
+        <Table maxHeight="max-h-[70vh]">
+          <Thead sticky>
             {COLUMNS.map((c) => (
               <SortableTh key={c.key} label={c.label} sortKey={c.key} activeKey={sortKey} dir={sortDir} onSort={sortBy} align={c.align} />
             ))}
