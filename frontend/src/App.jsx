@@ -24,7 +24,7 @@ import GearLevels from './pages/GearLevels';
 
 function Layout() {
   return (
-    <div className="h-screen bg-ink text-bone flex">
+    <div className="h-screen bg-ink text-bone flex shell-vignette">
       <Sidebar />
       <div className="flex-1 min-w-0 flex flex-col">
         <Topbar />

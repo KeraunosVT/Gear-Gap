@@ -2,8 +2,14 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ==================== palette: dispatch (default) ==================== */
 :root,
-[data-theme="dark"] {
+[data-palette="dispatch"] {
+  --font-display: 'Sora';
+  --font-body: 'Inter';
+}
+:root,
+[data-palette="dispatch"][data-theme="dark"] {
   --color-ink: 18 18 20;
   --color-panel: 27 27 30;
   --color-panelup: 35 35 38;
@@ -16,8 +22,7 @@
   --color-ash: 138 138 141;
   color-scheme: dark;
 }
-
-[data-theme="light"] {
+[data-palette="dispatch"][data-theme="light"] {
   --color-ink: 250 250 250;
   --color-panel: 255 255 255;
   --color-panelup: 244 244 244;
@@ -31,12 +36,88 @@
   color-scheme: light;
 }
 
+/* ==================== palette: iron & verdigris ==================== */
+[data-palette="ironverdigris"] {
+  --font-display: 'Fraunces';
+  --font-body: 'Inter';
+  --shell-vignette:
+    radial-gradient(ellipse 80% 50% at 50% -10%, rgb(var(--color-brass) / 0.08), transparent 70%),
+    radial-gradient(ellipse 70% 45% at 50% 110%, rgb(var(--color-oxblood) / 0.06), transparent 70%);
+}
+[data-palette="ironverdigris"][data-theme="dark"] {
+  --color-ink: 20 24 26;
+  --color-panel: 28 34 36;
+  --color-panelup: 38 46 48;
+  --color-line: 51 60 62;
+  --color-brass: 79 143 124;
+  --color-brassbright: 127 196 172;
+  --color-oxblood: 155 74 58;
+  --color-oxblooddeep: 52 30 25;
+  --color-bone: 216 220 214;
+  --color-ash: 131 143 138;
+  color-scheme: dark;
+}
+[data-palette="ironverdigris"][data-theme="light"] {
+  --color-ink: 238 240 236;
+  --color-panel: 255 255 255;
+  --color-panelup: 228 231 225;
+  --color-line: 215 219 211;
+  --color-brass: 61 115 100;
+  --color-brassbright: 44 90 77;
+  --color-oxblood: 122 58 46;
+  --color-oxblooddeep: 245 233 230;
+  --color-bone: 27 32 29;
+  --color-ash: 92 100 95;
+  color-scheme: light;
+}
+
+/* ==================== palette: throne & liberty ==================== */
+[data-palette="throneliberty"] {
+  --font-display: 'Marcellus';
+  --font-body: 'Noto Sans';
+  --shell-vignette:
+    radial-gradient(ellipse 90% 60% at 50% 15%, rgb(var(--color-brass) / 0.10), transparent 65%),
+    radial-gradient(ellipse 110% 70% at 50% 105%, rgba(0, 0, 0, 0.4), transparent 60%);
+}
+[data-palette="throneliberty"][data-theme="dark"] {
+  --color-ink: 11 11 12;
+  --color-panel: 23 22 20;
+  --color-panelup: 32 31 28;
+  --color-line: 51 48 42;
+  --color-brass: 184 146 63;
+  --color-brassbright: 224 181 99;
+  --color-oxblood: 143 45 45;
+  --color-oxblooddeep: 46 20 18;
+  --color-bone: 242 240 236;
+  --color-ash: 154 148 138;
+  color-scheme: dark;
+}
+[data-palette="throneliberty"][data-theme="light"] {
+  --color-ink: 244 242 238;
+  --color-panel: 255 255 255;
+  --color-panelup: 235 232 225;
+  --color-line: 221 215 202;
+  --color-brass: 138 107 38;
+  --color-brassbright: 107 80 28;
+  --color-oxblood: 122 36 36;
+  --color-oxblooddeep: 250 235 233;
+  --color-bone: 23 20 15;
+  --color-ash: 107 100 89;
+  color-scheme: light;
+}
+
 body {
   margin: 0;
   background-color: rgb(var(--color-ink));
   color: rgb(var(--color-bone));
-  font-family: 'Inter', system-ui, sans-serif;
+  font-family: var(--font-body), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
+}
+
+/* Applied to the app shell wrapper — a no-op on Dispatch (no var set, falls
+   back to none), a faint mood-setting glow on the other two palettes. */
+.shell-vignette {
+  background-image: var(--shell-vignette, none);
 }
 
 /* Hairline that fades at the ends */

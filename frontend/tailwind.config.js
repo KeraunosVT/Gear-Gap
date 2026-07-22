@@ -21,8 +21,10 @@ export default {
         ash:        'rgb(var(--color-ash) / <alpha-value>)',
       },
       fontFamily: {
-        display: ['Sora', 'system-ui', 'sans-serif'],
-        sans:    ['Inter', 'system-ui', 'sans-serif'],
+        // Reference the palette-driven CSS vars (set in index.css) instead of a
+        // fixed face, so font-display/font-sans switch with the active theme.
+        display: ['var(--font-display)', 'system-ui', 'sans-serif'],
+        sans:    ['var(--font-body)', 'system-ui', 'sans-serif'],
         mono:    ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
       },
     },
