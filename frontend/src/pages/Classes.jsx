@@ -3,6 +3,9 @@ import axios from 'axios';
 import { useAuth } from '../auth';
 import weaponToClass from '../../../shared/weaponClasses.json';
 import { Check } from 'lucide-react';
+import { PageShell, PageHeader } from '../components/ui/PageShell';
+import EmptyState from '../components/ui/EmptyState';
+import Button from '../components/ui/Button';
 
 const EXTRA_CLASSES = ['Oracle (DPS)'];
 const CLASS_LIST = [...new Set([...Object.values(weaponToClass), ...EXTRA_CLASSES])].sort();
@@ -72,14 +75,15 @@ export default function Classes() {
   };
 
   return (
-    <div className="max-w-2xl mx-auto px-6 py-12">
-      <div className="eyebrow text-brass text-[11px] mb-3">Members Area</div>
-      <h1 className="font-display text-4xl md:text-5xl text-bone tracking-[0.08em]">My Classes</h1>
-      <p className="text-ash mt-2">Rank up to 3 classes per mode so officers can plan parties around your build.</p>
-      <div className="rule-fade my-8" />
+    <PageShell maxWidth="max-w-2xl">
+      <PageHeader
+        eyebrow="Members Area"
+        title="My Classes"
+        subtitle="Rank up to 3 classes per mode so officers can plan parties around your build."
+      />
 
       {loading ? (
-        <div className="py-20 text-center text-ash">Loading…</div>
+        <EmptyState>Loading…</EmptyState>
       ) : (
         <div className="space-y-8">
           <div className="panel rounded-sm p-6">
@@ -92,10 +96,9 @@ export default function Classes() {
           </div>
 
           <div className="flex items-center gap-4">
-            <button onClick={save} disabled={saving}
-              className="px-6 py-3 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors disabled:opacity-40">
+            <Button size="none" className="px-6 py-3" disabled={saving} onClick={save}>
               {saving ? 'Saving…' : 'Save'}
-            </button>
+            </Button>
             {saved && (
               <span className="text-emerald-400 inline-flex items-center gap-1 text-sm">
                 <Check className="w-4 h-4" /> Saved
@@ -104,6 +107,6 @@ export default function Classes() {
           </div>
         </div>
       )}
-    </div>
+    </PageShell>
   );
 }

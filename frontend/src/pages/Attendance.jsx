@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../auth';
-import Sigil from '../components/Sigil';
 import { RefreshCw, Camera, Trash2, ChevronDown, Users, CalendarDays, Loader2, ArrowUp, ArrowDown, BarChart3, Wand2 } from 'lucide-react';
 import { fmtTimeEst } from '../timeUtils';
+import RestrictedGate from '../components/ui/RestrictedGate';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -63,13 +63,7 @@ export default function Attendance() {
   useEffect(() => { loadChannels(); loadEvents(); loadStats(); loadSchedule(); }, []);
 
   if (!user?.isAdmin) {
-    return (
-      <div className="max-w-2xl mx-auto px-6 py-24 text-center">
-        <Sigil className="w-12 h-16 text-oxblood mx-auto mb-6" />
-        <h1 className="font-display text-2xl text-bone tracking-[0.08em] mb-3">Restricted</h1>
-        <p className="text-ash">The war table is open to officers of the house alone.</p>
-      </div>
-    );
+    return <RestrictedGate />;
   }
 
   const flash = (text, ok = true) => { setMsg({ text, ok }); setTimeout(() => setMsg(null), 4000); };

@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react';
 import { Link, useSearchParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../auth';
-import Sigil from '../components/Sigil';
 import weaponToClass from '../../../shared/weaponClasses.json';
 import { UploadCloud, Plus, Trash2, X, Image as ImageIcon, FileSpreadsheet, Loader2, Check, AlertCircle, RotateCw, Map as MapIcon } from 'lucide-react';
+import RestrictedGate from '../components/ui/RestrictedGate';
+import { PageShell, PageHeader } from '../components/ui/PageShell';
+import { Table, Thead } from '../components/ui/Table';
 
 const WEAPONS = ['SnS', 'Greatsword', 'Dagger', 'Crossbow', 'Longbow', 'Staff', 'Wand', 'Spear', 'Orb', 'Gauntlet'];
 const STAT_COLS = ['kills', 'assists', 'damage_dealt', 'damage_taken', 'healing'];
@@ -127,13 +129,7 @@ export default function Admin() {
   };
 
   if (!user?.isAdmin) {
-    return (
-      <div className="max-w-2xl mx-auto px-6 py-24 text-center">
-        <Sigil className="w-12 h-16 text-oxblood mx-auto mb-6" />
-        <h1 className="font-display text-2xl text-bone tracking-[0.08em] mb-3">Restricted</h1>
-        <p className="text-ash">The war table is open to officers of the house alone.</p>
-      </div>
-    );
+    return <RestrictedGate />;
   }
 
   const addFiles = (list) => {
@@ -230,7 +226,7 @@ export default function Admin() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-12">
+    <PageShell maxWidth="max-w-7xl">
       <div className="eyebrow text-brass text-[11px] mb-3">War Table</div>
       <h1 className="font-display text-4xl md:text-5xl text-bone tracking-[0.08em]">
         {editingMatchId ? 'Edit Match' : 'Upload a Match'}
@@ -495,23 +491,21 @@ export default function Admin() {
             </button>
           </div>
 
-          <div className="panel rounded-sm overflow-auto max-h-[640px] mb-8">
-            <table className="w-full min-w-[1000px] text-sm">
-              <thead className="sticky top-0 bg-panelup border-b border-line">
-                <tr className="eyebrow text-[10px] text-ash">
-                  <th className="p-3 text-left font-normal w-16">Rank</th>
-                  <th className="p-3 text-left font-normal">Class</th>
-                  <th className="p-3 text-left font-normal">Guild</th>
-                  <th className="p-3 text-left font-normal">Name</th>
-                  <th className="p-3 text-left font-normal">Team</th>
-                  <th className="p-3 text-left font-normal">Kills</th>
-                  <th className="p-3 text-left font-normal">Assists</th>
-                  <th className="p-3 text-left font-normal">Dmg Dealt</th>
-                  <th className="p-3 text-left font-normal">Dmg Taken</th>
-                  <th className="p-3 text-left font-normal">Healing</th>
-                  <th className="p-3 w-10"></th>
-                </tr>
-              </thead>
+          <div className="mb-8">
+          <Table maxHeight="max-h-[640px]" minWidth="min-w-[1000px]">
+            <Thead sticky>
+              <th className="p-3 text-left font-normal w-16">Rank</th>
+              <th className="p-3 text-left font-normal">Class</th>
+              <th className="p-3 text-left font-normal">Guild</th>
+              <th className="p-3 text-left font-normal">Name</th>
+              <th className="p-3 text-left font-normal">Team</th>
+              <th className="p-3 text-left font-normal">Kills</th>
+              <th className="p-3 text-left font-normal">Assists</th>
+              <th className="p-3 text-left font-normal">Dmg Dealt</th>
+              <th className="p-3 text-left font-normal">Dmg Taken</th>
+              <th className="p-3 text-left font-normal">Healing</th>
+              <th className="p-3 w-10"></th>
+            </Thead>
               <tbody>
                 {players.map((p, i) => {
                   const cls = weaponsToClass(p.weapon_1, p.weapon_2);
@@ -558,7 +552,7 @@ export default function Admin() {
                   );
                 })}
               </tbody>
-            </table>
+          </Table>
           </div>
 
           <div className="flex flex-wrap items-center gap-4">
@@ -581,7 +575,7 @@ export default function Admin() {
           </div>
         </div>
       )}
-    </div>
+    </PageShell>
   );
 }
 

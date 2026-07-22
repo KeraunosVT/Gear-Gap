@@ -2,10 +2,12 @@ import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth';
-import Sigil from '../components/Sigil';
 import { ArrowLeft, RefreshCw, Upload } from 'lucide-react';
 import { fmtDatetime } from '../timeUtils';
 import ItemTooltip, { gradeStyle } from '../components/ItemTooltip';
+import RestrictedGate from '../components/ui/RestrictedGate';
+import { PageShell, PageHeader } from '../components/ui/PageShell';
+import EmptyState from '../components/ui/EmptyState';
 
 const PRIO_SHORT = { 'PvP': 'PvP', 'Second Build': '2nd', 'PvE': 'PvE' };
 const PRIO_STYLE = {
@@ -74,24 +76,19 @@ export default function LootHistory() {
   };
 
   if (!user?.isAdmin) {
-    return (
-      <div className="max-w-2xl mx-auto px-6 py-24 text-center">
-        <Sigil className="w-12 h-16 text-oxblood mx-auto mb-6" />
-        <h1 className="font-display text-2xl text-bone tracking-[0.08em] mb-3">Restricted</h1>
-        <p className="text-ash">The war table is open to officers of the house alone.</p>
-      </div>
-    );
+    return <RestrictedGate />;
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-6 py-12">
+    <PageShell maxWidth="max-w-4xl">
       <Link to="/admin/loot" className="inline-flex items-center gap-1.5 text-sm text-ash hover:text-brass mb-6 transition-colors">
         <ArrowLeft className="w-3.5 h-3.5" /> Back to Loot Council
       </Link>
-      <div className="eyebrow text-brass text-[11px] mb-3">War Table</div>
-      <h1 className="font-display text-4xl md:text-5xl text-bone tracking-[0.08em]">Loot History</h1>
-      <p className="text-ash mt-2">Every item awarded by Loot Council, in order.</p>
-      <div className="rule-fade my-8" />
+      <PageHeader
+        eyebrow="War Table"
+        title="Loot History"
+        subtitle="Every item awarded by Loot Council, in order."
+      />
 
       {error && <div className="mb-6 px-5 py-3 rounded-sm border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
 
@@ -128,9 +125,9 @@ export default function LootHistory() {
       </div>
 
       {loading ? (
-        <div className="py-20 text-center text-ash">Reading the ledger…</div>
+        <EmptyState>Reading the ledger…</EmptyState>
       ) : filtered.length === 0 ? (
-        <div className="py-20 text-center text-ash">{member ? 'No awards for this member.' : 'Nothing has been awarded yet.'}</div>
+        <EmptyState>{member ? 'No awards for this member.' : 'Nothing has been awarded yet.'}</EmptyState>
       ) : (
         <div className="panel rounded-sm divide-y divide-line">
           {filtered.map((a) => {
@@ -172,6 +169,6 @@ export default function LootHistory() {
           })}
         </div>
       )}
-    </div>
+    </PageShell>
   );
 }

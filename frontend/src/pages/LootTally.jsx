@@ -2,11 +2,16 @@ import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth';
-import Sigil from '../components/Sigil';
 import { ChevronDown, RefreshCw, Gavel, X, ScrollText, Plus, Pencil, Trash2, Upload, History, UserPlus, Coins } from 'lucide-react';
+import RestrictedGate from '../components/ui/RestrictedGate';
 import { fmtDatetime } from '../timeUtils';
 import ItemTooltip, { gradeStyle } from '../components/ItemTooltip';
 import SHARDS from '../../../shared/shards.json';
+import Modal from '../components/ui/Modal';
+import Button from '../components/ui/Button';
+import { PageShell, PageHeader } from '../components/ui/PageShell';
+import { useFlash } from '../components/ui/useFlash';
+import Toast from '../components/ui/Toast';
 
 // Same list the "Archboss Shards" wishlist page uses, so grants here line up
 // with the same 4 shard types under the same keys.
@@ -30,7 +35,7 @@ export default function LootTally() {
   const [awards, setAwards] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [msg, setMsg] = useState(null);
+  const [msg, flash] = useFlash(3500);
   const [filter, setFilter] = useState('');
   const [category, setCategory] = useState('');
   const [open, setOpen] = useState(() => new Set());
@@ -152,7 +157,6 @@ export default function LootTally() {
       .filter((cat) => cat.items.length > 0 && (!category || cat.label === category));
   }, [counts, tally, awardsByItem, filter, category, catalog, PRIO_INDEX]);
 
-  const flash = (text, ok = true) => { setMsg({ text, ok }); setTimeout(() => setMsg(null), 3500); };
 
   const toggle = (key) => setOpen((prev) => {
     const next = new Set(prev);
@@ -210,24 +214,19 @@ export default function LootTally() {
   };
 
   if (!user?.isAdmin) {
-    return (
-      <div className="max-w-2xl mx-auto px-6 py-24 text-center">
-        <Sigil className="w-12 h-16 text-oxblood mx-auto mb-6" />
-        <h1 className="font-display text-2xl text-bone tracking-[0.08em] mb-3">Restricted</h1>
-        <p className="text-ash">The war table is open to officers of the house alone.</p>
-      </div>
-    );
+    return <RestrictedGate />;
   }
 
   return (
-    <div className="max-w-6xl mx-auto px-6 py-12">
-      <div className="eyebrow text-brass text-[11px] mb-3">War Table</div>
-      <h1 className="font-display text-4xl md:text-5xl text-bone tracking-[0.08em]">Loot Council</h1>
-      <p className="text-ash mt-2">Every wishlisted item by demand. Award an item to mark it Loot Counciled.</p>
-      <div className="rule-fade my-8" />
+    <PageShell>
+      <PageHeader
+        eyebrow="War Table"
+        title="Loot Council"
+        subtitle="Every wishlisted item by demand. Award an item to mark it Loot Counciled."
+      />
 
       {error && <div className="mb-6 px-5 py-3 rounded-sm border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
-      {msg && <div className={`mb-6 px-5 py-3 rounded-sm border text-sm ${msg.ok ? 'border-brass/40 bg-panel text-bone' : 'border-oxblood/50 bg-oxblooddeep/20 text-bone'}`}>{msg.text}</div>}
+      <Toast msg={msg} />
 
       <div className="mb-8 flex items-center gap-5">
         <button
@@ -505,7 +504,7 @@ export default function LootTally() {
                                 axios.put(`/api/admin/loot/unlink-questlog/${item.key}`)
                                   .then(() => { load(); flash('Unlinked.'); })
                                   .catch((err) => setError(err.response?.data?.error || 'Unlink failed.'));
-                              }} className="text-emerald-400 hover:text-oxblood text-[10px]">linked ✕</button>
+                              }} className="text-emerald-400 hover:text-oxblood text-[10px] inline-flex items-center gap-0.5">linked <X className="w-2.5 h-2.5" /></button>
                             )}
                             <div className="flex-1" />
                             <button onClick={() => {
@@ -676,22 +675,20 @@ export default function LootTally() {
 
       {/* Confirmation modal */}
       {pending && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-ink/70 backdrop-blur-sm" onClick={() => !busy && setPending(null)}>
-          <div className="panel rounded-sm p-6 max-w-md w-full" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center gap-2 text-brass eyebrow text-[11px] mb-3"><Gavel className="w-4 h-4" /> Loot Council</div>
-            <h2 className="font-display text-xl text-bone tracking-[0.06em] mb-2">Award this item?</h2>
-            <p className="text-ash text-sm mb-1">Award <span className="text-bone font-medium">{pending.item.name}</span> to <span className="text-bone font-medium">{pending.watcher.name}</span>.</p>
-            <p className="text-ash text-sm mb-6">It will be marked <span className="text-brass">Loot Counciled</span> on the tally and on their wishlist.</p>
-            <div className="flex justify-end gap-3">
-              <button onClick={() => setPending(null)} disabled={busy} className="px-4 py-2 text-ash hover:text-bone transition-colors disabled:opacity-40">Cancel</button>
-              <button onClick={confirmAward} disabled={busy} className="inline-flex items-center gap-2 px-5 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors disabled:opacity-40">
-                <Gavel className="w-4 h-4" /> {busy ? 'Awarding…' : 'Award'}
-              </button>
-            </div>
+        <Modal onClose={() => !busy && setPending(null)}>
+          <div className="flex items-center gap-2 text-brass eyebrow text-[11px] mb-3"><Gavel className="w-4 h-4" /> Loot Council</div>
+          <h2 className="font-display text-xl text-bone tracking-[0.06em] mb-2">Award this item?</h2>
+          <p className="text-ash text-sm mb-1">Award <span className="text-bone font-medium">{pending.item.name}</span> to <span className="text-bone font-medium">{pending.watcher.name}</span>.</p>
+          <p className="text-ash text-sm mb-6">It will be marked <span className="text-brass">Loot Counciled</span> on the tally and on their wishlist.</p>
+          <div className="flex justify-end gap-3">
+            <Button variant="neutral" size="none" className="px-4 py-2" disabled={busy} onClick={() => setPending(null)}>Cancel</Button>
+            <Button size="none" className="px-5 py-2" disabled={busy} onClick={confirmAward}>
+              <Gavel className="w-4 h-4" /> {busy ? 'Awarding…' : 'Award'}
+            </Button>
           </div>
-        </div>
+        </Modal>
       )}
-    </div>
+    </PageShell>
   );
 }
 

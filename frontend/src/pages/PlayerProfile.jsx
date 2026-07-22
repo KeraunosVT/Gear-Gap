@@ -3,6 +3,9 @@ import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
 import weaponToClass from '../../../shared/weaponClasses.json';
 import { ArrowLeft, Sword, Target, Heart, ShieldAlert, Trophy, TrendingUp, Shield, Gem, BarChart3 } from 'lucide-react';
+import { PageShell, PageHeader } from '../components/ui/PageShell';
+import EmptyState from '../components/ui/EmptyState';
+import StatTile from '../components/ui/StatTile';
 
 const fmt = (n) => (Number(n) || 0).toLocaleString();
 const fmtM = (n) => ((Number(n) || 0) / 1e6).toFixed(1) + 'M';
@@ -67,32 +70,24 @@ export default function PlayerProfile() {
   ];
 
   return (
-    <div className="max-w-6xl mx-auto px-6 py-12">
+    <PageShell>
       {/* Back link */}
       <Link to="/roster" className="inline-flex items-center gap-2 text-sm text-ash hover:text-brass mb-8 transition-colors">
         <ArrowLeft className="w-4 h-4" /> Roster
       </Link>
 
-      {/* Header */}
-      <div className="mb-2">
-        <div className="eyebrow text-brass text-[11px] mb-3">Player Profile</div>
-        <h1 className="font-display text-4xl md:text-5xl text-bone tracking-[0.08em]">{p.name}</h1>
-        {p.aliases && p.aliases.length > 0 && (
-          <p className="text-ash mt-2">
-            Also known as <span className="text-bone/70">{p.aliases.join(' · ')}</span>
-          </p>
+      <PageHeader
+        eyebrow="Player Profile"
+        title={p.name}
+        subtitle={p.aliases && p.aliases.length > 0 && (
+          <>Also known as <span className="text-bone/70">{p.aliases.join(' · ')}</span></>
         )}
-      </div>
-      <div className="rule-fade my-8" />
+      />
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-10">
         {ledger.map((item) => (
-          <div key={item.label} className="panel rounded-sm p-5 text-center">
-            <div className="flex items-center justify-center gap-2 text-brass mb-3">{item.icon}</div>
-            <div className="font-mono text-3xl text-brassbright tabular-nums">{item.value}</div>
-            <div className="eyebrow text-[10px] text-ash mt-2">{item.label}</div>
-          </div>
+          <StatTile key={item.label} icon={item.icon} value={item.value} label={item.label} />
         ))}
       </div>
 
@@ -150,11 +145,7 @@ export default function PlayerProfile() {
               { label: 'Accessory', value: p.gear.accessory, icon: <Gem className="w-4 h-4" /> },
               { label: 'Average', value: p.gear.average, icon: <BarChart3 className="w-4 h-4" /> },
             ].map((g) => (
-              <div key={g.label} className="panel rounded-sm p-5 text-center">
-                <div className="flex items-center justify-center gap-2 text-brass mb-3">{g.icon}</div>
-                <div className="font-mono text-3xl text-brassbright tabular-nums">{g.value || '—'}</div>
-                <div className="eyebrow text-[10px] text-ash mt-2">{g.label}</div>
-              </div>
+              <StatTile key={g.label} icon={g.icon} value={g.value || '—'} label={g.label} />
             ))}
           </div>
         </div>
@@ -207,7 +198,7 @@ export default function PlayerProfile() {
           </table>
         </div>
       </div>
-    </div>
+    </PageShell>
   );
 }
 
@@ -225,8 +216,8 @@ function TrendSection({ history }) {
   const chronological = useMemo(() => [...history].reverse(), [history]);
 
   const trends = useMemo(() => [
-    { label: 'Kills', field: 'kills', color: '#c9973a', format: (v) => v.toFixed(0), icon: <Sword className="w-4 h-4" /> },
-    { label: 'Damage Dealt', field: 'damage_dealt', color: '#e2c07a', format: (v) => (v / 1e6).toFixed(1) + 'M', icon: <Target className="w-4 h-4" /> },
+    { label: 'Kills', field: 'kills', color: '#d64545', format: (v) => v.toFixed(0), icon: <Sword className="w-4 h-4" /> },
+    { label: 'Damage Dealt', field: 'damage_dealt', color: '#ff6b5f', format: (v) => (v / 1e6).toFixed(1) + 'M', icon: <Target className="w-4 h-4" /> },
     { label: 'Healing', field: 'healing', color: '#4ade80', format: (v) => (v / 1e6).toFixed(1) + 'M', icon: <Heart className="w-4 h-4" /> },
   ], []);
 

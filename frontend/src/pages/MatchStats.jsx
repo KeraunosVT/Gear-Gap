@@ -4,6 +4,10 @@ import { Link, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../auth';
 import weaponToClass from '../../../shared/weaponClasses.json';
+import ErrorState from '../components/ui/ErrorState';
+import EmptyState from '../components/ui/EmptyState';
+import { PageShell } from '../components/ui/PageShell';
+import { Table, Thead, Tr } from '../components/ui/Table';
 
 function getClassName(weapon1, weapon2) {
   if (!weapon1) return 'Unknown';
@@ -66,7 +70,7 @@ export default function MatchStats() {
   const topHealing = [...players].sort((a, b) => (b.healing || 0) - (a.healing || 0)).slice(0, 10);
 
   return (
-    <div className="max-w-7xl mx-auto px-6 py-12">
+    <PageShell maxWidth="max-w-7xl">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-4">
         <div>
@@ -99,38 +103,34 @@ export default function MatchStats() {
           <h3 className="font-display text-xl text-bone tracking-[0.08em] mb-5 flex items-center gap-3">
             <MapIcon className="w-5 h-5 text-brass" /> Map Record
           </h3>
-          <div className="panel rounded-sm overflow-auto">
-            <table className="w-full min-w-[480px] text-sm">
-              <thead className="border-b border-line">
-                <tr className="eyebrow text-[10px] text-ash">
-                  <th className="text-left p-4 font-normal">Map</th>
-                  <th className="text-center p-4 font-normal">Played</th>
-                  <th className="text-center p-4 font-normal">Wins</th>
-                  <th className="text-center p-4 font-normal">Losses</th>
-                  <th className="text-center p-4 font-normal">Draws</th>
-                  <th className="text-center p-4 font-normal">Win %</th>
+          <Table minWidth="min-w-[480px]">
+            <Thead>
+              <th className="text-left p-4 font-normal">Map</th>
+              <th className="text-center p-4 font-normal">Played</th>
+              <th className="text-center p-4 font-normal">Wins</th>
+              <th className="text-center p-4 font-normal">Losses</th>
+              <th className="text-center p-4 font-normal">Draws</th>
+              <th className="text-center p-4 font-normal">Win %</th>
+            </Thead>
+            <tbody className="font-mono">
+              {mapStats.map((s) => (
+                <tr key={s.map} className="border-b border-line/60 last:border-0">
+                  <td className="p-4 font-sans font-medium text-brassbright">{s.map}</td>
+                  <td className="p-4 text-center text-bone">{s.played}</td>
+                  <td className="p-4 text-center text-emerald-400">{s.wins}</td>
+                  <td className="p-4 text-center text-oxblood">{s.losses}</td>
+                  <td className="p-4 text-center text-ash">{s.draws}</td>
+                  <td className="p-4 text-center text-brassbright">{s.winPct}%</td>
                 </tr>
-              </thead>
-              <tbody className="font-mono">
-                {mapStats.map((s) => (
-                  <tr key={s.map} className="border-b border-line/60 last:border-0">
-                    <td className="p-4 font-sans font-medium text-brassbright">{s.map}</td>
-                    <td className="p-4 text-center text-bone">{s.played}</td>
-                    <td className="p-4 text-center text-emerald-400">{s.wins}</td>
-                    <td className="p-4 text-center text-oxblood">{s.losses}</td>
-                    <td className="p-4 text-center text-ash">{s.draws}</td>
-                    <td className="p-4 text-center text-brassbright">{s.winPct}%</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+              ))}
+            </tbody>
+          </Table>
         </div>
       )}
 
       {/* List failure */}
       {listError && (
-        <RecordError
+        <ErrorState
           onRetry={loadMatches}
           title="The record could not be summoned"
           message="The hall may be offline. Try again."
@@ -139,7 +139,7 @@ export default function MatchStats() {
 
       {/* Detail failure */}
       {detailError && !listError && (
-        <RecordError
+        <ErrorState
           onRetry={() => loadDetail(selectedMatchId)}
           title="This engagement could not be read"
           message="Something went wrong fetching the details."
@@ -148,12 +148,12 @@ export default function MatchStats() {
 
       {/* Loading the chosen engagement */}
       {selectedMatchId && !matchDetail && !detailError && !listError && (
-        <div className="py-20 text-center text-ash">Unrolling the scroll…</div>
+        <EmptyState>Unrolling the scroll…</EmptyState>
       )}
 
       {/* Empty */}
       {!loading && !listError && matches.length === 0 && (
-        <div className="py-20 text-center text-ash">No engagements logged yet. The field awaits.</div>
+        <EmptyState>No engagements logged yet. The field awaits.</EmptyState>
       )}
 
       {selectedMatch && !detailError && (
@@ -241,42 +241,38 @@ export default function MatchStats() {
             <h3 className="font-display text-xl text-bone tracking-[0.08em] mb-5 flex items-center gap-3">
               <Sword className="w-5 h-5 text-brass" /> Full Roster
             </h3>
-            <div className="panel rounded-sm overflow-auto max-h-[620px]">
-              <table className="w-full min-w-[900px] text-sm">
-                <thead className="sticky top-0 bg-panelup border-b border-line">
-                  <tr className="eyebrow text-[10px] text-ash">
-                    <th className="text-left p-4 font-normal">Rank</th>
-                    <th className="text-left p-4 font-normal">Class</th>
-                    <th className="text-left p-4 font-normal">Guild</th>
-                    <th className="text-left p-4 font-normal">Player</th>
-                    <th className="text-center p-4 font-normal">Kills</th>
-                    <th className="text-center p-4 font-normal">Assists</th>
-                    <th className="text-center p-4 font-normal">Dmg Dealt</th>
-                    <th className="text-center p-4 font-normal">Dmg Taken</th>
-                    <th className="text-center p-4 font-normal">Healing</th>
-                  </tr>
-                </thead>
-                <tbody className="font-mono">
-                  {players.map((p, i) => (
-                    <tr key={i} className="border-b border-line/60 hover:bg-panelup transition-colors">
-                      <td className="p-4 text-brass">{p.rank}</td>
-                      <td className="p-4 font-sans font-medium text-brassbright">{getClassName(p.weapon_1, p.weapon_2)}</td>
-                      <td className="p-4 font-sans text-ash">{p.guild_name}</td>
-                      <td className="p-4 font-sans font-semibold text-bone">{p.player_name}</td>
-                      <td className="p-4 text-center text-brassbright">{p.kills || 0}</td>
-                      <td className="p-4 text-center text-bone">{p.assists || 0}</td>
-                      <td className="p-4 text-center text-bone">{((p.damage_dealt || 0) / 1e6).toFixed(1)}M</td>
-                      <td className="p-4 text-center text-bone">{((p.damage_taken || 0) / 1e6).toFixed(1)}M</td>
-                      <td className="p-4 text-center text-bone">{((p.healing || 0) / 1e6).toFixed(1)}M</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <Table maxHeight="max-h-[620px]" minWidth="min-w-[900px]">
+              <Thead sticky>
+                <th className="text-left p-4 font-normal">Rank</th>
+                <th className="text-left p-4 font-normal">Class</th>
+                <th className="text-left p-4 font-normal">Guild</th>
+                <th className="text-left p-4 font-normal">Player</th>
+                <th className="text-center p-4 font-normal">Kills</th>
+                <th className="text-center p-4 font-normal">Assists</th>
+                <th className="text-center p-4 font-normal">Dmg Dealt</th>
+                <th className="text-center p-4 font-normal">Dmg Taken</th>
+                <th className="text-center p-4 font-normal">Healing</th>
+              </Thead>
+              <tbody className="font-mono">
+                {players.map((p, i) => (
+                  <Tr key={i}>
+                    <td className="p-4 text-brass">{p.rank}</td>
+                    <td className="p-4 font-sans font-medium text-brassbright">{getClassName(p.weapon_1, p.weapon_2)}</td>
+                    <td className="p-4 font-sans text-ash">{p.guild_name}</td>
+                    <td className="p-4 font-sans font-semibold text-bone">{p.player_name}</td>
+                    <td className="p-4 text-center text-brassbright">{p.kills || 0}</td>
+                    <td className="p-4 text-center text-bone">{p.assists || 0}</td>
+                    <td className="p-4 text-center text-bone">{((p.damage_dealt || 0) / 1e6).toFixed(1)}M</td>
+                    <td className="p-4 text-center text-bone">{((p.damage_taken || 0) / 1e6).toFixed(1)}M</td>
+                    <td className="p-4 text-center text-bone">{((p.healing || 0) / 1e6).toFixed(1)}M</td>
+                  </Tr>
+                ))}
+              </tbody>
+            </Table>
           </div>
         </>
       )}
-    </div>
+    </PageShell>
   );
 }
 
@@ -370,21 +366,6 @@ function DifferentialCard({ red, yellow }) {
           );
         })}
       </div>
-    </div>
-  );
-}
-
-function RecordError({ onRetry, title, message }) {
-  return (
-    <div className="panel rounded-sm p-8 text-center">
-      <div className="font-display text-oxblood tracking-wide text-lg mb-2">{title}</div>
-      <p className="text-ash mb-6">{message}</p>
-      <button
-        onClick={onRetry}
-        className="px-6 py-2.5 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors"
-      >
-        Try again
-      </button>
     </div>
   );
 }

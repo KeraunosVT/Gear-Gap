@@ -80,6 +80,7 @@ async function fetchAllMembers() {
       avatar: m.user.avatar
         ? `https://cdn.discordapp.com/avatars/${m.user.id}/${m.user.avatar}.png`
         : null,
+      joinedAt: m.joined_at || null,
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
 }

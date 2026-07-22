@@ -1,13 +1,17 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { UploadCloud, Loader2, Check, Sword, Shield, Gem, BarChart3 } from 'lucide-react';
+import { PageShell, PageHeader } from '../components/ui/PageShell';
+import StatTile from '../components/ui/StatTile';
+import { useFlash } from '../components/ui/useFlash';
+import Toast from '../components/ui/Toast';
 
 export default function GearLevel() {
   const [entry, setEntry] = useState(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
-  const [msg, setMsg] = useState(null);
+  const [msg, flash] = useFlash();
 
   const load = () => {
     setLoading(true);
@@ -17,8 +21,6 @@ export default function GearLevel() {
       .finally(() => setLoading(false));
   };
   useEffect(() => { load(); }, []);
-
-  const flash = (text, ok = true) => { setMsg({ text, ok }); setTimeout(() => setMsg(null), 4000); };
 
   const upload = (file) => {
     if (!file) return;
@@ -39,15 +41,14 @@ export default function GearLevel() {
   ] : [];
 
   return (
-    <div className="max-w-2xl mx-auto px-6 py-12">
-      <div className="eyebrow text-brass text-[11px] mb-3">Members Area</div>
-      <h1 className="font-display text-4xl md:text-5xl text-bone tracking-[0.08em]">Gear Level</h1>
-      <p className="text-ash mt-2">Upload a screenshot of the in-game "Equipment Level" window (the popup showing Equipment Lv. / Max Weapon / Max Armor / Max Accessory). A new upload replaces whatever you had on file.</p>
-      <div className="rule-fade my-8" />
+    <PageShell maxWidth="max-w-2xl">
+      <PageHeader
+        eyebrow="Members Area"
+        title="Gear Level"
+        subtitle={'Upload a screenshot of the in-game "Equipment Level" window (the popup showing Equipment Lv. / Max Weapon / Max Armor / Max Accessory). A new upload replaces whatever you had on file.'}
+      />
 
-      {msg && (
-        <div className={`mb-6 px-5 py-3 rounded-sm border text-sm ${msg.ok ? 'border-brass/40 bg-panel text-bone' : 'border-oxblood/50 bg-oxblooddeep/20 text-bone'}`}>{msg.text}</div>
-      )}
+      <Toast msg={msg} />
       {error && <div className="mb-6 px-5 py-3 rounded-sm border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
 
       {loading ? (
@@ -57,11 +58,7 @@ export default function GearLevel() {
           {entry ? (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
               {cards.map((c) => (
-                <div key={c.label} className="panel rounded-sm p-5 text-center">
-                  <div className="flex items-center justify-center gap-2 text-brass mb-3">{c.icon}</div>
-                  <div className="font-mono text-3xl text-brassbright tabular-nums">{c.value || '—'}</div>
-                  <div className="eyebrow text-[10px] text-ash mt-2">{c.label}</div>
-                </div>
+                <StatTile key={c.label} icon={c.icon} value={c.value || '—'} label={c.label} />
               ))}
             </div>
           ) : (
@@ -87,6 +84,6 @@ export default function GearLevel() {
           )}
         </>
       )}
-    </div>
+    </PageShell>
   );
 }

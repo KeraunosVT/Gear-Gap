@@ -172,11 +172,16 @@ app.get('/api/members', async (req, res) => {
   try {
     const members = await listMembers();
     const counts = {};
+    const roles = {};
     if (supabase) {
-      const { data } = await supabase.from('shard_counts').select('discord_id, shards');
-      (data || []).forEach((r) => { counts[r.discord_id] = r.shards || {}; });
+      const [{ data: shardData }, { data: roleData }] = await Promise.all([
+        supabase.from('shard_counts').select('discord_id, shards'),
+        supabase.from('member_roles').select('discord_id, pvp_role'),
+      ]);
+      (shardData || []).forEach((r) => { counts[r.discord_id] = r.shards || {}; });
+      (roleData || []).forEach((r) => { roles[r.discord_id] = r.pvp_role || ''; });
     }
-    res.json({ members: members.map((m) => ({ ...m, shards: counts[m.id] || {} })) });
+    res.json({ members: members.map((m) => ({ ...m, shards: counts[m.id] || {}, pvp_role: roles[m.id] || '' })) });
   } catch (err) {
     console.error('Members list error:', err.response?.data?.message || err.message);
     res.status(502).json({ error: err.response?.data?.message || err.message });
@@ -562,11 +567,33 @@ app.get('/api/stats/summary', async (req, res) => {
     const totalDamage  = Number(aggData[0]?.total_damage)  || 0;
     const totalHealing = Number(aggData[0]?.total_healing) || 0;
 
+    // Roster composition — active member count plus a PvP-role breakdown, both
+    // used by the Dashboard's "Standing" tiles.
+    let activeMembers = 0, tanks = 0, dps = 0, healers = 0;
+    try {
+      const [members, { data: roleData }] = await Promise.all([
+        listMembers(),
+        supabase.from('member_roles').select('pvp_role'),
+      ]);
+      activeMembers = members.length;
+      (roleData || []).forEach((r) => {
+        if (r.pvp_role === 'Tank') tanks++;
+        else if (r.pvp_role === 'DPS') dps++;
+        else if (r.pvp_role === 'Healer') healers++;
+      });
+    } catch (err) {
+      console.warn('Roster composition unavailable for stats summary:', err.message);
+    }
+
     res.json({
       totalMatches:  totalMatches || 0,
       totalKills:    totalKills.toLocaleString(),
       totalDamage:   (totalDamage  / 1_000_000).toFixed(1) + "M",
-      totalHealing:  (totalHealing / 1_000_000).toFixed(1) + "M"
+      totalHealing:  (totalHealing / 1_000_000).toFixed(1) + "M",
+      activeMembers,
+      tanks,
+      dps,
+      healers,
     });
 
   } catch (err) {

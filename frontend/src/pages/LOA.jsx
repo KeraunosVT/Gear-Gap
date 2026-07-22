@@ -4,6 +4,10 @@ import { useAuth } from '../auth';
 import { CalendarOff, CalendarX2, Plus, Trash2, Settings, X, Repeat, ChevronDown } from 'lucide-react';
 
 import { fmtTimeEst, todayInGuildTz } from '../timeUtils';
+import Tabs from '../components/ui/Tabs';
+import { PageShell } from '../components/ui/PageShell';
+import { useFlash } from '../components/ui/useFlash';
+import Toast from '../components/ui/Toast';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -14,7 +18,7 @@ export default function LOA() {
   const [allEntries, setAllEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [msg, setMsg] = useState(null);
+  const [msg, flash] = useFlash();
 
   const [tab, setTab] = useState('submit');
   const [loaType, setLoaType] = useState('event');
@@ -78,8 +82,6 @@ export default function LOA() {
     if (!user?.isAdmin) return;
     axios.get('/api/admin/members').then((res) => setAdminMembers(res.data.members || [])).catch(() => {});
   }, [user?.isAdmin]);
-
-  const flash = (text, ok = true) => { setMsg({ text, ok }); setTimeout(() => setMsg(null), 4000); };
 
   const scheduleById = useMemo(() => {
     const m = {};
@@ -376,7 +378,7 @@ export default function LOA() {
   const canSubmitRecurring = loaType === 'recurring' && recurDays.size > 0 && reason.trim();
 
   return (
-    <div className="max-w-4xl mx-auto px-6 py-12">
+    <PageShell maxWidth="max-w-4xl">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <div className="eyebrow text-brass text-[11px] mb-3">Members Area</div>
@@ -394,9 +396,7 @@ export default function LOA() {
       </div>
       <div className="rule-fade my-8" />
 
-      {msg && (
-        <div className={`mb-6 px-5 py-3 rounded-sm border text-sm ${msg.ok ? 'border-brass/40 bg-panel text-bone' : 'border-oxblood/50 bg-oxblooddeep/20 text-bone'}`}>{msg.text}</div>
-      )}
+      <Toast msg={msg} />
 
       {error && <div className="mb-6 px-5 py-3 rounded-sm border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
 
@@ -441,14 +441,16 @@ export default function LOA() {
       ) : (
         <>
           {/* Tabs */}
-          <div className="flex gap-1 mb-6">
-            {[['submit', 'Submit LOA'], ['mine', 'My LOAs'], ['board', 'LOA Board']].map(([key, label]) => (
-              <button key={key} onClick={() => setTab(key)}
-                className={`px-4 py-2 rounded-sm text-sm font-medium transition-colors ${tab === key ? 'bg-panel text-brassbright' : 'text-ash hover:text-bone'}`}>
-                {label}
-              </button>
-            ))}
-          </div>
+          <Tabs
+            variant="flat"
+            items={[
+              { key: 'submit', label: 'Submit LOA' },
+              { key: 'mine', label: 'My LOAs' },
+              { key: 'board', label: 'LOA Board' },
+            ]}
+            active={tab}
+            onChange={setTab}
+          />
 
           {/* Submit */}
           {tab === 'submit' && (
@@ -755,6 +757,6 @@ export default function LOA() {
           )}
         </>
       )}
-    </div>
+    </PageShell>
   );
 }

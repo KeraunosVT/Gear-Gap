@@ -8,7 +8,9 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useAuth } from '../auth';
-import Sigil from '../components/Sigil';
+import RestrictedGate from '../components/ui/RestrictedGate';
+import Button from '../components/ui/Button';
+import { PageShell, PageHeader } from '../components/ui/PageShell';
 import { todayInGuildTz } from '../timeUtils';
 import { Save, Trash2, Send, Plus, RefreshCw, Users, CalendarOff } from 'lucide-react';
 
@@ -40,7 +42,7 @@ const initItems = () => ({
 const initNames = () => Object.fromEntries(PARTY_IDS.map((id, i) => [id, `Party ${i + 1}`]));
 const findContainer = (id, src) => (id in src ? id : Object.keys(src).find((k) => src[k].includes(id)));
 
-const ROLE_COLOR = { Tank: '#38bdf8', DPS: '#b33a3a', Healer: '#4ade80' };
+const ROLE_COLOR = { Tank: '#38bdf8', DPS: '#b0423a', Healer: '#4ade80' };
 const ROLE_SYMBOL = { Tank: '🛡️', DPS: '⚔️', Healer: '💚' };
 
 function renderRosterImage(partyIds, items, partyNames, roles, byId, classMode, classAssignments) {
@@ -70,15 +72,15 @@ function renderRosterImage(partyIds, items, partyNames, roles, byId, classMode, 
   ctx.scale(2, 2);
 
   // Background
-  ctx.fillStyle = '#121210';
+  ctx.fillStyle = '#121214';
   ctx.fillRect(0, 0, w, h);
 
   // Title
-  ctx.fillStyle = '#c9973a';
+  ctx.fillStyle = '#d64545';
   ctx.font = 'bold 11px sans-serif';
   ctx.textAlign = 'center';
   ctx.fillText('ROSTER', w / 2, padY + 14);
-  ctx.fillStyle = '#e8dcc8';
+  ctx.fillStyle = '#ececeb';
   ctx.font = 'bold 20px sans-serif';
   ctx.fillText(partyNames[parties[0]]?.replace(/Party \d+/, '').trim() ? '' : 'Parties', w / 2, padY + 36);
 
@@ -89,8 +91,8 @@ function renderRosterImage(partyIds, items, partyNames, roles, byId, classMode, 
     const y = padY + titleH + row * (cardH + gapY);
 
     // Card background
-    ctx.fillStyle = '#1a1a18';
-    ctx.strokeStyle = '#2a2a26';
+    ctx.fillStyle = '#1b1b1e';
+    ctx.strokeStyle = '#2c2c30';
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.roundRect(x, y, colW, cardH, 4);
@@ -98,13 +100,13 @@ function renderRosterImage(partyIds, items, partyNames, roles, byId, classMode, 
     ctx.stroke();
 
     // Party name header
-    ctx.fillStyle = '#c9973a';
+    ctx.fillStyle = '#d64545';
     ctx.font = 'bold 13px sans-serif';
     ctx.textAlign = 'left';
     ctx.fillText(partyNames[pid] || `Party ${idx + 1}`, x + 10, y + 22);
 
     // Count
-    ctx.fillStyle = '#6b6b60';
+    ctx.fillStyle = '#8a8a8d';
     ctx.font = '11px monospace';
     ctx.textAlign = 'right';
     ctx.fillText(`${items[pid].length}/${PARTY_SIZE}`, x + colW - 10, y + 22);
@@ -127,7 +129,7 @@ function renderRosterImage(partyIds, items, partyNames, roles, byId, classMode, 
       // Role symbol
       ctx.font = '12px sans-serif';
       ctx.textAlign = 'left';
-      ctx.fillStyle = '#6b6b60';
+      ctx.fillStyle = '#8a8a8d';
       if (ROLE_SYMBOL[role]) {
         ctx.fillText(ROLE_SYMBOL[role], x + 16, my + 20);
       }
@@ -135,14 +137,14 @@ function renderRosterImage(partyIds, items, partyNames, roles, byId, classMode, 
       // Class (right-aligned)
       const classW = 78;
       if (cls) {
-        ctx.fillStyle = '#c9973a';
+        ctx.fillStyle = '#d64545';
         ctx.font = '10px sans-serif';
         ctx.textAlign = 'right';
         ctx.fillText(cls, x + colW - 10, my + 20, classW);
       }
 
       // Name
-      ctx.fillStyle = '#e8dcc8';
+      ctx.fillStyle = '#ececeb';
       ctx.font = '13px sans-serif';
       ctx.textAlign = 'left';
       const nameX = x + (role ? 36 : 16);
@@ -303,13 +305,7 @@ export default function Parties() {
   }, [classMode]);
 
   if (!user?.isAdmin) {
-    return (
-      <div className="max-w-2xl mx-auto px-6 py-24 text-center">
-        <Sigil className="w-12 h-16 text-oxblood mx-auto mb-6" />
-        <h1 className="font-display text-2xl text-bone tracking-[0.08em] mb-3">Restricted</h1>
-        <p className="text-ash">The war table is open to officers of the house alone.</p>
-      </div>
-    );
+    return <RestrictedGate />;
   }
 
   const flash = (text, ok = true) => { setMsg({ text, ok }); setTimeout(() => setMsg(null), 4000); };
@@ -485,11 +481,12 @@ export default function Parties() {
   const activeMember = activeId ? byId[activeId] : null;
 
   return (
-    <div className="max-w-[1600px] mx-auto px-6 py-12">
-      <div className="eyebrow text-brass text-[11px] mb-3">War Table</div>
-      <h1 className="font-display text-4xl md:text-5xl text-bone tracking-[0.08em]">Parties</h1>
-      <p className="text-ash mt-2">Drag members between and within parties, set roles, save rosters, and post to Discord.</p>
-      <div className="rule-fade my-8" />
+    <PageShell maxWidth="max-w-[1600px]">
+      <PageHeader
+        eyebrow="War Table"
+        title="Parties"
+        subtitle="Drag members between and within parties, set roles, save rosters, and post to Discord."
+      />
 
       <div className="panel rounded-sm p-4 mb-6 flex flex-wrap items-center gap-3">
         <input value={rosterName} onChange={(e) => setRosterName(e.target.value)} placeholder="Roster name"
@@ -503,7 +500,7 @@ export default function Parties() {
           {saved.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
         </select>
         <button onClick={resetBoard} className="inline-flex items-center gap-2 px-3 py-2 text-ash hover:text-bone transition-colors"><Plus className="w-4 h-4" /> New</button>
-        <button onClick={del} className="inline-flex items-center gap-2 px-3 py-2 text-ash hover:text-oxblood transition-colors"><Trash2 className="w-4 h-4" /> Delete</button>
+        <Button variant="destructive" size="none" className="px-3 py-2" onClick={del}><Trash2 className="w-4 h-4" /> Delete</Button>
         <div className="flex items-center gap-2 text-sm text-ash">
           <CalendarOff className="w-4 h-4" />
           <input type="date" value={loaDate} onChange={(e) => setLoaDate(e.target.value)}
@@ -522,7 +519,7 @@ export default function Parties() {
           <span className={`px-3 py-1 rounded-full text-xs font-bold tracking-wide transition-all ${classMode === 'pve' ? 'bg-emerald-500 text-ink' : 'text-ash'}`}>PVE</span>
         </button>
         <div className="flex-1" />
-        <button onClick={post} disabled={busy} className="inline-flex items-center gap-2 px-5 py-2 border border-brass/50 text-brassbright hover:bg-panelup rounded-sm transition-colors disabled:opacity-40"><Send className="w-4 h-4" /> Post to Discord</button>
+        <Button variant="secondary" size="none" className="px-5 py-2" disabled={busy} onClick={post}><Send className="w-4 h-4" /> Post to Discord</Button>
       </div>
 
       {msg && (
@@ -599,7 +596,7 @@ export default function Parties() {
 
         <DragOverlay>{activeMember ? <MemberCardBase member={activeMember} role={roles[activeMember.id]} overlay /> : null}</DragOverlay>
       </DndContext>
-    </div>
+    </PageShell>
   );
 }
 
