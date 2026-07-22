@@ -19,11 +19,11 @@ export function Thead({ sticky, children }) {
   );
 }
 
-export function SortableTh({ label, sortKey, activeKey, dir, onSort, align = 'left', className = '' }) {
+export function SortableTh({ label, sortKey, activeKey, dir, onSort, align = 'left', dense = false, className = '' }) {
   const active = activeKey === sortKey;
   return (
     <th
-      className={`p-4 font-normal cursor-pointer hover:text-bone select-none ${align === 'right' ? 'text-right' : 'text-left'} ${className}`}
+      className={`${dense ? 'p-2.5' : 'p-4'} font-normal cursor-pointer hover:text-bone select-none ${align === 'right' ? 'text-right' : 'text-left'} ${className}`}
       onClick={() => onSort(sortKey)}
     >
       <span className="inline-flex items-center gap-1">

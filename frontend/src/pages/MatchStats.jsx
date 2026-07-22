@@ -95,32 +95,32 @@ export default function MatchStats() {
           </select>
         </div>
       </div>
-      <div className="rule-fade mb-12" />
+      <div className="rule-fade mb-8" />
 
       {/* Per-map win record */}
       {mapStats.length > 0 && (
-        <div className="mb-12">
-          <h3 className="font-display text-xl text-bone tracking-[0.08em] mb-5 flex items-center gap-3">
+        <div className="mb-8">
+          <h3 className="font-display text-xl text-bone tracking-[0.08em] mb-3 flex items-center gap-3">
             <MapIcon className="w-5 h-5 text-brass" /> Map Record
           </h3>
           <Table minWidth="min-w-[480px]">
             <Thead>
-              <th className="text-left p-4 font-normal">Map</th>
-              <th className="text-center p-4 font-normal">Played</th>
-              <th className="text-center p-4 font-normal">Wins</th>
-              <th className="text-center p-4 font-normal">Losses</th>
-              <th className="text-center p-4 font-normal">Draws</th>
-              <th className="text-center p-4 font-normal">Win %</th>
+              <th className="text-left p-2.5 font-normal">Map</th>
+              <th className="text-center p-2.5 font-normal">Played</th>
+              <th className="text-center p-2.5 font-normal">Wins</th>
+              <th className="text-center p-2.5 font-normal">Losses</th>
+              <th className="text-center p-2.5 font-normal">Draws</th>
+              <th className="text-center p-2.5 font-normal">Win %</th>
             </Thead>
             <tbody className="font-mono">
               {mapStats.map((s) => (
                 <tr key={s.map} className="border-b border-line/60 last:border-0">
-                  <td className="p-4 font-sans font-medium text-brassbright">{s.map}</td>
-                  <td className="p-4 text-center text-bone">{s.played}</td>
-                  <td className="p-4 text-center text-emerald-400">{s.wins}</td>
-                  <td className="p-4 text-center text-oxblood">{s.losses}</td>
-                  <td className="p-4 text-center text-ash">{s.draws}</td>
-                  <td className="p-4 text-center text-brassbright">{s.winPct}%</td>
+                  <td className="p-2.5 font-sans font-medium text-brassbright">{s.map}</td>
+                  <td className="p-2.5 text-center text-bone">{s.played}</td>
+                  <td className="p-2.5 text-center text-emerald-400">{s.wins}</td>
+                  <td className="p-2.5 text-center text-oxblood">{s.losses}</td>
+                  <td className="p-2.5 text-center text-ash">{s.draws}</td>
+                  <td className="p-2.5 text-center text-brassbright">{s.winPct}%</td>
                 </tr>
               ))}
             </tbody>
@@ -186,14 +186,14 @@ export default function MatchStats() {
               </Link>
             )}
           </div>
-          <p className="text-ash mb-12">
+          <p className="text-ash mb-6">
             {new Date(selectedMatch.match_date + 'T12:00:00').toLocaleDateString('en-US', {
               weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
             })}
           </p>
 
           {/* Team cards */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             <TeamStatCard color="Red" stats={teamStats.Red || {}} />
             <TeamStatCard color="Yellow" stats={teamStats.Yellow || {}} />
           </div>
@@ -202,7 +202,7 @@ export default function MatchStats() {
           <DifferentialCard red={teamStats.Red || {}} yellow={teamStats.Yellow || {}} />
 
           {/* Top 10 */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-16">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
             <Top10Card title="Most Kills" icon={<Sword className="w-4 h-4" />} data={topKills} field="kills" />
             <Top10Card title="Damage Dealt" icon={<Target className="w-4 h-4" />} data={topDamage} field="damage_dealt" unit="M" />
             <Top10Card title="Damage Taken" icon={<ShieldAlert className="w-4 h-4" />} data={topDamageTaken} field="damage_taken" unit="M" />
@@ -210,16 +210,16 @@ export default function MatchStats() {
           </div>
 
           {/* Class distribution */}
-          <div className="mb-16">
-            <h3 className="font-display text-xl text-bone tracking-[0.08em] mb-5 flex items-center gap-3">
+          <div className="mb-8">
+            <h3 className="font-display text-xl text-bone tracking-[0.08em] mb-3 flex items-center gap-3">
               <Users className="w-5 h-5 text-brass" /> Fielded Classes
             </h3>
-            <div className="panel rounded-lg p-7">
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+            <div className="panel rounded-lg p-5">
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5">
                 {classBreakdown.length > 0 ? classBreakdown.map((item, i) => {
                   const total = classBreakdown.reduce((a, b) => a + b.count, 0);
                   return (
-                    <div key={i} className="flex justify-between items-center bg-hall border border-line rounded-lg px-4 py-3">
+                    <div key={i} className="flex justify-between items-center bg-hall border border-line rounded-lg px-3 py-2">
                       <span className="font-medium text-brassbright">{item.name}</span>
                       <div className="text-right font-mono">
                         <span className="text-bone">{item.count}</span>
@@ -238,33 +238,33 @@ export default function MatchStats() {
 
           {/* Full roster */}
           <div>
-            <h3 className="font-display text-xl text-bone tracking-[0.08em] mb-5 flex items-center gap-3">
+            <h3 className="font-display text-xl text-bone tracking-[0.08em] mb-3 flex items-center gap-3">
               <Sword className="w-5 h-5 text-brass" /> Full Roster
             </h3>
             <Table maxHeight="max-h-[620px]" minWidth="min-w-[900px]">
               <Thead sticky>
-                <th className="text-left p-4 font-normal">Rank</th>
-                <th className="text-left p-4 font-normal">Class</th>
-                <th className="text-left p-4 font-normal">Guild</th>
-                <th className="text-left p-4 font-normal">Player</th>
-                <th className="text-center p-4 font-normal">Kills</th>
-                <th className="text-center p-4 font-normal">Assists</th>
-                <th className="text-center p-4 font-normal">Dmg Dealt</th>
-                <th className="text-center p-4 font-normal">Dmg Taken</th>
-                <th className="text-center p-4 font-normal">Healing</th>
+                <th className="text-left p-2.5 font-normal">Rank</th>
+                <th className="text-left p-2.5 font-normal">Class</th>
+                <th className="text-left p-2.5 font-normal">Guild</th>
+                <th className="text-left p-2.5 font-normal">Player</th>
+                <th className="text-center p-2.5 font-normal">Kills</th>
+                <th className="text-center p-2.5 font-normal">Assists</th>
+                <th className="text-center p-2.5 font-normal">Dmg Dealt</th>
+                <th className="text-center p-2.5 font-normal">Dmg Taken</th>
+                <th className="text-center p-2.5 font-normal">Healing</th>
               </Thead>
               <tbody className="font-mono">
                 {players.map((p, i) => (
                   <Tr key={i}>
-                    <td className="p-4 text-brass">{p.rank}</td>
-                    <td className="p-4 font-sans font-medium text-brassbright">{getClassName(p.weapon_1, p.weapon_2)}</td>
-                    <td className="p-4 font-sans text-ash">{p.guild_name}</td>
-                    <td className="p-4 font-sans font-semibold text-bone">{p.player_name}</td>
-                    <td className="p-4 text-center text-brassbright">{p.kills || 0}</td>
-                    <td className="p-4 text-center text-bone">{p.assists || 0}</td>
-                    <td className="p-4 text-center text-bone">{((p.damage_dealt || 0) / 1e6).toFixed(1)}M</td>
-                    <td className="p-4 text-center text-bone">{((p.damage_taken || 0) / 1e6).toFixed(1)}M</td>
-                    <td className="p-4 text-center text-bone">{((p.healing || 0) / 1e6).toFixed(1)}M</td>
+                    <td className="p-2.5 text-brass">{p.rank}</td>
+                    <td className="p-2.5 font-sans font-medium text-brassbright">{getClassName(p.weapon_1, p.weapon_2)}</td>
+                    <td className="p-2.5 font-sans text-ash">{p.guild_name}</td>
+                    <td className="p-2.5 font-sans font-semibold text-bone">{p.player_name}</td>
+                    <td className="p-2.5 text-center text-brassbright">{p.kills || 0}</td>
+                    <td className="p-2.5 text-center text-bone">{p.assists || 0}</td>
+                    <td className="p-2.5 text-center text-bone">{((p.damage_dealt || 0) / 1e6).toFixed(1)}M</td>
+                    <td className="p-2.5 text-center text-bone">{((p.damage_taken || 0) / 1e6).toFixed(1)}M</td>
+                    <td className="p-2.5 text-center text-bone">{((p.healing || 0) / 1e6).toFixed(1)}M</td>
                   </Tr>
                 ))}
               </tbody>
@@ -282,8 +282,8 @@ function TeamStatCard({ color, stats }) {
   const isRed = color === 'Red';
   const name = stats.guildName || `${color} Team`;
   return (
-    <div className={`rounded-lg p-7 border ${isRed ? 'border-oxblood/50 bg-oxblooddeep/20' : 'border-brass/40 bg-panel'}`}>
-      <div className="mb-6 text-center">
+    <div className={`rounded-lg p-5 border ${isRed ? 'border-oxblood/50 bg-oxblooddeep/20' : 'border-brass/40 bg-panel'}`}>
+      <div className="mb-4 text-center">
         <div className={`eyebrow text-[10px] mb-2 ${isRed ? 'text-oxblood' : 'text-brass'}`}>
           {color} Team
         </div>
@@ -291,7 +291,7 @@ function TeamStatCard({ color, stats }) {
           {name}
         </div>
       </div>
-      <div className="space-y-4 font-mono">
+      <div className="space-y-2.5 font-mono">
         <Row label="Kills" value={(stats.kills || 0).toLocaleString()} />
         <Row label="Damage Dealt" value={((stats.damage_dealt || 0) / 1e6).toFixed(1) + 'M'} />
         <Row label="Damage Taken" value={((stats.damage_taken || 0) / 1e6).toFixed(1) + 'M'} />
@@ -312,12 +312,12 @@ function Row({ label, value }) {
 
 function Top10Card({ title, icon, data, field, unit = '' }) {
   return (
-    <div className="panel rounded-lg p-6">
-      <div className="flex items-center gap-2 text-brass mb-5">
+    <div className="panel rounded-lg p-5">
+      <div className="flex items-center gap-2 text-brass mb-3">
         {icon}
         <h4 className="eyebrow text-[10px] text-bone">{title}</h4>
       </div>
-      <div className="space-y-2.5 text-sm font-mono">
+      <div className="space-y-2 text-sm font-mono">
         {data.length > 0 ? data.map((p, i) => (
           <div key={i} className="flex justify-between gap-3">
             <span className="font-sans text-ash truncate">
@@ -344,9 +344,9 @@ function DifferentialCard({ red, yellow }) {
   ];
 
   return (
-    <div className="panel rounded-lg p-6 mb-16">
-      <h3 className="eyebrow text-[10px] text-brass mb-5 text-center">Differentials</h3>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div className="panel rounded-lg p-5 mb-8">
+      <h3 className="eyebrow text-[10px] text-brass mb-3 text-center">Differentials</h3>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {stats.map((s) => {
           const diff = s.r - s.y;
           const redWins = diff > 0;

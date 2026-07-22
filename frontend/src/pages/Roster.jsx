@@ -111,7 +111,7 @@ export default function Roster() {
         subtitle="Every member's all-time record across every engagement."
       />
 
-      <div className="flex flex-wrap items-center justify-between mb-5 gap-4">
+      <div className="flex flex-wrap items-center justify-between mb-4 gap-3">
         <div className="flex items-center gap-4">
           <input
             value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search members…"
@@ -145,17 +145,17 @@ export default function Roster() {
       ) : (
         <Table>
           <Thead>
-            <th className="p-4 text-center font-normal w-12">#</th>
+            <th className="p-2.5 text-center font-normal w-12">#</th>
             {columns.map((c) => (
-              <SortableTh key={c.key} label={c.label} sortKey={c.key} activeKey={sortKey} dir={sortDir} onSort={sortBy} align={c.align} />
+              <SortableTh key={c.key} label={c.label} sortKey={c.key} activeKey={sortKey} dir={sortDir} onSort={sortBy} align={c.align} dense />
             ))}
           </Thead>
           <tbody>
             {rows.map((p, i) => (
               <Tr key={p.player_name + i}>
-                <td className="p-4 text-center font-mono text-ash">{i + 1}</td>
+                <td className="p-2.5 text-center font-mono text-ash">{i + 1}</td>
                 {columns.map((c) => (
-                  <td key={c.key} className={`p-4 whitespace-nowrap ${c.align === 'right' ? 'text-right font-mono' : ''} ${c.cls || 'text-bone'}`}>
+                  <td key={c.key} className={`p-2.5 whitespace-nowrap ${c.align === 'right' ? 'text-right font-mono' : ''} ${c.cls || 'text-bone'}`}>
                     {c.render(p)}
                   </td>
                 ))}

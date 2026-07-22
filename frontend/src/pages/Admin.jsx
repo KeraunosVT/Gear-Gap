@@ -247,9 +247,9 @@ export default function Admin() {
       </div>
 
       {showMapAdmin && (
-        <div className="mt-6 panel rounded-lg p-6">
-          <div className="eyebrow text-brass text-[10px] mb-4">Wargame Maps</div>
-          <div className="flex gap-2 mb-4">
+        <div className="mt-4 panel rounded-lg p-5">
+          <div className="eyebrow text-brass text-[10px] mb-3">Wargame Maps</div>
+          <div className="flex gap-2 mb-3">
             <input value={newMapName} onChange={(e) => setNewMapName(e.target.value)} placeholder="Map name"
               onKeyDown={(e) => { if (e.key === 'Enter') addMap(); }}
               className="bg-hall border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass flex-1" />
@@ -258,7 +258,7 @@ export default function Admin() {
               <Plus className="w-4 h-4" />
             </button>
           </div>
-          <div className="space-y-2">
+          <div className="space-y-1.5">
             {maps.length === 0 ? (
               <p className="text-ash text-sm">No maps yet. Add your wargame maps above.</p>
             ) : maps.map((m) => (
@@ -271,10 +271,10 @@ export default function Admin() {
         </div>
       )}
 
-      <div className="rule-fade my-10" />
+      <div className="rule-fade my-6" />
 
       {done && (
-        <div className="mb-8 panel rounded-lg p-6 border-brass/40">
+        <div className="mb-6 panel rounded-lg p-5 border-brass/40">
           <div className="font-display text-brassbright text-lg tracking-[0.06em] mb-1">
             {done.edited ? 'Record updated' : 'Logged to the record'}
           </div>
@@ -286,7 +286,7 @@ export default function Admin() {
       )}
 
       {error && (
-        <div className="mb-8 px-5 py-4 border border-oxblood/50 bg-oxblooddeep/20 rounded-lg text-bone">{error}</div>
+        <div className="mb-6 px-4 py-3 border border-oxblood/50 bg-oxblooddeep/20 rounded-lg text-bone">{error}</div>
       )}
 
       {loadingEdit && (
@@ -297,8 +297,8 @@ export default function Admin() {
 
       {/* Step 1 — upload */}
       {!players && !loadingEdit && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 space-y-4">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="lg:col-span-2 space-y-3">
             <label className="block panel rounded-lg border-dashed border-2 border-line hover:border-brass/50 transition-colors cursor-pointer p-10 text-center">
               <input
                 type="file" accept="image/*,.csv" multiple className="hidden"
@@ -330,7 +330,7 @@ export default function Admin() {
 
                 <div className="panel rounded-lg divide-y divide-line">
                   {items.map((it) => (
-                    <div key={it.id} className="flex items-center gap-3 px-4 py-2.5">
+                    <div key={it.id} className="flex items-center gap-3 px-3 py-2">
                       {/\.csv$/i.test(it.file.name) ? <FileSpreadsheet className="w-4 h-4 text-brass shrink-0" /> : <ImageIcon className="w-4 h-4 text-brass shrink-0" />}
                       <span className="text-sm text-bone truncate flex-1">{it.file.name}</span>
 
@@ -363,27 +363,27 @@ export default function Admin() {
             )}
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-3">
             <div>
-              <label className="eyebrow text-[10px] text-ash block mb-2">Match title</label>
+              <label className="eyebrow text-[10px] text-ash block mb-1.5">Match title</label>
               <input
                 value={title} onChange={(e) => setTitle(e.target.value)}
                 placeholder="e.g. Castle Siege — Abyssal"
-                className="w-full bg-panel border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
+                className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass"
               />
             </div>
             <div>
-              <label className="eyebrow text-[10px] text-ash block mb-2">Match date</label>
+              <label className="eyebrow text-[10px] text-ash block mb-1.5">Match date</label>
               <input
                 type="date" value={matchDate} onChange={(e) => setMatchDate(e.target.value)}
-                className="w-full bg-panel border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
+                className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass"
               />
             </div>
             <div>
-              <label className="eyebrow text-[10px] text-ash block mb-2">Result</label>
+              <label className="eyebrow text-[10px] text-ash block mb-1.5">Result</label>
               <select
                 value={result} onChange={(e) => setResult(e.target.value)}
-                className="w-full bg-panel border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
+                className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass"
               >
                 <option value="">— set result —</option>
                 <option value="Win">Win</option>
@@ -392,20 +392,20 @@ export default function Admin() {
               </select>
             </div>
             <div>
-              <label className="eyebrow text-[10px] text-ash block mb-2">Map</label>
+              <label className="eyebrow text-[10px] text-ash block mb-1.5">Map</label>
               <select
                 value={map} onChange={(e) => setMap(e.target.value)}
-                className="w-full bg-panel border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
+                className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass"
               >
                 <option value="">— set map —</option>
                 {maps.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
               </select>
             </div>
-            <div className="space-y-3">
+            <div className="space-y-2">
               {items.some((it) => it.status === 'idle') && (
                 <button
                   onClick={parseAll} disabled={running || merging}
-                  className="w-full px-6 py-3 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="w-full px-6 py-2.5 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                 >
                   {running ? 'Reading…' : `Read ${items.filter((it) => it.status === 'idle').length} file${items.filter((it) => it.status === 'idle').length === 1 ? '' : 's'}`}
                 </button>
@@ -414,14 +414,14 @@ export default function Admin() {
               {items.some((it) => it.status === 'done') && (
                 <button
                   onClick={goReview} disabled={running || merging}
-                  className="w-full px-6 py-3 border border-brass/50 text-brassbright hover:bg-panelup font-semibold rounded-lg transition-colors disabled:opacity-40"
+                  className="w-full px-6 py-2.5 border border-brass/50 text-brassbright hover:bg-panelup font-semibold rounded-lg transition-colors disabled:opacity-40"
                 >
                   {merging ? 'Preparing…' : `Continue to review (${items.filter((it) => it.status === 'done').length} file${items.filter((it) => it.status === 'done').length === 1 ? '' : 's'}) →`}
                 </button>
               )}
 
               {items.length === 0 && (
-                <button disabled className="w-full px-6 py-3 bg-brass text-ink font-semibold rounded-lg opacity-40 cursor-not-allowed">Read files</button>
+                <button disabled className="w-full px-6 py-2.5 bg-brass text-ink font-semibold rounded-lg opacity-40 cursor-not-allowed">Read files</button>
               )}
             </div>
           </div>
@@ -432,7 +432,7 @@ export default function Admin() {
       {players && (
         <div>
           {warnings.length > 0 && (
-            <div className="mb-6 px-5 py-4 border border-brass/40 bg-panel rounded-lg text-sm text-bone">
+            <div className="mb-4 px-4 py-3 border border-brass/40 bg-panel rounded-lg text-sm text-bone">
               <div className="eyebrow text-[10px] text-brass mb-2">Check before saving</div>
               <ul className="list-disc pl-5 space-y-1 text-ash">
                 {warnings.map((w, i) => <li key={i}>{w}</li>)}
@@ -441,27 +441,27 @@ export default function Admin() {
           )}
 
           {editingMatchId && (
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
               <div>
-                <label className="eyebrow text-[10px] text-ash block mb-2">Match title</label>
+                <label className="eyebrow text-[10px] text-ash block mb-1.5">Match title</label>
                 <input
                   value={title} onChange={(e) => setTitle(e.target.value)}
                   placeholder="e.g. Castle Siege — Abyssal"
-                  className="w-full bg-panel border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
+                  className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass"
                 />
               </div>
               <div>
-                <label className="eyebrow text-[10px] text-ash block mb-2">Match date</label>
+                <label className="eyebrow text-[10px] text-ash block mb-1.5">Match date</label>
                 <input
                   type="date" value={matchDate} onChange={(e) => setMatchDate(e.target.value)}
-                  className="w-full bg-panel border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
+                  className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass"
                 />
               </div>
               <div>
-                <label className="eyebrow text-[10px] text-ash block mb-2">Result</label>
+                <label className="eyebrow text-[10px] text-ash block mb-1.5">Result</label>
                 <select
                   value={result} onChange={(e) => setResult(e.target.value)}
-                  className="w-full bg-panel border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
+                  className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass"
                 >
                   <option value="">— set result —</option>
                   <option value="Win">Win</option>
@@ -470,10 +470,10 @@ export default function Admin() {
                 </select>
               </div>
               <div>
-                <label className="eyebrow text-[10px] text-ash block mb-2">Map</label>
+                <label className="eyebrow text-[10px] text-ash block mb-1.5">Map</label>
                 <select
                   value={map} onChange={(e) => setMap(e.target.value)}
-                  className="w-full bg-panel border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
+                  className="w-full bg-panel border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass"
                 >
                   <option value="">— set map —</option>
                   {maps.map((m) => <option key={m.id} value={m.name}>{m.name}</option>)}
@@ -482,7 +482,7 @@ export default function Admin() {
             </div>
           )}
 
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center justify-between mb-3">
             <h2 className="font-display text-2xl text-bone tracking-[0.08em]">
               {editingMatchId ? 'Edit' : 'Review'} — {players.length} players
             </h2>
@@ -491,20 +491,20 @@ export default function Admin() {
             </button>
           </div>
 
-          <div className="mb-8">
+          <div className="mb-6">
           <Table maxHeight="max-h-[640px]" minWidth="min-w-[1000px]">
             <Thead sticky>
-              <th className="p-3 text-left font-normal w-16">Rank</th>
-              <th className="p-3 text-left font-normal">Class</th>
-              <th className="p-3 text-left font-normal">Guild</th>
-              <th className="p-3 text-left font-normal">Name</th>
-              <th className="p-3 text-left font-normal">Team</th>
-              <th className="p-3 text-left font-normal">Kills</th>
-              <th className="p-3 text-left font-normal">Assists</th>
-              <th className="p-3 text-left font-normal">Dmg Dealt</th>
-              <th className="p-3 text-left font-normal">Dmg Taken</th>
-              <th className="p-3 text-left font-normal">Healing</th>
-              <th className="p-3 w-10"></th>
+              <th className="p-2.5 text-left font-normal w-16">Rank</th>
+              <th className="p-2.5 text-left font-normal">Class</th>
+              <th className="p-2.5 text-left font-normal">Guild</th>
+              <th className="p-2.5 text-left font-normal">Name</th>
+              <th className="p-2.5 text-left font-normal">Team</th>
+              <th className="p-2.5 text-left font-normal">Kills</th>
+              <th className="p-2.5 text-left font-normal">Assists</th>
+              <th className="p-2.5 text-left font-normal">Dmg Dealt</th>
+              <th className="p-2.5 text-left font-normal">Dmg Taken</th>
+              <th className="p-2.5 text-left font-normal">Healing</th>
+              <th className="p-2.5 w-10"></th>
             </Thead>
               <tbody>
                 {players.map((p, i) => {
