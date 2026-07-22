@@ -12,7 +12,6 @@ const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
 const GUILD_ID = process.env.DISCORD_GUILD_ID;
 const LOA_CHANNEL_ID = process.env.DISCORD_LOA_CHANNEL_ID;
 const ANNOUNCE_CHANNEL_ID = process.env.DISCORD_ANNOUNCE_CHANNEL_ID;
-const ANNOUNCE_ROLE_ID = process.env.DISCORD_ANNOUNCE_ROLE_ID;
 // Same admin role list auth.js uses to gate the website's admin area, so
 // "officer" means the same thing in Discord as it does on the site.
 const ADMIN_ROLE_IDS = (process.env.DISCORD_ADMIN_ROLE_IDS || '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -189,6 +188,9 @@ async function registerCommands() {
     )
     .addStringOption((opt) =>
       opt.setName('message').setDescription('Use {time} to place the time inline, e.g. "roll call {time} in CTA comms"').setRequired(false)
+    )
+    .addRoleOption((opt) =>
+      opt.setName('role').setDescription('Role to ping (optional)').setRequired(false)
     );
   commands.push(announceCommand.toJSON());
 
@@ -636,7 +638,8 @@ async function handleAnnounce(interaction) {
   // {time} lets the officer place the timestamp anywhere in the sentence
   // ("roll call {time} in CTA comms"); with no placeholder it's appended at the end.
   const body = /\{time\}/i.test(message) ? message.replace(/\{time\}/i, timeTag) : `${message} — ${timeTag}`;
-  const ping = ANNOUNCE_ROLE_ID ? `<@&${ANNOUNCE_ROLE_ID}> ` : '';
+  const role = interaction.options.getRole('role');
+  const ping = role ? `${role.toString()} ` : '';
   try {
     await channel.send(`${ping}${body}`);
     await interaction.editReply(`Posted ✅ — resolved to <t:${unix}:F>. If that's not what you meant, re-run with an explicit am/pm (e.g. \`9:30pm\`).`);

@@ -70,7 +70,6 @@ All configuration is environment variables, read from `backend/.env` (see `requi
 | `DISCORD_ADMIN_ROLE_IDS` | Comma-separated role IDs granted officer/admin access |
 | `DISCORD_MEMBER_ROLE_IDS` | Roles counted as "member" for roster display |
 | `DISCORD_ROSTER_CHANNEL_ID`, `DISCORD_LOA_CHANNEL_ID`, `DISCORD_ANNOUNCE_CHANNEL_ID` | Channels each feature posts to |
-| `DISCORD_ANNOUNCE_ROLE_ID` | Role pinged by `/announce` |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` | Database connection |
 | `JWT_SECRET` | Signs the session cookie |
 | `GEMINI_API_KEY` | Screenshot parsing (match stats, gear level) |
