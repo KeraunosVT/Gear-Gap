@@ -576,17 +576,17 @@ export default function Parties() {
           </div>
 
           {/* Parties */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3">
             {PARTY_IDS.map((pid) => (
-              <DroppableColumn key={pid} id={pid} itemIds={items[pid]} className={`rounded-sm border bg-panel p-3 ${items[pid].length >= PARTY_SIZE ? 'border-line' : 'border-line'}`}>
-                <div className="flex items-center justify-between mb-3">
+              <DroppableColumn key={pid} id={pid} itemIds={items[pid]} className={`rounded-sm border bg-panel p-2 ${items[pid].length >= PARTY_SIZE ? 'border-line' : 'border-line'}`}>
+                <div className="flex items-center justify-between mb-1.5">
                   <input value={partyNames[pid]} onChange={(e) => renameParty(pid, e.target.value)}
-                    className="bg-transparent font-display text-bone text-sm tracking-[0.06em] focus:outline-none focus:text-brassbright w-32" />
+                    className="bg-transparent font-display text-bone text-sm tracking-[0.06em] focus:outline-none focus:text-brassbright w-24" />
                   <span className={`font-mono text-xs ${items[pid].length >= PARTY_SIZE ? 'text-oxblood' : 'text-ash'}`}>{items[pid].length}/{PARTY_SIZE}</span>
                 </div>
-                <div className="space-y-2 min-h-[120px]">
+                <div className="space-y-1">
                   {items[pid].length === 0
-                    ? <div className="text-ash/50 text-xs text-center py-8 border border-dashed border-line rounded">Drop members here</div>
+                    ? <div className="text-ash/50 text-xs text-center py-3 border border-dashed border-line rounded">Drop members here</div>
                     : items[pid].map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} inParty isLoa={loaSet.has(id)} classMode={classMode} assignedClass={classAssignments[classMode][id]} onClassChange={(cls) => setMemberClass(classMode, id, cls)} />)}
                 </div>
               </DroppableColumn>
@@ -625,7 +625,7 @@ const MemberCardBase = forwardRef(function MemberCardBase({ member, role, onRole
   return (
     <div
       ref={ref} style={style} {...handle}
-      className={`group relative flex items-center gap-2 bg-hall border border-line ${rs ? `border-l-2 ${rs.ring}` : ''} rounded px-2.5 py-2 cursor-grab active:cursor-grabbing select-none ${isDragging ? 'opacity-30' : ''} ${overlay ? 'shadow-xl ring-1 ring-brass/40' : ''} ${isLoa ? 'opacity-50' : ''}`}
+      className={`group relative flex items-center gap-1.5 bg-hall border border-line ${rs ? `border-l-2 ${rs.ring}` : ''} rounded px-2 py-1.5 cursor-grab active:cursor-grabbing select-none ${isDragging ? 'opacity-30' : ''} ${overlay ? 'shadow-xl ring-1 ring-brass/40' : ''} ${isLoa ? 'opacity-50' : ''}`}
     >
       {member.avatar
         ? <img src={member.avatar} alt="" className="w-6 h-6 rounded-full border border-line shrink-0" />
