@@ -481,7 +481,7 @@ export default function Parties() {
   const activeMember = activeId ? byId[activeId] : null;
 
   return (
-    <PageShell maxWidth="max-w-[1600px]">
+    <PageShell maxWidth="max-w-[1600px]" paddingX="px-2">
       <PageHeader
         eyebrow="War Table"
         title="Parties"
