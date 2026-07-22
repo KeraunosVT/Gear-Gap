@@ -482,12 +482,6 @@ export default function Parties() {
 
   return (
     <PageShell maxWidth="max-w-none" paddingX="px-2">
-      <PageHeader
-        eyebrow="War Table"
-        title="Parties"
-        subtitle="Drag members between and within parties, set roles, save rosters, and post to Discord."
-      />
-
       <div className="panel rounded-sm p-4 mb-6 flex flex-wrap items-center gap-3">
         <input value={rosterName} onChange={(e) => setRosterName(e.target.value)} placeholder="Roster name"
           className="bg-hall border border-line rounded px-3 py-2 text-bone focus:outline-none focus:border-brass w-52" />
@@ -576,20 +570,24 @@ export default function Parties() {
           </div>
 
           {/* Parties */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3 items-start">
-            {PARTY_IDS.map((pid) => (
-              <DroppableColumn key={pid} id={pid} itemIds={items[pid]} className={`rounded-sm border bg-panel p-2 ${items[pid].length >= PARTY_SIZE ? 'border-line' : 'border-line'}`}>
-                <div className="flex items-center justify-between mb-1.5">
-                  <input value={partyNames[pid]} onChange={(e) => renameParty(pid, e.target.value)}
-                    className="bg-transparent font-display text-bone text-sm tracking-[0.06em] focus:outline-none focus:text-brassbright w-24" />
-                  <span className={`font-mono text-xs ${items[pid].length >= PARTY_SIZE ? 'text-oxblood' : 'text-ash'}`}>{items[pid].length}/{PARTY_SIZE}</span>
-                </div>
-                <div className="space-y-1">
-                  {items[pid].length === 0
-                    ? <div className="text-ash/50 text-xs text-center py-3 border border-dashed border-line rounded">Drop members here</div>
-                    : items[pid].map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} inParty isLoa={loaSet.has(id)} classMode={classMode} assignedClass={classAssignments[classMode][id]} onClassChange={(cls) => setMemberClass(classMode, id, cls)} />)}
-                </div>
-              </DroppableColumn>
+          <div className="flex flex-col gap-1.5">
+            {[PARTY_IDS.slice(0, 6), PARTY_IDS.slice(6, 12)].map((row, i) => (
+              <div key={i} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3 items-start">
+                {row.map((pid) => (
+                  <DroppableColumn key={pid} id={pid} itemIds={items[pid]} className={`rounded-sm border bg-panel p-2 ${items[pid].length >= PARTY_SIZE ? 'border-line' : 'border-line'}`}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <input value={partyNames[pid]} onChange={(e) => renameParty(pid, e.target.value)}
+                        className="bg-transparent font-display text-bone text-sm tracking-[0.06em] focus:outline-none focus:text-brassbright w-24" />
+                      <span className={`font-mono text-xs ${items[pid].length >= PARTY_SIZE ? 'text-oxblood' : 'text-ash'}`}>{items[pid].length}/{PARTY_SIZE}</span>
+                    </div>
+                    <div className="space-y-1">
+                      {items[pid].length === 0
+                        ? <div className="text-ash/50 text-xs text-center py-3 border border-dashed border-line rounded">Drop members here</div>
+                        : items[pid].map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} inParty isLoa={loaSet.has(id)} classMode={classMode} assignedClass={classAssignments[classMode][id]} onClassChange={(cls) => setMemberClass(classMode, id, cls)} />)}
+                    </div>
+                  </DroppableColumn>
+                ))}
+              </div>
             ))}
           </div>
         </div>
