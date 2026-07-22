@@ -370,7 +370,12 @@ export default function LOA() {
     });
     return Object.entries(groups)
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([date, entries]) => ({ date, entries }));
+      .map(([date, entries]) => ({
+        date,
+        // Earliest to latest within the day; no-start-time ("all day") entries
+        // are treated as starting at midnight so they sort first.
+        entries: [...entries].sort((a, b) => (a.start_time || '00:00').localeCompare(b.start_time || '00:00')),
+      }));
   }, [upcomingAbsent, todayStr, lookaheadDates, recurringEntries]);
 
   const canSubmitEvent = loaType === 'event' && eventDate && (eventScheduleId || eventStartTime) && reason.trim();
