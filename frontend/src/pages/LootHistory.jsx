@@ -90,11 +90,11 @@ export default function LootHistory() {
         subtitle="Every item awarded by Loot Council, in order."
       />
 
-      {error && <div className="mb-6 px-5 py-3 rounded-sm border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
+      {error && <div className="mb-6 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
 
-      <div className="panel rounded-sm p-4 mb-6">
+      <div className="panel rounded-lg p-4 mb-6">
         <div className="flex items-center gap-3 flex-wrap">
-          <label className={`inline-flex items-center gap-2 px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm text-sm cursor-pointer transition-colors ${importing ? 'opacity-40 pointer-events-none' : ''}`}>
+          <label className={`inline-flex items-center gap-2 px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg text-sm cursor-pointer transition-colors ${importing ? 'opacity-40 pointer-events-none' : ''}`}>
             <Upload className="w-4 h-4" /> {importing ? 'Importing…' : 'Upload CSV'}
             <input type="file" accept=".csv,text/csv" className="hidden" onChange={handleImport} disabled={importing} />
           </label>
@@ -115,7 +115,7 @@ export default function LootHistory() {
 
       <div className="flex flex-wrap items-center gap-3 mb-6">
         <select value={member} onChange={(e) => setMember(e.target.value)}
-          className="bg-panel border border-line rounded-sm px-3 py-2.5 text-bone focus:outline-none focus:border-brass">
+          className="bg-panel border border-line rounded-lg px-3 py-2.5 text-bone focus:outline-none focus:border-brass">
           <option value="">All members</option>
           {members.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
         </select>
@@ -129,7 +129,7 @@ export default function LootHistory() {
       ) : filtered.length === 0 ? (
         <EmptyState>{member ? 'No awards for this member.' : 'Nothing has been awarded yet.'}</EmptyState>
       ) : (
-        <div className="panel rounded-sm divide-y divide-line">
+        <div className="panel rounded-lg divide-y divide-line">
           {filtered.map((a) => {
             const item = itemByKey[a.item_key];
             return (

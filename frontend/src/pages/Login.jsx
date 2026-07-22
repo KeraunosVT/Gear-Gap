@@ -35,14 +35,14 @@ export default function Login() {
       </p>
 
       {message && (
-        <div className="rise rise-2 mt-6 max-w-md px-5 py-3 border border-oxblood/50 bg-oxblooddeep/20 rounded-sm text-sm text-bone">
+        <div className="rise rise-2 mt-6 max-w-md px-5 py-3 border border-oxblood/50 bg-oxblooddeep/20 rounded-lg text-sm text-bone">
           {message}
         </div>
       )}
 
       <button
         onClick={login}
-        className="rise rise-3 mt-9 inline-flex items-center gap-3 px-7 py-3.5 rounded-sm font-semibold tracking-wide text-white transition-colors"
+        className="rise rise-3 mt-9 inline-flex items-center gap-3 px-7 py-3.5 rounded-lg font-semibold tracking-wide text-white transition-colors"
         style={{ backgroundColor: '#5865F2' }}
         onMouseOver={(e) => (e.currentTarget.style.backgroundColor = '#4752c4')}
         onMouseOut={(e) => (e.currentTarget.style.backgroundColor = '#5865F2')}

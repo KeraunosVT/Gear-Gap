@@ -88,7 +88,7 @@ export default function Loot() {
       <div className="flex items-center justify-between mb-6 gap-4">
         <input
           value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search items…"
-          className="bg-panel border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass w-full max-w-xs"
+          className="bg-panel border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass w-full max-w-xs"
         />
         <div className="flex items-center gap-4 text-sm shrink-0">
           <Legend />
@@ -97,7 +97,7 @@ export default function Loot() {
         </div>
       </div>
 
-      {error && <div className="mb-6 px-5 py-3 rounded-sm border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
+      {error && <div className="mb-6 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
 
       {loading ? (
         <EmptyState>Reading the ledger…</EmptyState>
@@ -108,7 +108,7 @@ export default function Loot() {
           {categories.map((cat) => (
             <section key={cat.key}>
               <h2 className="font-display text-lg text-bone tracking-[0.08em] mb-3">{cat.label}</h2>
-              <div className="panel rounded-sm divide-y divide-line">
+              <div className="panel rounded-lg divide-y divide-line">
                 {cat.items.map((item) => {
                   const mine = picks[item.key];
                   const n = counts[item.key] || 0;

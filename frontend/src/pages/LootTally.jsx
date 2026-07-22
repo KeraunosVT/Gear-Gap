@@ -225,7 +225,7 @@ export default function LootTally() {
         subtitle="Every wishlisted item by demand. Award an item to mark it Loot Counciled."
       />
 
-      {error && <div className="mb-6 px-5 py-3 rounded-sm border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
+      {error && <div className="mb-6 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
       <Toast msg={msg} />
 
       <div className="mb-8 flex items-center gap-5">
@@ -247,7 +247,7 @@ export default function LootTally() {
       </div>
 
       {showCurrency && (
-        <div className="mb-10 panel rounded-sm p-6 space-y-6">
+        <div className="mb-10 panel rounded-lg p-6 space-y-6">
           <div className="eyebrow text-brass text-[10px] mb-2">Lucent & Shards</div>
 
           <CurrencyGiveForm members={members} busy={currencyBusy} onGive={giveCurrency} />
@@ -255,7 +255,7 @@ export default function LootTally() {
           {currencyTotals.length > 0 && (
             <div>
               <label className="eyebrow text-[10px] text-ash block mb-2">Totals</label>
-              <div className="panel rounded-sm divide-y divide-line">
+              <div className="panel rounded-lg divide-y divide-line">
                 {currencyTotals.map((t) => (
                   <div key={t.discord_id} className="flex items-center gap-3 px-4 py-2 text-sm flex-wrap">
                     <span className="text-bone w-36 shrink-0 truncate">{t.display_name || t.discord_id}</span>
@@ -279,7 +279,7 @@ export default function LootTally() {
             ) : (
               <div className="space-y-1.5 max-h-72 overflow-auto pr-1">
                 {currencyAwards.map((a) => (
-                  <div key={a.id} className="flex items-center gap-3 bg-hall border border-line rounded-sm px-3 py-2 text-sm">
+                  <div key={a.id} className="flex items-center gap-3 bg-hall border border-line rounded-lg px-3 py-2 text-sm">
                     <span className="text-bone flex-1 truncate">{a.display_name || a.discord_id}</span>
                     <span className="font-mono text-brassbright shrink-0">{a.amount.toLocaleString()}</span>
                     <span className="text-ash text-xs w-32 shrink-0 truncate">{CURRENCY_LABEL[a.currency] || a.currency}</span>
@@ -296,7 +296,7 @@ export default function LootTally() {
       )}
 
       {managing && catalog && (
-        <div className="mb-10 panel rounded-sm p-6 space-y-6">
+        <div className="mb-10 panel rounded-lg p-6 space-y-6">
           <div className="eyebrow text-brass text-[10px] mb-2">Item Manager</div>
 
           {/* Add category */}
@@ -304,7 +304,7 @@ export default function LootTally() {
             <label className="eyebrow text-[10px] text-ash block mb-2">Add category</label>
             <div className="flex gap-2">
               <input value={newCatName} onChange={(e) => setNewCatName(e.target.value)} placeholder="e.g. Boots"
-                className="bg-hall border border-line rounded-sm px-3 py-2 text-bone focus:outline-none focus:border-brass flex-1" />
+                className="bg-hall border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass flex-1" />
               <button
                 onClick={() => {
                   if (!newCatName.trim()) return;
@@ -313,7 +313,7 @@ export default function LootTally() {
                     .catch((err) => setError(err.response?.data?.error || 'Failed to add category.'));
                 }}
                 disabled={!newCatName.trim()}
-                className="px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors disabled:opacity-40"
+                className="px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40"
               >
                 <Plus className="w-4 h-4" />
               </button>
@@ -325,12 +325,12 @@ export default function LootTally() {
             <label className="eyebrow text-[10px] text-ash block mb-2">Add item</label>
             <div className="flex gap-2">
               <select value={newItemCat} onChange={(e) => setNewItemCat(e.target.value)}
-                className="bg-hall border border-line rounded-sm px-3 py-2 text-bone focus:outline-none focus:border-brass">
+                className="bg-hall border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass">
                 <option value="">— category —</option>
                 {catalog.categories.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
               </select>
               <input value={newItemName} onChange={(e) => setNewItemName(e.target.value)} placeholder="Item name"
-                className="bg-hall border border-line rounded-sm px-3 py-2 text-bone focus:outline-none focus:border-brass flex-1" />
+                className="bg-hall border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass flex-1" />
               <button
                 onClick={() => {
                   if (!newItemCat || !newItemName.trim()) return;
@@ -339,7 +339,7 @@ export default function LootTally() {
                     .catch((err) => setError(err.response?.data?.error || 'Failed to add item.'));
                 }}
                 disabled={!newItemCat || !newItemName.trim()}
-                className="px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors disabled:opacity-40"
+                className="px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40"
               >
                 <Plus className="w-4 h-4" />
               </button>
@@ -371,7 +371,7 @@ export default function LootTally() {
                     .catch((err) => { setError(err.response?.data?.error || 'Failed to start sync.'); setImporting(false); });
                 }}
                 disabled={importing}
-                className="px-4 py-2 border border-brass/50 text-brassbright hover:bg-panelup rounded-sm text-sm transition-colors disabled:opacity-40"
+                className="px-4 py-2 border border-brass/50 text-brassbright hover:bg-panelup rounded-lg text-sm transition-colors disabled:opacity-40"
               >
                 {importing ? 'Syncing…' : 'Sync Item Database'}
               </button>
@@ -395,9 +395,9 @@ export default function LootTally() {
                       .finally(() => setQlSearching(false));
                   }
                 }}
-                className="bg-hall border border-line rounded-sm px-3 py-2 text-bone focus:outline-none focus:border-brass flex-1" />
+                className="bg-hall border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass flex-1" />
               <select value={qlAddCat} onChange={(e) => setQlAddCat(e.target.value)}
-                className="bg-hall border border-line rounded-sm px-3 py-2 text-bone focus:outline-none focus:border-brass">
+                className="bg-hall border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass">
                 <option value="">— category —</option>
                 {(catalog?.categories || []).map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
               </select>
@@ -411,7 +411,7 @@ export default function LootTally() {
                     .finally(() => setQlSearching(false));
                 }}
                 disabled={qlSearching || !qlSearch.trim()}
-                className="px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors disabled:opacity-40">
+                className="px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40">
                 {qlSearching ? '…' : 'Search'}
               </button>
             </div>
@@ -420,7 +420,7 @@ export default function LootTally() {
                 {qlResults.map((it) => {
                   const g = it.grade >= 51 ? 'text-amber-400' : it.grade >= 41 ? 'text-purple-400' : 'text-bone';
                   return (
-                    <div key={it.id} className="flex items-center gap-2 bg-hall border border-line rounded-sm px-3 py-2">
+                    <div key={it.id} className="flex items-center gap-2 bg-hall border border-line rounded-lg px-3 py-2">
                       {it.icon && <img src={it.icon} alt="" className="w-8 h-8 rounded border border-line object-cover shrink-0" />}
                       <div className="flex-1 min-w-0">
                         <div className={`text-sm truncate ${g}`}>{it.name}</div>
@@ -434,7 +434,7 @@ export default function LootTally() {
                             .catch((err) => setError(err.response?.data?.error || 'Failed to add.'));
                         }}
                         disabled={!qlAddCat}
-                        className="px-3 py-1 text-xs bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors disabled:opacity-40 shrink-0">
+                        className="px-3 py-1 text-xs bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40 shrink-0">
                         Add
                       </button>
                     </div>
@@ -464,7 +464,7 @@ export default function LootTally() {
                 </div>
                 <div className="space-y-1">
                   {cat.items.map((item) => (
-                    <div key={item.key} className="bg-hall border border-line rounded-sm px-3 py-1.5">
+                    <div key={item.key} className="bg-hall border border-line rounded-lg px-3 py-1.5">
                       {editingItem === item.key ? (
                         <div className="space-y-2 py-1">
                           <input value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="Item name"
@@ -549,9 +549,9 @@ export default function LootTally() {
         <div>
           <div className="flex flex-wrap items-center gap-3 mb-6">
             <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search items…"
-              className="bg-panel border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass flex-1 min-w-[160px]" />
+              className="bg-panel border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass flex-1 min-w-[160px]" />
             <select value={category} onChange={(e) => setCategory(e.target.value)}
-              className="bg-panel border border-line rounded-sm px-3 py-2.5 text-bone focus:outline-none focus:border-brass">
+              className="bg-panel border border-line rounded-lg px-3 py-2.5 text-bone focus:outline-none focus:border-brass">
               <option value="">All categories</option>
               {(catalog?.categories || []).map((c) => <option key={c.key} value={c.label}>{c.label}</option>)}
             </select>
@@ -571,7 +571,7 @@ export default function LootTally() {
                     <h2 className="font-display text-lg text-bone tracking-[0.08em] group-hover:text-brassbright transition-colors">{cat.label}</h2>
                     <span className="text-xs text-ash font-mono">{cat.items.length}</span>
                   </button>
-                  {!collapsed.has(cat.key) && <div className="panel rounded-sm divide-y divide-line">
+                  {!collapsed.has(cat.key) && <div className="panel rounded-lg divide-y divide-line">
               {cat.items.map((it) => {
                 const isOpen = open.has(it.key);
                 const watchingIds = new Set(it.watchers.map((w) => w.discord_id));
@@ -619,7 +619,7 @@ export default function LootTally() {
                                 </span>
                               ) : (
                                 <button onClick={() => setPending({ item: it, watcher: w })}
-                                  className="inline-flex items-center gap-1 text-xs px-2.5 py-1 border border-brass/50 text-brassbright hover:bg-panelup rounded-sm transition-colors">
+                                  className="inline-flex items-center gap-1 text-xs px-2.5 py-1 border border-brass/50 text-brassbright hover:bg-panelup rounded-lg transition-colors">
                                   <Gavel className="w-3 h-3" /> Award
                                 </button>
                               )}
@@ -647,7 +647,7 @@ export default function LootTally() {
 
         {/* Awarded tracker sidebar */}
         <aside className="lg:sticky lg:top-20 self-start">
-          <div className="panel rounded-sm p-4">
+          <div className="panel rounded-lg p-4">
             <div className="eyebrow text-[10px] text-brass flex items-center gap-2 mb-4"><ScrollText className="w-3.5 h-3.5" /> Awarded ({awards.length})</div>
             {awards.length === 0 ? (
               <p className="text-ash text-sm">Nothing awarded yet. Expand an item and award it to a member.</p>
@@ -707,7 +707,7 @@ function AddPickRow({ itemName, members, priorities, busy, onAdd }) {
   return (
     <div className="flex flex-wrap items-center gap-2 pt-2 mt-1 border-t border-line/50">
       <select value={memberId} onChange={(e) => setMemberId(e.target.value)}
-        className="bg-hall border border-line rounded-sm px-2 py-1.5 text-xs text-bone focus:outline-none focus:border-brass flex-1 min-w-[140px]">
+        className="bg-hall border border-line rounded-lg px-2 py-1.5 text-xs text-bone focus:outline-none focus:border-brass flex-1 min-w-[140px]">
         <option value="">— add member —</option>
         {members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
       </select>
@@ -719,7 +719,7 @@ function AddPickRow({ itemName, members, priorities, busy, onAdd }) {
       ))}
       <button type="button" onClick={submit} disabled={!memberId || !prio || busy}
         title={`Add to wishlist for ${itemName}`}
-        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors disabled:opacity-40">
+        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40">
         <UserPlus className="w-3.5 h-3.5" /> Add
       </button>
     </div>
@@ -781,7 +781,7 @@ function CurrencyGiveForm({ members, busy, onGive }) {
           type="text" value={query} onChange={onQueryChange}
           onFocus={() => setOpen(true)} onBlur={onQueryBlur} onKeyDown={onQueryKeyDown}
           placeholder="Member…" autoComplete="off"
-          className="w-full bg-hall border border-line rounded-sm pl-3 pr-8 py-2 text-sm text-bone focus:outline-none focus:border-brass"
+          className="w-full bg-hall border border-line rounded-lg pl-3 pr-8 py-2 text-sm text-bone focus:outline-none focus:border-brass"
         />
         {memberId && (
           <button type="button" onClick={clear} title="Clear"
@@ -790,7 +790,7 @@ function CurrencyGiveForm({ members, busy, onGive }) {
           </button>
         )}
         {open && suggestions.length > 0 && (
-          <div className="absolute z-10 mt-1 w-full bg-hall border border-line rounded-sm shadow-lg max-h-56 overflow-auto">
+          <div className="absolute z-10 mt-1 w-full bg-hall border border-line rounded-lg shadow-lg max-h-56 overflow-auto">
             {suggestions.map((m) => (
               <button
                 key={m.id} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => pick(m)}
@@ -803,15 +803,15 @@ function CurrencyGiveForm({ members, busy, onGive }) {
         )}
       </div>
       <select value={currency} onChange={(e) => setCurrency(e.target.value)}
-        className="bg-hall border border-line rounded-sm px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass">
+        className="bg-hall border border-line rounded-lg px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass">
         {CURRENCY_TYPES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
       </select>
       <input
         type="number" min={1} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount"
-        className="bg-hall border border-line rounded-sm px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass w-28"
+        className="bg-hall border border-line rounded-lg px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass w-28"
       />
       <button type="button" onClick={submit} disabled={busy || !memberId || !amount}
-        className="inline-flex items-center gap-1.5 px-4 py-2 text-sm bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors disabled:opacity-40">
+        className="inline-flex items-center gap-1.5 px-4 py-2 text-sm bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40">
         <Coins className="w-4 h-4" /> Give
       </button>
     </div>

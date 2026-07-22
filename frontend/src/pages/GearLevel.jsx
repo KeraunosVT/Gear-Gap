@@ -49,7 +49,7 @@ export default function GearLevel() {
       />
 
       <Toast msg={msg} />
-      {error && <div className="mb-6 px-5 py-3 rounded-sm border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
+      {error && <div className="mb-6 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
 
       {loading ? (
         <div className="py-16 text-center text-ash">Loading…</div>
@@ -62,10 +62,10 @@ export default function GearLevel() {
               ))}
             </div>
           ) : (
-            <div className="panel rounded-sm p-8 text-center text-ash mb-8">Nothing on file yet — upload a screenshot below.</div>
+            <div className="panel rounded-lg p-8 text-center text-ash mb-8">Nothing on file yet — upload a screenshot below.</div>
           )}
 
-          <label className={`block panel rounded-sm border-dashed border-2 border-line hover:border-brass/50 transition-colors p-10 text-center ${uploading ? 'opacity-60 pointer-events-none' : 'cursor-pointer'}`}>
+          <label className={`block panel rounded-lg border-dashed border-2 border-line hover:border-brass/50 transition-colors p-10 text-center ${uploading ? 'opacity-60 pointer-events-none' : 'cursor-pointer'}`}>
             <input type="file" accept="image/*" className="hidden" disabled={uploading}
               onChange={(e) => upload(e.target.files[0])} />
             {uploading ? (

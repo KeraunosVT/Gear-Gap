@@ -94,7 +94,7 @@ export default function PlayerProfile() {
       {/* Averages + Class breakdown */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-14">
         {/* Averages */}
-        <div className="panel rounded-sm p-6">
+        <div className="panel rounded-lg p-6">
           <h3 className="eyebrow text-[10px] text-brass mb-5">Per-Match Averages</h3>
           <div className="space-y-4 font-mono">
             {averages.map((a) => (
@@ -107,7 +107,7 @@ export default function PlayerProfile() {
         </div>
 
         {/* Class breakdown */}
-        <div className="panel rounded-sm p-6">
+        <div className="panel rounded-lg p-6">
           <h3 className="eyebrow text-[10px] text-brass mb-5">Classes Played</h3>
           {p.classBreakdown.length > 0 ? (
             <div className="space-y-3">
@@ -159,7 +159,7 @@ export default function PlayerProfile() {
         <h3 className="font-display text-xl text-bone tracking-[0.08em] mb-5 flex items-center gap-3">
           <Sword className="w-5 h-5 text-brass" /> Match History
         </h3>
-        <div className="panel rounded-sm overflow-auto max-h-[620px]">
+        <div className="panel rounded-lg overflow-auto max-h-[620px]">
           <table className="w-full min-w-[860px] text-sm">
             <thead className="sticky top-0 bg-panelup border-b border-line">
               <tr className="eyebrow text-[10px] text-ash">
@@ -234,7 +234,7 @@ function TrendSection({ history }) {
           const prevAvg = avg.length >= 2 ? avg[avg.length - 2] : latest;
           const delta = latest - prevAvg;
           return (
-            <div key={t.field} className="panel rounded-sm p-5">
+            <div key={t.field} className="panel rounded-lg p-5">
               <div className="flex items-center justify-between mb-3">
                 <div className="flex items-center gap-2 text-ash text-sm">
                   <span style={{ color: t.color }}>{t.icon}</span>

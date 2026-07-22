@@ -177,12 +177,12 @@ export default function Names() {
       ) : loading ? (
         <EmptyState>Reading the rolls…</EmptyState>
       ) : unmapped.length === 0 ? (
-        <div className="panel rounded-sm p-10 text-center">
+        <div className="panel rounded-lg p-10 text-center">
           <div className="font-display text-brassbright text-lg tracking-[0.06em] mb-1">All names are mapped</div>
           <p className="text-ash">Every in-game name in the record belongs to a known player.</p>
         </div>
       ) : (
-        <div className="panel rounded-sm divide-y divide-line">
+        <div className="panel rounded-lg divide-y divide-line">
           {unmapped.map((u) => (
             <div key={u.name} className="flex flex-wrap items-center gap-3 px-5 py-3">
               <div className="min-w-0">
@@ -203,7 +203,7 @@ export default function Names() {
               </select>
               <button
                 onClick={() => assign(u)} disabled={busy === u.name}
-                className="inline-flex items-center gap-1.5 px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm text-sm transition-colors disabled:opacity-40"
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg text-sm transition-colors disabled:opacity-40"
               >
                 {choice[u.name] === NEW ? <UserPlus className="w-4 h-4" /> : <Check className="w-4 h-4" />}
                 {choice[u.name] === NEW ? 'Create' : 'Assign'}
@@ -219,23 +219,23 @@ export default function Names() {
         <div className="mt-14">
           <h2 className="font-display text-2xl text-bone tracking-[0.08em] mb-2">Add a Player</h2>
           <p className="text-ash text-sm mb-4">For a new member who hasn't attended a wargame yet. Once they play, assign their in-game name to this player from the Unmapped list above instead of creating a duplicate.</p>
-          <div className="panel rounded-sm p-4 flex flex-wrap items-center gap-3">
+          <div className="panel rounded-lg p-4 flex flex-wrap items-center gap-3">
             <input
               value={newPlayerName} onChange={(e) => setNewPlayerName(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') addPlayer(); }}
               placeholder="Display name"
-              className="bg-hall border border-line rounded-sm px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass flex-1 min-w-[160px]"
+              className="bg-hall border border-line rounded-lg px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass flex-1 min-w-[160px]"
             />
             <select
               value={newPlayerDiscordId} onChange={(e) => setNewPlayerDiscordId(e.target.value)}
-              className="bg-hall border border-line rounded-sm px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass w-48"
+              className="bg-hall border border-line rounded-lg px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass w-48"
             >
               <option value="">No Discord link yet</option>
               {members.filter((m) => !linkedDiscordIds.has(m.id)).map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
             <button
               onClick={addPlayer} disabled={!newPlayerName.trim() || addingPlayer}
-              className="inline-flex items-center gap-1.5 px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm text-sm transition-colors disabled:opacity-40"
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg text-sm transition-colors disabled:opacity-40"
             >
               <UserPlus className="w-4 h-4" /> {addingPlayer ? 'Adding…' : 'Add'}
             </button>
@@ -247,7 +247,7 @@ export default function Names() {
       {!loading && sortedIdentities.length > 0 && (
         <div className="mt-14">
           <h2 className="font-display text-2xl text-bone tracking-[0.08em] mb-5">Players ({sortedIdentities.length})</h2>
-          <div className="panel rounded-sm divide-y divide-line">
+          <div className="panel rounded-lg divide-y divide-line">
             {sortedIdentities.map((i) => (
               <div key={i.id} className="flex flex-wrap items-center gap-3 px-5 py-3">
                 <input

@@ -183,7 +183,7 @@ export default function Home() {
           <section className="max-w-6xl mx-auto px-6 py-16 space-y-6">
             {/* ── WAR RECORD + UPCOMING EVENTS ───────────────────── */}
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <div className="panel rounded-sm overflow-hidden">
+              <div className="panel rounded-lg overflow-hidden">
                 <div className="flex items-center justify-between px-5 py-4 border-b border-line">
                   <div className="flex items-baseline gap-3">
                     <h2 className="font-display text-lg text-bone tracking-[0.08em]">War Record</h2>
@@ -210,7 +210,7 @@ export default function Home() {
                 )}
               </div>
 
-              <div className="panel rounded-sm overflow-hidden">
+              <div className="panel rounded-lg overflow-hidden">
                 <div className="flex items-center justify-between px-5 py-4 border-b border-line">
                   <h2 className="font-display text-lg text-bone tracking-[0.08em] flex items-center gap-2">
                     <CalendarDays className="w-4 h-4 text-brass" /> Upcoming Events
@@ -236,7 +236,7 @@ export default function Home() {
 
             {/* ── LATEST MEMBERS / ELITE TIMERS / TOP WISHLISTED ─── */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              <div className="panel rounded-sm overflow-hidden">
+              <div className="panel rounded-lg overflow-hidden">
                 <div className="px-5 py-4 border-b border-line">
                   <h2 className="font-display text-base text-bone tracking-[0.06em] flex items-center gap-2">
                     <Users className="w-4 h-4 text-brass" /> Latest Members
@@ -262,7 +262,7 @@ export default function Home() {
                 )}
               </div>
 
-              <div className="panel rounded-sm overflow-hidden">
+              <div className="panel rounded-lg overflow-hidden">
                 <div className="px-5 py-4 border-b border-line">
                   <h2 className="font-display text-base text-bone tracking-[0.06em] flex items-center gap-2">
                     <Clock className="w-4 h-4 text-brass" /> Elite Timers
@@ -294,7 +294,7 @@ export default function Home() {
                 )}
               </div>
 
-              <div className="panel rounded-sm overflow-hidden">
+              <div className="panel rounded-lg overflow-hidden">
                 <div className="flex items-center justify-between px-5 py-4 border-b border-line">
                   <h2 className="font-display text-base text-bone tracking-[0.06em] flex items-center gap-2">
                     <Package className="w-4 h-4 text-brass" /> Top Wishlisted

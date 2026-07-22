@@ -30,7 +30,7 @@ const Button = forwardRef(function Button(
   return (
     <Comp
       ref={ref}
-      className={`inline-flex items-center gap-2 rounded-sm transition-colors disabled:opacity-40 ${VARIANTS[variant]} ${SIZES[size]} ${className}`}
+      className={`inline-flex items-center gap-2 rounded-lg transition-colors disabled:opacity-40 ${VARIANTS[variant]} ${SIZES[size]} ${className}`}
       {...rest}
     >
       {icon}

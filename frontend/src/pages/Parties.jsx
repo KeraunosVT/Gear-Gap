@@ -482,10 +482,10 @@ export default function Parties() {
 
   return (
     <PageShell maxWidth="max-w-none" paddingX="px-2">
-      <div className="panel rounded-sm p-4 mb-6 flex flex-wrap items-center gap-3">
+      <div className="panel rounded-lg p-4 mb-6 flex flex-wrap items-center gap-3">
         <input value={rosterName} onChange={(e) => setRosterName(e.target.value)} placeholder="Roster name"
           className="bg-hall border border-line rounded px-3 py-2 text-bone focus:outline-none focus:border-brass w-52" />
-        <button onClick={save} disabled={busy} className="inline-flex items-center gap-2 px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors disabled:opacity-40">
+        <button onClick={save} disabled={busy} className="inline-flex items-center gap-2 px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40">
           <Save className="w-4 h-4" /> {rosterId ? 'Update' : 'Save'}
         </button>
         <select value={rosterId || ''} onChange={(e) => load(e.target.value)}
@@ -517,7 +517,7 @@ export default function Parties() {
       </div>
 
       {msg && (
-        <div className={`mb-6 px-5 py-3 rounded-sm border text-sm ${msg.ok ? 'border-brass/40 bg-panel text-bone' : 'border-oxblood/50 bg-oxblooddeep/20 text-bone'}`}>{msg.text}</div>
+        <div className={`mb-6 px-5 py-3 rounded-lg border text-sm ${msg.ok ? 'border-brass/40 bg-panel text-bone' : 'border-oxblood/50 bg-oxblooddeep/20 text-bone'}`}>{msg.text}</div>
       )}
 
       <DndContext sensors={sensors} collisionDetection={closestCorners}
@@ -525,7 +525,7 @@ export default function Parties() {
         <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
           {/* Pools + Absent */}
           <div className="flex flex-col gap-4 lg:sticky lg:top-20 lg:self-start">
-            <div className="panel rounded-sm p-3">
+            <div className="panel rounded-lg p-3">
               <div className="flex items-center justify-between mb-2">
                 <div className="eyebrow text-[10px] text-brass flex items-center gap-2"><Users className="w-3.5 h-3.5" /> Pool</div>
                 <button onClick={loadMembers} className="text-ash hover:text-brass" title="Reload members"><RefreshCw className="w-3.5 h-3.5" /></button>
@@ -535,15 +535,15 @@ export default function Parties() {
             </div>
 
             {loadingMembers ? (
-              <div className="panel rounded-sm p-6 text-ash text-sm text-center">Loading members…</div>
+              <div className="panel rounded-lg p-6 text-ash text-sm text-center">Loading members…</div>
             ) : membersError ? (
-              <div className="panel rounded-sm p-4 text-sm text-bone border border-oxblood/40 bg-oxblooddeep/20">
+              <div className="panel rounded-lg p-4 text-sm text-bone border border-oxblood/40 bg-oxblooddeep/20">
                 {membersError}<button onClick={loadMembers} className="block mt-2 text-brass hover:text-brassbright">Retry</button>
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-4">
                 {POOL_META.filter(({ key }) => activeId || items[key].length > 0).map(({ key, label, dot }) => (
-                  <DroppableColumn key={key} id={key} itemIds={poolViews[key]} className="panel rounded-sm p-3">
+                  <DroppableColumn key={key} id={key} itemIds={poolViews[key]} className="panel rounded-lg p-3">
                     <div className="eyebrow text-[10px] text-ash flex items-center gap-2 mb-2">
                       <span className={`w-2 h-2 rounded-full ${dot}`} /> {label} ({items[key].length})
                     </div>
@@ -557,7 +557,7 @@ export default function Parties() {
               </div>
             )}
 
-            <DroppableColumn id="absent" itemIds={items.absent} className="panel rounded-sm p-4">
+            <DroppableColumn id="absent" itemIds={items.absent} className="panel rounded-lg p-4">
               <div className="flex items-center justify-between mb-3">
                 <div className="eyebrow text-[10px] text-oxblood flex items-center gap-2"><CalendarOff className="w-3.5 h-3.5" /> Absent ({items.absent.length})</div>
               </div>
@@ -574,7 +574,7 @@ export default function Parties() {
             {[PARTY_IDS.slice(0, 6), PARTY_IDS.slice(6, 12)].map((row, i) => (
               <div key={i} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3 items-start">
                 {row.map((pid) => (
-                  <DroppableColumn key={pid} id={pid} itemIds={items[pid]} className={`rounded-sm border bg-panel p-2 ${items[pid].length >= PARTY_SIZE ? 'border-line' : 'border-line'}`}>
+                  <DroppableColumn key={pid} id={pid} itemIds={items[pid]} className={`rounded-lg border bg-panel p-2 ${items[pid].length >= PARTY_SIZE ? 'border-line' : 'border-line'}`}>
                     <div className="flex items-center justify-between mb-1.5">
                       <input value={partyNames[pid]} onChange={(e) => renameParty(pid, e.target.value)}
                         className="bg-transparent font-display text-bone text-sm tracking-[0.06em] focus:outline-none focus:text-brassbright w-24" />

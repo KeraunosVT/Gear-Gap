@@ -65,7 +65,7 @@ export default function GearLevels() {
       <div className="flex flex-wrap items-center justify-between mb-5 gap-4">
         <input
           value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search members…"
-          className="bg-panel border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass w-full max-w-xs"
+          className="bg-panel border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass w-full max-w-xs"
         />
         <div className="flex items-center gap-4">
           {!loading && !error && <span className="text-sm text-ash">{rows.length} submitted</span>}

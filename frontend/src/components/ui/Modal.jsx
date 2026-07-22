@@ -8,7 +8,7 @@ export default function Modal({ onClose, maxWidth = 'max-w-md', scrollable = fal
       onClick={onClose}
     >
       <div
-        className={`panel rounded-sm p-6 w-full ${maxWidth} ${scrollable ? 'max-h-[85vh] overflow-auto' : ''}`}
+        className={`panel rounded-lg p-6 w-full ${maxWidth} ${scrollable ? 'max-h-[85vh] overflow-auto' : ''}`}
         onClick={(e) => e.stopPropagation()}
       >
         {children}

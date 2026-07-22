@@ -120,13 +120,13 @@ export default function Shards() {
       <div className="flex items-center justify-between mb-5 gap-4">
         <input
           value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search members…"
-          className="bg-panel border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass w-full max-w-xs"
+          className="bg-panel border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass w-full max-w-xs"
         />
         <button onClick={load} className="inline-flex items-center gap-2 text-sm text-ash hover:text-brass shrink-0"><RefreshCw className="w-4 h-4" /> Refresh</button>
       </div>
 
       {error && (
-        <div className="mb-6 px-5 py-3 rounded-sm border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>
+        <div className="mb-6 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>
       )}
 
       {loading ? (
@@ -134,7 +134,7 @@ export default function Shards() {
       ) : ordered.length === 0 ? (
         <EmptyState>No members found.</EmptyState>
       ) : (
-        <div className="panel rounded-sm overflow-auto max-h-[70vh]">
+        <div className="panel rounded-lg overflow-auto max-h-[70vh]">
           <table className="w-full min-w-[1160px] text-sm border-separate border-spacing-0">
             <thead>
               <tr className="eyebrow text-[10px] text-ash">

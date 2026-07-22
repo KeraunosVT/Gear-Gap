@@ -84,7 +84,7 @@ export default function Topbar({ collapsed, onToggleSidebar }) {
         </button>
 
         {open && (
-          <div className="absolute right-0 mt-2 w-56 panel rounded-sm shadow-xl p-3 z-50">
+          <div className="absolute right-0 mt-2 w-56 panel rounded-lg shadow-xl p-3 z-50">
             <div className="eyebrow text-[10px] text-ash mb-2">Theme</div>
             <div className="flex gap-2 mb-4">
               <button

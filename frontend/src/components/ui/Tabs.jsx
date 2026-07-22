@@ -10,7 +10,7 @@ export default function Tabs({ variant = 'pill', items, active, onChange }) {
           <button
             key={key}
             onClick={() => onChange(key)}
-            className={`px-4 py-2 rounded-sm text-sm font-medium transition-colors ${active === key ? 'bg-panel text-brassbright' : 'text-ash hover:text-bone'}`}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${active === key ? 'bg-panel text-brassbright' : 'text-ash hover:text-bone'}`}
           >
             {label}
           </button>

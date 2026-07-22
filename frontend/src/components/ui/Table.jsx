@@ -5,7 +5,7 @@ import { ArrowDown, ArrowUp } from 'lucide-react';
 
 export function Table({ maxHeight, minWidth, children }) {
   return (
-    <div className={`panel rounded-sm overflow-auto ${maxHeight || ''}`}>
+    <div className={`panel rounded-lg overflow-auto ${maxHeight || ''}`}>
       <table className={`w-full text-sm ${minWidth || ''}`}>{children}</table>
     </div>
   );

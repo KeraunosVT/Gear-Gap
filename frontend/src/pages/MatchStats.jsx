@@ -84,7 +84,7 @@ export default function MatchStats() {
           <select
             value={selectedMatchId || ''}
             onChange={(e) => setSelectedMatchId(e.target.value)}
-            className="w-full bg-panel border border-line rounded-sm px-5 py-3.5 text-bone focus:outline-none focus:border-brass transition-colors"
+            className="w-full bg-panel border border-line rounded-lg px-5 py-3.5 text-bone focus:outline-none focus:border-brass transition-colors"
           >
             <option value="">— choose —</option>
             {matches.map(m => (
@@ -161,7 +161,7 @@ export default function MatchStats() {
           <div className="flex items-center gap-4 mb-1">
             <h2 className="font-display text-3xl text-brassbright tracking-[0.06em]">{selectedMatch.title}</h2>
             {selectedMatch.result && (
-              <span className={`px-3 py-1 rounded-sm text-sm font-semibold tracking-wide ${
+              <span className={`px-3 py-1 rounded-lg text-sm font-semibold tracking-wide ${
                 selectedMatch.result === 'Win' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40' :
                 selectedMatch.result === 'Loss' ? 'bg-oxblooddeep/30 text-oxblood border border-oxblood/50' :
                 'bg-amber-500/15 text-amber-400 border border-amber-500/40'
@@ -172,7 +172,7 @@ export default function MatchStats() {
               </span>
             )}
             {selectedMatch.map && (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-sm text-sm text-ash border border-line">
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-sm text-ash border border-line">
                 <MapIcon className="w-3.5 h-3.5" /> {selectedMatch.map}
               </span>
             )}
@@ -214,12 +214,12 @@ export default function MatchStats() {
             <h3 className="font-display text-xl text-bone tracking-[0.08em] mb-5 flex items-center gap-3">
               <Users className="w-5 h-5 text-brass" /> Fielded Classes
             </h3>
-            <div className="panel rounded-sm p-7">
+            <div className="panel rounded-lg p-7">
               <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                 {classBreakdown.length > 0 ? classBreakdown.map((item, i) => {
                   const total = classBreakdown.reduce((a, b) => a + b.count, 0);
                   return (
-                    <div key={i} className="flex justify-between items-center bg-hall border border-line rounded-sm px-4 py-3">
+                    <div key={i} className="flex justify-between items-center bg-hall border border-line rounded-lg px-4 py-3">
                       <span className="font-medium text-brassbright">{item.name}</span>
                       <div className="text-right font-mono">
                         <span className="text-bone">{item.count}</span>
@@ -282,7 +282,7 @@ function TeamStatCard({ color, stats }) {
   const isRed = color === 'Red';
   const name = stats.guildName || `${color} Team`;
   return (
-    <div className={`rounded-sm p-7 border ${isRed ? 'border-oxblood/50 bg-oxblooddeep/20' : 'border-brass/40 bg-panel'}`}>
+    <div className={`rounded-lg p-7 border ${isRed ? 'border-oxblood/50 bg-oxblooddeep/20' : 'border-brass/40 bg-panel'}`}>
       <div className="mb-6 text-center">
         <div className={`eyebrow text-[10px] mb-2 ${isRed ? 'text-oxblood' : 'text-brass'}`}>
           {color} Team
@@ -312,7 +312,7 @@ function Row({ label, value }) {
 
 function Top10Card({ title, icon, data, field, unit = '' }) {
   return (
-    <div className="panel rounded-sm p-6">
+    <div className="panel rounded-lg p-6">
       <div className="flex items-center gap-2 text-brass mb-5">
         {icon}
         <h4 className="eyebrow text-[10px] text-bone">{title}</h4>
@@ -344,7 +344,7 @@ function DifferentialCard({ red, yellow }) {
   ];
 
   return (
-    <div className="panel rounded-sm p-6 mb-16">
+    <div className="panel rounded-lg p-6 mb-16">
       <h3 className="eyebrow text-[10px] text-brass mb-5 text-center">Differentials</h3>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         {stats.map((s) => {

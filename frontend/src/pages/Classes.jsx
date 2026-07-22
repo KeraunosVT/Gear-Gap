@@ -30,7 +30,7 @@ function ClassPicker({ title, hint, picks, setPicks }) {
             <div key={label} className="flex items-center gap-2">
               <span className="text-ash text-xs w-20 shrink-0">{label}</span>
               <select value={picks[i] || ''} onChange={(e) => update(i, e.target.value)}
-                className="w-full bg-hall border border-line rounded-sm px-4 py-2 text-bone focus:outline-none focus:border-brass">
+                className="w-full bg-hall border border-line rounded-lg px-4 py-2 text-bone focus:outline-none focus:border-brass">
                 <option value="">— not set —</option>
                 {CLASS_LIST.filter((c) => !taken.includes(c)).map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
@@ -86,7 +86,7 @@ export default function Classes() {
         <EmptyState>Loading…</EmptyState>
       ) : (
         <div className="space-y-8">
-          <div className="panel rounded-sm p-6">
+          <div className="panel rounded-lg p-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               <ClassPicker title="PvP Classes" hint="Ranked classes you run in wargames and PvP content."
                 picks={pvpClasses} setPicks={setPvpClasses} />

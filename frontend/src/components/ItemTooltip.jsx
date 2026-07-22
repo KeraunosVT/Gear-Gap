@@ -66,7 +66,7 @@ export default function ItemTooltip({ item, children }) {
       {children}
       {show && hasTooltip && (
         <div
-          className={`fixed z-[100] w-[360px] panel rounded-sm shadow-2xl border ${g ? g.border : 'border-brass/40'} overflow-hidden`}
+          className={`fixed z-[100] w-[360px] panel rounded-lg shadow-2xl border ${g ? g.border : 'border-brass/40'} overflow-hidden`}
           style={{ left: pos.x, top: pos.y }}
         >
           <TooltipContent item={item} g={g} />

@@ -115,7 +115,7 @@ export default function Roster() {
         <div className="flex items-center gap-4">
           <input
             value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search members…"
-            className="bg-panel border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass w-full max-w-xs"
+            className="bg-panel border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass w-full max-w-xs"
           />
           <button onClick={() => setMembersOnly((v) => !v)}
             className="inline-flex items-center gap-0 rounded-full border border-line bg-hall p-0.5 cursor-pointer shrink-0" title="Toggle current members only">

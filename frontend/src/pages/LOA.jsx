@@ -398,28 +398,28 @@ export default function LOA() {
 
       <Toast msg={msg} />
 
-      {error && <div className="mb-6 px-5 py-3 rounded-sm border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
+      {error && <div className="mb-6 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
 
       {/* Admin: event schedule config */}
       {showScheduleAdmin && (
-        <div className="mb-8 panel rounded-sm p-6">
+        <div className="mb-8 panel rounded-lg p-6">
           <div className="eyebrow text-brass text-[10px] mb-4">Event Schedule</div>
           <div className="flex gap-2 mb-4">
             <input value={newEventName} onChange={(e) => setNewEventName(e.target.value)} placeholder="Event name"
-              className="bg-hall border border-line rounded-sm px-3 py-2 text-bone focus:outline-none focus:border-brass flex-1" />
+              className="bg-hall border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass flex-1" />
             <select value={newEventDay} onChange={(e) => setNewEventDay(e.target.value)}
-              className="bg-hall border border-line rounded-sm px-3 py-2 text-bone focus:outline-none focus:border-brass">
+              className="bg-hall border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass">
               <option value="">— day —</option>
               {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
             </select>
             <div className="flex items-center gap-1">
               <input type="time" value={newEventTime} onChange={(e) => setNewEventTime(e.target.value)}
-                className="bg-hall border border-line rounded-sm px-3 py-2 text-bone focus:outline-none focus:border-brass"
+                className="bg-hall border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass"
                 title="Event time in ET (optional)" />
               <span className="text-ash text-xs shrink-0">ET</span>
             </div>
             <button onClick={addScheduleEvent} disabled={!newEventName.trim() || newEventDay === ''}
-              className="px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors disabled:opacity-40">
+              className="px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40">
               <Plus className="w-4 h-4" />
             </button>
           </div>
@@ -427,7 +427,7 @@ export default function LOA() {
             {schedule.length === 0 ? (
               <p className="text-ash text-sm">No events scheduled. Add your recurring events above.</p>
             ) : schedule.map((s) => (
-              <div key={s.id} className="flex items-center justify-between bg-hall border border-line rounded-sm px-3 py-2">
+              <div key={s.id} className="flex items-center justify-between bg-hall border border-line rounded-lg px-3 py-2">
                 <span className="text-bone text-sm">{s.name} <span className="text-ash">— {DAYS[s.day_of_week]}{s.event_time ? ` at ${fmtTimeEst(s.event_time)}` : ''}</span></span>
                 <button onClick={() => deleteScheduleEvent(s.id)} className="text-ash hover:text-oxblood"><Trash2 className="w-3.5 h-3.5" /></button>
               </div>
@@ -454,7 +454,7 @@ export default function LOA() {
 
           {/* Submit */}
           {tab === 'submit' && (
-            <div className="panel rounded-sm p-6 space-y-5">
+            <div className="panel rounded-lg p-6 space-y-5">
               {user?.isAdmin && (
                 <div className="relative w-full md:w-64">
                   <label className="eyebrow text-[10px] text-ash block mb-2">Submit for</label>
@@ -463,7 +463,7 @@ export default function LOA() {
                       type="text" value={submitForQuery} onChange={onSubmitForChange}
                       onFocus={() => setSubmitForOpen(true)} onBlur={onSubmitForBlur} onKeyDown={onSubmitForKeyDown}
                       placeholder="Myself" autoComplete="off"
-                      className="w-full bg-hall border border-line rounded-sm pl-4 pr-9 py-2.5 text-bone focus:outline-none focus:border-brass"
+                      className="w-full bg-hall border border-line rounded-lg pl-4 pr-9 py-2.5 text-bone focus:outline-none focus:border-brass"
                     />
                     {submitFor && (
                       <button type="button" onClick={clearSubmitFor} title="Clear — submit for myself"
@@ -472,7 +472,7 @@ export default function LOA() {
                       </button>
                     )}
                     {submitForOpen && submitForSuggestions.length > 0 && (
-                      <div className="absolute z-10 mt-1 w-full bg-hall border border-line rounded-sm shadow-lg max-h-56 overflow-auto">
+                      <div className="absolute z-10 mt-1 w-full bg-hall border border-line rounded-lg shadow-lg max-h-56 overflow-auto">
                         {submitForSuggestions.map((m) => (
                           <button
                             key={m.id} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => pickSubmitFor(m)}
@@ -489,15 +489,15 @@ export default function LOA() {
 
               <div className="flex gap-3">
                 <button onClick={() => setLoaType('event')}
-                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-sm text-sm font-medium border transition-colors ${loaType === 'event' ? 'border-brass bg-panel text-brassbright' : 'border-line text-ash hover:text-bone'}`}>
+                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${loaType === 'event' ? 'border-brass bg-panel text-brassbright' : 'border-line text-ash hover:text-bone'}`}>
                   <CalendarX2 className="w-4 h-4" /> Single event
                 </button>
                 <button onClick={() => setLoaType('range')}
-                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-sm text-sm font-medium border transition-colors ${loaType === 'range' ? 'border-brass bg-panel text-brassbright' : 'border-line text-ash hover:text-bone'}`}>
+                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${loaType === 'range' ? 'border-brass bg-panel text-brassbright' : 'border-line text-ash hover:text-bone'}`}>
                   <CalendarOff className="w-4 h-4" /> Date range
                 </button>
                 <button onClick={() => setLoaType('recurring')}
-                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-sm text-sm font-medium border transition-colors ${loaType === 'recurring' ? 'border-brass bg-panel text-brassbright' : 'border-line text-ash hover:text-bone'}`}>
+                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${loaType === 'recurring' ? 'border-brass bg-panel text-brassbright' : 'border-line text-ash hover:text-bone'}`}>
                   <Repeat className="w-4 h-4" /> Recurring
                 </button>
               </div>
@@ -507,7 +507,7 @@ export default function LOA() {
                   <div>
                     <label className="eyebrow text-[10px] text-ash block mb-2">Date</label>
                     <input type="date" value={eventDate} onChange={(e) => { setEventDate(e.target.value); setEventScheduleId(''); }}
-                      className="w-full bg-hall border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass" />
+                      className="w-full bg-hall border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass" />
                   </div>
                   <div>
                     <label className="eyebrow text-[10px] text-ash block mb-2">Event <span className="text-ash/50">(optional — leave blank to use a start time instead)</span></label>
@@ -515,7 +515,7 @@ export default function LOA() {
                       <p className="text-ash text-sm py-2.5">No events scheduled for {DAYS[new Date(eventDate + 'T12:00:00').getDay()]}.</p>
                     ) : (
                       <select value={eventScheduleId} onChange={(e) => setEventScheduleId(e.target.value)}
-                        className="w-full bg-hall border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass">
+                        className="w-full bg-hall border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass">
                         <option value="">— select event —</option>
                         {eventsOnDate.map((s) => <option key={s.id} value={s.id}>{s.name}{s.event_time ? ` (${fmtTimeEst(s.event_time)})` : ''}</option>)}
 
@@ -526,13 +526,13 @@ export default function LOA() {
                     <label className="eyebrow text-[10px] text-ash block mb-2">Start time <span className="text-ash/50">(optional — "I'm out after this time")</span></label>
                     <input type="time" value={eventStartTime}
                       onChange={(e) => { setEventStartTime(e.target.value); if (!e.target.value) setEventEndTime(''); }}
-                      className="w-full bg-hall border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass" />
+                      className="w-full bg-hall border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass" />
                     <p className="text-ash/50 text-xs mt-1">e.g. you can make the 6pm AB but nothing scheduled after — leave Event blank and set 6:00 PM here.</p>
                   </div>
                   <div>
                     <label className="eyebrow text-[10px] text-ash block mb-2">End time <span className="text-ash/50">(optional — "but I'll be back after this")</span></label>
                     <input type="time" value={eventEndTime} onChange={(e) => setEventEndTime(e.target.value)} disabled={!eventStartTime}
-                      className="w-full bg-hall border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass disabled:opacity-40" />
+                      className="w-full bg-hall border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass disabled:opacity-40" />
                     <p className="text-ash/50 text-xs mt-1">e.g. out 7–8pm, back for anything after — set a start time first.</p>
                   </div>
                 </div>
@@ -543,12 +543,12 @@ export default function LOA() {
                   <div>
                     <label className="eyebrow text-[10px] text-ash block mb-2">Start date</label>
                     <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
-                      className="w-full bg-hall border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass" />
+                      className="w-full bg-hall border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass" />
                   </div>
                   <div>
                     <label className="eyebrow text-[10px] text-ash block mb-2">End date</label>
                     <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)}
-                      className="w-full bg-hall border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass" />
+                      className="w-full bg-hall border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass" />
                   </div>
                 </div>
               )}
@@ -573,7 +573,7 @@ export default function LOA() {
                   <div>
                     <label className="eyebrow text-[10px] text-ash block mb-2">Event <span className="text-ash/50">(optional — blank means the whole day)</span></label>
                     <select value={recurEventScheduleId} onChange={(e) => setRecurEventScheduleId(e.target.value)} disabled={recurDays.size !== 1}
-                      className="w-full bg-hall border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass disabled:opacity-40">
+                      className="w-full bg-hall border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass disabled:opacity-40">
                       <option value="">Whole day</option>
                       {eventsOnRecurDay.map((s) => <option key={s.id} value={s.id}>{s.name}{s.event_time ? ` (${fmtTimeEst(s.event_time)})` : ''}</option>)}
                     </select>
@@ -583,13 +583,13 @@ export default function LOA() {
                     <label className="eyebrow text-[10px] text-ash block mb-2">Start time <span className="text-ash/50">(optional — blank means absent all day)</span></label>
                     <input type="time" value={recurStartTime}
                       onChange={(e) => { setRecurStartTime(e.target.value); if (!e.target.value) setRecurEndTime(''); }}
-                      className="w-full bg-hall border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass" />
+                      className="w-full bg-hall border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass" />
                     <p className="text-ash/50 text-xs mt-1">Only events at or after this time will count you absent.</p>
                   </div>
                   <div>
                     <label className="eyebrow text-[10px] text-ash block mb-2">End time <span className="text-ash/50">(optional — "but I'll be back after this")</span></label>
                     <input type="time" value={recurEndTime} onChange={(e) => setRecurEndTime(e.target.value)} disabled={!recurStartTime}
-                      className="w-full bg-hall border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass disabled:opacity-40" />
+                      className="w-full bg-hall border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass disabled:opacity-40" />
                     <p className="text-ash/50 text-xs mt-1">Leave blank to stay out for the rest of the day — set a start time first.</p>
                   </div>
                 </div>
@@ -598,11 +598,11 @@ export default function LOA() {
               <div>
                 <label className="eyebrow text-[10px] text-ash block mb-2">Reason <span className="text-ash/50">(visible to officers only)</span></label>
                 <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. vacation, work trip"
-                  className="w-full bg-hall border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass" />
+                  className="w-full bg-hall border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass" />
               </div>
 
               <button onClick={submit} disabled={submitting || !(canSubmitEvent || canSubmitRange || canSubmitRecurring)}
-                className="px-6 py-3 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors disabled:opacity-40">
+                className="px-6 py-3 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40">
                 {submitting ? 'Submitting…' : 'Submit LOA'}
               </button>
             </div>
@@ -612,9 +612,9 @@ export default function LOA() {
           {tab === 'mine' && (
             <div>
               {myEntries.length === 0 ? (
-                <div className="panel rounded-sm p-10 text-center text-ash">You have no LOAs on file.</div>
+                <div className="panel rounded-lg p-10 text-center text-ash">You have no LOAs on file.</div>
               ) : (
-                <div className="panel rounded-sm divide-y divide-line">
+                <div className="panel rounded-lg divide-y divide-line">
                   {myEntries.map((e) => (
                     <div key={e.id} className="flex items-center gap-4 px-5 py-3">
                       <div className="flex items-center gap-2 shrink-0">
@@ -648,7 +648,7 @@ export default function LOA() {
                   <div className="eyebrow text-[10px] text-brass mb-2 flex items-center gap-2">
                     <Repeat className="w-3.5 h-3.5" /> Recurring
                   </div>
-                  <div className="panel rounded-sm divide-y divide-line">
+                  <div className="panel rounded-lg divide-y divide-line">
                     {recurringByMember.map((m) => {
                       const canCancel = user?.isAdmin || m.discord_id === user?.id;
                       const isOpen = expandedRecurring.has(m.discord_id);
@@ -714,7 +714,7 @@ export default function LOA() {
 
               {agendaGroups.length === 0 ? (
                 recurringEntries.length === 0 && (
-                  <div className="panel rounded-sm p-10 text-center text-ash">No upcoming absences on file.</div>
+                  <div className="panel rounded-lg p-10 text-center text-ash">No upcoming absences on file.</div>
                 )
               ) : (
                 <div className="space-y-6">
@@ -724,7 +724,7 @@ export default function LOA() {
                         {formatDateHeader(date)}
                         {date === todayStr && <span className="text-oxblood">· Today</span>}
                       </div>
-                      <div className="panel rounded-sm divide-y divide-line">
+                      <div className="panel rounded-lg divide-y divide-line">
                         {entries.map((e) => (
                           <div key={e.id} className="flex items-center gap-4 px-5 py-3">
                             <div className="flex items-center gap-2 shrink-0">

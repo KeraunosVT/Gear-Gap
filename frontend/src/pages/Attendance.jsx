@@ -177,9 +177,9 @@ export default function Attendance() {
       <div className="rule-fade my-8" />
 
       {msg && (
-        <div className={`mb-6 px-5 py-3 rounded-sm border text-sm ${msg.ok ? 'border-brass/40 bg-panel text-bone' : 'border-oxblood/50 bg-oxblooddeep/20 text-bone'}`}>{msg.text}</div>
+        <div className={`mb-6 px-5 py-3 rounded-lg border text-sm ${msg.ok ? 'border-brass/40 bg-panel text-bone' : 'border-oxblood/50 bg-oxblooddeep/20 text-bone'}`}>{msg.text}</div>
       )}
-      {error && <div className="mb-6 px-5 py-3 rounded-sm border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
+      {error && <div className="mb-6 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
 
       {/* ── Snap section ──────────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-14">
@@ -190,7 +190,7 @@ export default function Attendance() {
               <div className="flex gap-2">
                 <select
                   value={selectedChannel} onChange={(e) => setSelectedChannel(e.target.value)}
-                  className="flex-1 bg-panel border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
+                  className="flex-1 bg-panel border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
                 >
                   <option value="">— select channel —</option>
                   {channels.map((ch) => (
@@ -206,14 +206,14 @@ export default function Attendance() {
             </div>
             <button
               onClick={snap} disabled={!selectedChannel}
-              className="inline-flex items-center gap-2 px-6 py-2.5 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-2 px-6 py-2.5 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               <Camera className="w-4 h-4" /> Snap
             </button>
           </div>
 
           {snapped.length > 0 && (
-            <div className="panel rounded-sm p-4">
+            <div className="panel rounded-lg p-4">
               <div className="eyebrow text-[10px] text-brass mb-3 flex items-center gap-2">
                 <Users className="w-3.5 h-3.5" /> Snapped ({snapped.length})
               </div>
@@ -239,7 +239,7 @@ export default function Attendance() {
             <label className="eyebrow text-[10px] text-ash block mb-2">Scheduled event</label>
             <select
               value={eventScheduleId} onChange={(e) => selectScheduleEvent(e.target.value)}
-              className="w-full bg-panel border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
+              className="w-full bg-panel border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
             >
               <option value="">— custom / none —</option>
               {schedule.map((s) => (
@@ -254,19 +254,19 @@ export default function Attendance() {
             <input
               value={title} onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. Archboss — Morokai"
-              className="w-full bg-panel border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
+              className="w-full bg-panel border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
             />
           </div>
           <div>
             <label className="eyebrow text-[10px] text-ash block mb-2">Event date</label>
             <input
               type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)}
-              className="w-full bg-panel border border-line rounded-sm px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
+              className="w-full bg-panel border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
             />
           </div>
           <button
             onClick={save} disabled={saving || snapped.length === 0}
-            className="w-full px-6 py-3 bg-brass hover:bg-brassbright text-ink font-semibold rounded-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="w-full px-6 py-3 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {saving ? 'Saving…' : `Save event (${snapped.length} attendees)`}
           </button>
@@ -290,7 +290,7 @@ export default function Attendance() {
           ) : events.length === 0 ? (
             <div className="py-16 text-center text-ash">No events logged yet.</div>
           ) : (
-            <div className="panel rounded-sm divide-y divide-line">
+            <div className="panel rounded-lg divide-y divide-line">
               {events.map((ev) => {
                 const isOpen = expanded === ev.id;
                 const attendees = detail[ev.id];
@@ -347,7 +347,7 @@ export default function Attendance() {
 
         {/* Attendance rate sidebar */}
         <aside className="lg:sticky lg:top-20 self-start">
-          <div className="panel rounded-sm p-4">
+          <div className="panel rounded-lg p-4">
             <div className="eyebrow text-[10px] text-brass flex items-center gap-2 mb-1">
               <BarChart3 className="w-3.5 h-3.5" /> Attendance Rate
             </div>
