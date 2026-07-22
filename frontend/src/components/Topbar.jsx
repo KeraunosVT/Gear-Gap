@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
-import { useLocation } from 'react-router-dom';
-import { Moon, Sun, Check } from 'lucide-react';
+import { useLocation, NavLink } from 'react-router-dom';
+import { Moon, Sun, Check, PanelLeft, ChevronRight } from 'lucide-react';
 import { guildLinks, memberLinks, adminLinks } from './Sidebar';
 import { applyTheme } from '../theme';
 import { applyPalette, PALETTES } from '../palette';
@@ -20,8 +20,9 @@ const PALETTE_META = {
   throneliberty: { label: 'Throne & Liberty', swatch: '#b8923f' },
 };
 
-export default function Topbar() {
+export default function Topbar({ collapsed, onToggleSidebar }) {
   const { pathname } = useLocation();
+  const isHome = pathname === '/';
   const [theme, setTheme] = useState(() => document.documentElement.dataset.theme || 'dark');
   const [palette, setPalette] = useState(() => document.documentElement.dataset.palette || 'dispatch');
   const [open, setOpen] = useState(false);
@@ -47,7 +48,28 @@ export default function Topbar() {
 
   return (
     <div className="h-14 shrink-0 flex items-center justify-between px-6 border-b border-line">
-      <span className="text-sm font-semibold text-bone">{crumbFor(pathname)}</span>
+      <div className="flex items-center gap-3 min-w-0">
+        <button
+          onClick={onToggleSidebar}
+          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          className="p-2 -ml-2 rounded-md text-ash hover:text-bone hover:bg-panel transition-colors shrink-0"
+        >
+          <PanelLeft className="w-4 h-4" />
+        </button>
+        <div className="w-px h-5 bg-line shrink-0" />
+        <nav className="flex items-center gap-1.5 text-sm min-w-0">
+          <NavLink to="/" className={`shrink-0 transition-colors ${isHome ? 'text-bone font-semibold' : 'text-ash hover:text-bone'}`}>
+            Dashboard
+          </NavLink>
+          {!isHome && (
+            <>
+              <ChevronRight className="w-3.5 h-3.5 text-ash/50 shrink-0" />
+              <span className="text-bone font-semibold truncate">{crumbFor(pathname)}</span>
+            </>
+          )}
+        </nav>
+      </div>
 
       <div ref={ref} className="relative">
         <button

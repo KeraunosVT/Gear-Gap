@@ -1,7 +1,6 @@
-import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
-  PanelLeft, LayoutDashboard, Swords, Users, Gem, Package, CalendarOff, Layers, Gauge,
+  LayoutDashboard, Swords, Users, Gem, Package, CalendarOff, Layers, Gauge,
   Upload, LayoutGrid, Tag, Gavel, ClipboardCheck, LogOut,
 } from 'lucide-react';
 import Sigil from './Sigil';
@@ -31,28 +30,19 @@ export const adminLinks = [
   { to: '/admin/gear-levels', label: 'Gear Levels', icon: Gauge },
 ];
 
-const COLLAPSE_KEY = 'sidebarCollapsed';
+export const SIDEBAR_COLLAPSE_KEY = 'sidebarCollapsed';
 
 // No stored preference yet → start collapsed on phone/small-tablet widths,
 // matching today's Masthead losing the username below `sm`.
-function getInitialCollapsed() {
-  const stored = localStorage.getItem(COLLAPSE_KEY);
+export function getInitialSidebarCollapsed() {
+  const stored = localStorage.getItem(SIDEBAR_COLLAPSE_KEY);
   if (stored === 'true') return true;
   if (stored === 'false') return false;
   return window.matchMedia('(max-width: 767px)').matches;
 }
 
-export default function Sidebar() {
+export default function Sidebar({ collapsed }) {
   const { user, logout } = useAuth();
-  const [collapsed, setCollapsed] = useState(getInitialCollapsed);
-
-  const toggle = () => {
-    setCollapsed((c) => {
-      const next = !c;
-      localStorage.setItem(COLLAPSE_KEY, String(next));
-      return next;
-    });
-  };
 
   const linkClass = ({ isActive }) =>
     `flex items-center gap-3 rounded-md font-medium tracking-wide transition-colors ${
@@ -70,17 +60,6 @@ export default function Sidebar() {
           </div>
         )}
       </NavLink>
-
-      <div className="px-2 py-2 border-b border-line">
-        <button
-          onClick={toggle}
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          className="flex items-center justify-center w-full p-2 rounded-md text-ash hover:text-bone hover:bg-panel transition-colors"
-        >
-          <PanelLeft className="w-4 h-4" />
-        </button>
-      </div>
 
       <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-4">
         <NavSection title="Guild" links={guildLinks} linkClass={linkClass} collapsed={collapsed} />

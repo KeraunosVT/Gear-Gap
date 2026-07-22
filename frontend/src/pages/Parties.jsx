@@ -10,7 +10,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { useAuth } from '../auth';
 import RestrictedGate from '../components/ui/RestrictedGate';
 import Button from '../components/ui/Button';
-import { PageShell, PageHeader } from '../components/ui/PageShell';
+import { PageShell } from '../components/ui/PageShell';
 import { todayInGuildTz } from '../timeUtils';
 import { Save, Trash2, Send, Plus, RefreshCw, Users, CalendarOff } from 'lucide-react';
 

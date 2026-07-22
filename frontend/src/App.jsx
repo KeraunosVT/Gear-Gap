@@ -1,6 +1,7 @@
+import { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth';
-import Sidebar from './components/Sidebar';
+import Sidebar, { SIDEBAR_COLLAPSE_KEY, getInitialSidebarCollapsed } from './components/Sidebar';
 import Topbar from './components/Topbar';
 import EliteTimerBar from './components/EliteTimerBar';
 import Sigil from './components/Sigil';
@@ -23,12 +24,22 @@ import GearLevel from './pages/GearLevel';
 import GearLevels from './pages/GearLevels';
 
 function Layout() {
+  const [collapsed, setCollapsed] = useState(getInitialSidebarCollapsed);
+
+  const toggleSidebar = () => {
+    setCollapsed((c) => {
+      const next = !c;
+      localStorage.setItem(SIDEBAR_COLLAPSE_KEY, String(next));
+      return next;
+    });
+  };
+
   return (
     <div className="h-screen bg-ink text-bone flex shell-vignette">
-      <Sidebar />
+      <Sidebar collapsed={collapsed} />
       <div className="flex-1 min-w-0 flex flex-col">
-        <Topbar />
         <EliteTimerBar />
+        <Topbar collapsed={collapsed} onToggleSidebar={toggleSidebar} />
         <main className="flex-1 overflow-y-auto">
           <Outlet />
         </main>
