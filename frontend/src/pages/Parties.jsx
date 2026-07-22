@@ -576,7 +576,7 @@ export default function Parties() {
           </div>
 
           {/* Parties */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
             {PARTY_IDS.map((pid) => (
               <DroppableColumn key={pid} id={pid} itemIds={items[pid]} className={`rounded-sm border bg-panel p-3 ${items[pid].length >= PARTY_SIZE ? 'border-line' : 'border-line'}`}>
                 <div className="flex items-center justify-between mb-3">
