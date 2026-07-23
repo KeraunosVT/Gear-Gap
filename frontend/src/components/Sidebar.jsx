@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Swords, Users, Gem, Package, CalendarOff, Layers, Gauge,
-  Upload, LayoutGrid, Tag, Gavel, ClipboardCheck, LogOut,
+  Upload, LayoutGrid, Tag, Gavel, ClipboardCheck, ScrollText, LogOut,
 } from 'lucide-react';
 import Sigil from './Sigil';
 import { GUILD } from '../guild';
@@ -28,6 +28,7 @@ export const adminLinks = [
   { to: '/admin/loot', label: 'Loot Council', icon: Gavel },
   { to: '/admin/attendance', label: 'Attendance', icon: ClipboardCheck },
   { to: '/admin/gear-levels', label: 'Gear Levels', icon: Gauge },
+  { to: '/admin/audit-log', label: 'Audit Log', icon: ScrollText },
 ];
 
 export const SIDEBAR_COLLAPSE_KEY = 'sidebarCollapsed';

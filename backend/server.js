@@ -23,6 +23,7 @@ const createEliteTimers = require('./eliteTimers');
 const createGearIlvl = require('./gearIlvl');
 const createIdentities = require('./identities');
 const createLoa = require('./loa');
+const createAuditLog = require('./auditLog');
 
 const gearUpload = multer({
   storage: multer.memoryStorage(),
@@ -80,6 +81,7 @@ const eliteTimers = supabase ? createEliteTimers(supabase) : null;
 const gearIlvl = supabase ? createGearIlvl(supabase) : null;
 const identities = supabase ? createIdentities(supabase) : null;
 const loa = supabase ? createLoa(supabase) : null;
+const auditLog = supabase ? createAuditLog(supabase) : null;
 
 // The gateway needs Supabase for /elitetimer persistence, so start it after setup.
 gateway.start(supabase);
@@ -111,8 +113,15 @@ app.use('/api', (req, res, next) => {
 });
 
 // ── ADMIN AREA (requires admin role) ─────────────────────────────────────────
+// Audit log's viewer is mounted separately, before the general /api/admin
+// router, so its isAdmin-only gate stays structurally independent of
+// whatever admin.js's own route-level access control becomes later.
+app.use('/api/admin/audit-log', requireAdmin, auditLog
+  ? auditLog.router
+  : (req, res) => res.status(503).json({ error: 'Database not configured.' }));
+
 const createAdminRouter = require('./admin');
-app.use('/api/admin', requireAdmin, createAdminRouter(supabase, gateway, lootCatalog, identities));
+app.use('/api/admin', requireAdmin, auditLog ? auditLog.log : (req, res, next) => next(), createAdminRouter(supabase, gateway, lootCatalog, identities));
 
 // ── MEMBERS AREA: Class builds ───────────────────────────────────────────────
 app.get('/api/my-classes', async (req, res) => {

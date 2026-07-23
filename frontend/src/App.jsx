@@ -22,6 +22,7 @@ import LOA from './pages/LOA';
 import Classes from './pages/Classes';
 import GearLevel from './pages/GearLevel';
 import GearLevels from './pages/GearLevels';
+import AuditLog from './pages/AuditLog';
 
 function Layout() {
   const [collapsed, setCollapsed] = useState(getInitialSidebarCollapsed);
@@ -83,6 +84,7 @@ function Gate() {
           <Route path="/admin/loot/history" element={<LootHistory />} />
           <Route path="/admin/attendance" element={<Attendance />} />
           <Route path="/admin/gear-levels" element={<GearLevels />} />
+          <Route path="/admin/audit-log" element={<AuditLog />} />
           {/* Legacy aliases kept so old links still resolve */}
           <Route path="/dashboard" element={<MatchStats />} />
           <Route path="/match-stats" element={<MatchStats />} />
