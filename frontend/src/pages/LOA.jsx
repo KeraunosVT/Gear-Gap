@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../auth';
-import { CalendarOff, CalendarX2, Plus, Trash2, Settings, X, Repeat, ChevronDown } from 'lucide-react';
+import { CalendarOff, CalendarX2, Plus, Trash2, Settings, X, Repeat, ChevronDown, Pencil, Check } from 'lucide-react';
 
 import { fmtTimeEst, todayInGuildTz } from '../timeUtils';
 import Tabs from '../components/ui/Tabs';
@@ -39,6 +39,12 @@ export default function LOA() {
   const [newEventName, setNewEventName] = useState('');
   const [newEventDay, setNewEventDay] = useState('');
   const [newEventTime, setNewEventTime] = useState('');
+
+  const [editingEventId, setEditingEventId] = useState(null);
+  const [editEventName, setEditEventName] = useState('');
+  const [editEventDay, setEditEventDay] = useState('');
+  const [editEventTime, setEditEventTime] = useState('');
+  const [savingEvent, setSavingEvent] = useState(false);
 
   // Officers can submit an LOA on someone else's behalf; '' means "myself".
   // submitFor is the resolved member id (only ever set by picking a suggestion
@@ -246,6 +252,33 @@ export default function LOA() {
     }
   };
 
+  const startEditEvent = (s) => {
+    setEditingEventId(s.id);
+    setEditEventName(s.name);
+    setEditEventDay(String(s.day_of_week));
+    setEditEventTime(s.event_time || '');
+  };
+  const cancelEditEvent = () => setEditingEventId(null);
+
+  const saveScheduleEvent = async (id) => {
+    if (!editEventName.trim() || editEventDay === '') return;
+    setSavingEvent(true);
+    try {
+      await axios.put(`/api/admin/event-schedule/${id}`, {
+        name: editEventName.trim(),
+        day_of_week: parseInt(editEventDay, 10),
+        event_time: editEventTime || null,
+      });
+      setEditingEventId(null);
+      load();
+      flash('Event updated.');
+    } catch (err) {
+      flash(err.response?.data?.error || 'Failed to update event.', false);
+    } finally {
+      setSavingEvent(false);
+    }
+  };
+
   // A one-off "event" entry is scoped to a picked event, a start-time cutoff
   // ("out for everything from this time onward"), or both — mirrors how
   // formatRecurringOccurrence reads a recurring entry's same two knobs.
@@ -432,10 +465,37 @@ export default function LOA() {
             {schedule.length === 0 ? (
               <p className="text-ash text-sm">No events scheduled. Add your recurring events above.</p>
             ) : schedule.map((s) => (
-              <div key={s.id} className="flex items-center justify-between bg-hall border border-line rounded-lg px-3 py-2">
-                <span className="text-bone text-sm">{s.name} <span className="text-ash">— {DAYS[s.day_of_week]}{s.event_time ? ` at ${fmtTimeEst(s.event_time)}` : ''}</span></span>
-                <button onClick={() => deleteScheduleEvent(s.id)} className="text-ash hover:text-oxblood"><Trash2 className="w-3.5 h-3.5" /></button>
-              </div>
+              editingEventId === s.id ? (
+                <div key={s.id} className="flex gap-2 bg-hall border border-brass/50 rounded-lg px-3 py-2">
+                  <input value={editEventName} onChange={(e) => setEditEventName(e.target.value)} placeholder="Event name"
+                    className="bg-panel border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass flex-1" />
+                  <select value={editEventDay} onChange={(e) => setEditEventDay(e.target.value)}
+                    className="bg-panel border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass">
+                    {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+                  </select>
+                  <div className="flex items-center gap-1">
+                    <input type="time" value={editEventTime} onChange={(e) => setEditEventTime(e.target.value)}
+                      className="bg-panel border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass"
+                      title="Event time in ET (optional)" />
+                    <span className="text-ash text-xs shrink-0">ET</span>
+                  </div>
+                  <button onClick={() => saveScheduleEvent(s.id)} disabled={savingEvent || !editEventName.trim()}
+                    className="px-3 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40">
+                    <Check className="w-4 h-4" />
+                  </button>
+                  <button onClick={cancelEditEvent} disabled={savingEvent} className="px-3 py-2 text-ash hover:text-bone transition-colors disabled:opacity-40">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <div key={s.id} className="flex items-center justify-between bg-hall border border-line rounded-lg px-3 py-2">
+                  <span className="text-bone text-sm">{s.name} <span className="text-ash">— {DAYS[s.day_of_week]}{s.event_time ? ` at ${fmtTimeEst(s.event_time)}` : ''}</span></span>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => startEditEvent(s)} className="text-ash hover:text-brass p-0.5"><Pencil className="w-3.5 h-3.5" /></button>
+                    <button onClick={() => deleteScheduleEvent(s.id)} className="text-ash hover:text-oxblood p-0.5"><Trash2 className="w-3.5 h-3.5" /></button>
+                  </div>
+                </div>
+              )
             ))}
           </div>
         </div>
