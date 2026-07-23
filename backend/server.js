@@ -417,11 +417,12 @@ app.get('/api/players', async (req, res) => {
     const ids = await identities.load();
 
     let data;
+    let matchIds = null; // null = all-time (no match scoping), set below for the "last N" branch
     if (lastN > 0) {
       const { data: recentMatches } = await supabase
         .from('wargame_matches').select('id')
         .order('match_date', { ascending: false }).limit(lastN);
-      const matchIds = (recentMatches || []).map((m) => m.id);
+      matchIds = (recentMatches || []).map((m) => m.id);
       if (matchIds.length === 0) return res.json({ players: [] });
 
       const guildNames = Object.keys(GUILD_ALIASES);
@@ -450,12 +451,33 @@ app.get('/api/players', async (req, res) => {
       data = result.data;
     }
 
+    // Primary class per player, for the Roster page's Melee/Range/Kill
+    // Squad/Healers filter — weapon columns aren't part of get_player_stats()'s
+    // RPC output, so this is a separate fetch, scoped to the same match set as
+    // the stats above. Paginated via .range() since player_match_stats can
+    // exceed PostgREST's 1,000-row default cap for a guild with real history.
+    const guildNames = Object.keys(GUILD_ALIASES);
+    const weaponRows = await fetchAllRows(supabase, 'player_match_stats', 'player_name, weapon_1, weapon_2', guildNames, matchIds);
+    const classCounts = {}; // resolved player_name -> { className: count }
+    weaponRows.forEach((r) => {
+      const resolved = ids.resolveName(r.player_name);
+      const cls = getClassNameBackend(r.weapon_1, r.weapon_2);
+      if (cls === 'Unknown') return;
+      if (!classCounts[resolved]) classCounts[resolved] = {};
+      classCounts[resolved][cls] = (classCounts[resolved][cls] || 0) + 1;
+    });
+    const primaryClassFor = (name) => {
+      const counts = classCounts[name];
+      if (!counts) return null;
+      return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+    };
+
     const members = await listMembers().catch(() => []);
     const memberIds = new Set(members.map((m) => m.id));
 
     const players = (data || []).map((p) => {
       const did = ids.discordIdFor(p.player_name);
-      return { ...p, is_member: did ? memberIds.has(did) : false };
+      return { ...p, is_member: did ? memberIds.has(did) : false, primary_class: primaryClassFor(p.player_name) };
     });
 
     res.json({ players });
@@ -782,6 +804,26 @@ app.get('/api/match/:id', async (req, res) => {
     res.status(500).json({ error: 'Failed to load match details' });
   }
 });
+
+// Fetches every matching row from a table, paging past PostgREST's 1,000-row
+// default cap via .range() instead of trusting a single .select() to return
+// everything. `matchIds` is optional — pass null to skip that filter entirely
+// (an all-time query) rather than scoping to a specific set of matches.
+async function fetchAllRows(supabase, table, columns, guildNames, matchIds) {
+  const PAGE_SIZE = 1000;
+  const all = [];
+  let from = 0;
+  for (;;) {
+    let q = supabase.from(table).select(columns).in('guild_name', guildNames);
+    if (matchIds) q = q.in('match_id', matchIds);
+    const { data, error } = await q.range(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+    all.push(...(data || []));
+    if (!data || data.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+  return all;
+}
 
 // Backend Class Helper
 const weaponToClass = require('../shared/weaponClasses.json');
