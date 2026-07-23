@@ -165,8 +165,8 @@ export default function Roster() {
       ) : rows.length === 0 ? (
         <EmptyState>No members on record yet.</EmptyState>
       ) : (
-        <Table>
-          <Thead>
+        <Table maxHeight="max-h-[70vh]">
+          <Thead sticky>
             <th className="p-2.5 text-center font-normal w-12">#</th>
             {columns.map((c) => (
               <SortableTh key={c.key} label={c.label} sortKey={c.key} activeKey={sortKey} dir={sortDir} onSort={sortBy} align={c.align} dense />
