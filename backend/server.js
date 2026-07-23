@@ -510,7 +510,12 @@ app.get('/api/player/:name', async (req, res) => {
     const guildNames = Object.keys(GUILD_ALIASES);
     const { data: rows, error: rErr } = await supabase
       .from('player_match_stats')
-      .select('*, wargame_matches!inner(id, title, match_date)')
+      // Explicit constraint name, not just "!inner" — player_match_stats has
+      // picked up a second (oddly-named, likely stale) foreign key to
+      // wargame_matches on match_id, so PostgREST can no longer infer which
+      // relationship to embed and errors with "more than one relationship
+      // was found" on a bare wargame_matches!inner(...).
+      .select('*, wargame_matches!player_match_stats_match_id_fkey(id, title, match_date)')
       .in('player_name', names)
       .in('guild_name', guildNames);
     if (rErr) throw rErr;
