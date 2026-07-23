@@ -3,7 +3,7 @@ import axios from 'axios';
 import { useAuth } from '../auth';
 import { CalendarOff, CalendarX2, Plus, Trash2, Settings, X, Repeat, ChevronDown, Pencil, Check } from 'lucide-react';
 
-import { fmtTimeEst, todayInGuildTz } from '../timeUtils';
+import { fmtTimeEst, fmtDatetime, todayInGuildTz } from '../timeUtils';
 import Tabs from '../components/ui/Tabs';
 import { PageShell } from '../components/ui/PageShell';
 import { useFlash } from '../components/ui/useFlash';
@@ -695,6 +695,7 @@ export default function LOA() {
                         </div>
                         {e.reason && <div className="text-xs text-ash mt-0.5">{e.reason}</div>}
                       </div>
+                      <div className="text-xs text-ash/60 shrink-0 text-right" title="When this LOA was submitted">Filed {fmtDatetime(e.created_at)}</div>
                       <button onClick={() => cancel(e.id)} className="text-ash hover:text-oxblood shrink-0" title="Cancel LOA">
                         <X className="w-4 h-4" />
                       </button>
@@ -806,6 +807,7 @@ export default function LOA() {
                               </div>
                               {user?.isAdmin && e.reason && <div className="text-xs text-brass/70 mt-0.5">{e.reason}</div>}
                             </div>
+                            <div className="text-xs text-ash/60 shrink-0 text-right" title="When this LOA was submitted">Filed {fmtDatetime(e.created_at)}</div>
                             {(user?.isAdmin || e.discord_id === user?.id) && (
                               <button onClick={() => cancel(e.id)} className="text-ash hover:text-oxblood shrink-0" title="Cancel LOA">
                                 <X className="w-4 h-4" />
