@@ -22,5 +22,6 @@ export function fmtDatetime(iso) {
   return d.toLocaleString('en-US', {
     month: 'short', day: 'numeric',
     hour: 'numeric', minute: '2-digit',
-  });
+    timeZone: GUILD_TZ,
+  }) + ' ET';
 }
