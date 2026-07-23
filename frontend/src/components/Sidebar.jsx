@@ -1,11 +1,13 @@
+import { useState, useRef, useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Swords, Users, Gem, Package, CalendarOff, Layers, Gauge,
-  Upload, LayoutGrid, Tag, Gavel, ClipboardCheck, ScrollText, LogOut,
+  Upload, LayoutGrid, Tag, Gavel, ClipboardCheck, ScrollText, LogOut, Settings,
 } from 'lucide-react';
 import Sigil from './Sigil';
 import { GUILD } from '../guild';
 import { useAuth } from '../auth';
+import { getDisplayTimezone, setDisplayTimezone, TIMEZONE_OPTIONS } from '../timeUtils';
 
 export const guildLinks = [
   { to: '/', label: 'Dashboard', end: true, icon: LayoutDashboard },
@@ -76,6 +78,7 @@ export default function Sidebar({ collapsed }) {
           {!collapsed && (
             <>
               <span className="text-sm text-bone truncate flex-1 min-w-0">{user.username}</span>
+              <SettingsMenu />
               <button onClick={logout} title="Sign out" aria-label="Sign out" className="p-1.5 rounded-md text-ash hover:text-oxblood hover:bg-panel transition-colors shrink-0">
                 <LogOut className="w-4 h-4" />
               </button>
@@ -84,6 +87,55 @@ export default function Sidebar({ collapsed }) {
         </div>
       )}
     </aside>
+  );
+}
+
+function SettingsMenu() {
+  const [open, setOpen] = useState(false);
+  const [timezone, setTimezone] = useState(getDisplayTimezone);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
+  }, [open]);
+
+  const chooseTimezone = (tz) => {
+    setDisplayTimezone(tz);
+    setTimezone(tz);
+    // Timestamps already on screen were formatted at render time and won't
+    // re-format themselves just because localStorage changed — a reload is
+    // the simplest way to guarantee every open page reflects the new choice.
+    window.location.reload();
+  };
+
+  return (
+    <div ref={ref} className="relative shrink-0">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        title="Settings" aria-label="Settings" aria-haspopup="true" aria-expanded={open}
+        className="p-1.5 rounded-md text-ash hover:text-bone hover:bg-panel transition-colors"
+      >
+        <Settings className="w-4 h-4" />
+      </button>
+
+      {open && (
+        <div className="absolute bottom-full left-0 mb-2 w-64 panel rounded-sm shadow-xl p-3 z-50">
+          <div className="eyebrow text-[10px] text-ash mb-2">Settings</div>
+          <label className="eyebrow text-[10px] text-ash/75 block mb-1.5">Timezone</label>
+          <select
+            value={timezone} onChange={(e) => chooseTimezone(e.target.value)}
+            className="w-full bg-hall border border-line rounded-md px-2.5 py-2 text-sm text-bone focus:outline-none focus:border-brass"
+          >
+            {TIMEZONE_OPTIONS.map((tz) => <option key={tz.value} value={tz.value}>{tz.label}</option>)}
+          </select>
+        </div>
+      )}
+    </div>
   );
 }
 
