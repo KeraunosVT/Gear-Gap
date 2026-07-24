@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { UploadCloud, Loader2, Check, Sword, Shield, Gem, BarChart3 } from 'lucide-react';
-import { PageShell, PageHeader } from '../components/ui/PageShell';
+import { PageShell } from '../components/ui/PageShell';
 import StatTile from '../components/ui/StatTile';
 import { useFlash } from '../components/ui/useFlash';
 import Toast from '../components/ui/Toast';
@@ -42,11 +42,7 @@ export default function GearLevel() {
 
   return (
     <PageShell maxWidth="max-w-2xl">
-      <PageHeader
-        eyebrow="Members Area"
-        title="Gear Level"
-        subtitle={'Upload a screenshot of the in-game "Equipment Level" window (the popup showing Equipment Lv. / Max Weapon / Max Armor / Max Accessory). A new upload replaces whatever you had on file.'}
-      />
+      <p className="text-sm text-ash mb-5">Upload a screenshot of the in-game "Equipment Level" window (the popup showing Equipment Lv. / Max Weapon / Max Armor / Max Accessory). A new upload replaces whatever you had on file.</p>
 
       <Toast msg={msg} />
       {error && <div className="mb-6 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}

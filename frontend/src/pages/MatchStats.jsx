@@ -72,30 +72,22 @@ export default function MatchStats() {
   return (
     <PageShell maxWidth="max-w-7xl">
       {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-4">
-        <div>
-          <div className="eyebrow text-brass text-[11px] mb-3">The Field Logged</div>
-          <h1 className="font-display text-4xl md:text-5xl text-bone tracking-[0.08em]">War Record</h1>
-          <p className="text-ash mt-2">Every engagement, broken down to the blade.</p>
-        </div>
-
-        <div className="w-full md:w-96">
-          <label className="eyebrow text-[10px] text-ash block mb-2">Select engagement</label>
-          <select
-            value={selectedMatchId || ''}
-            onChange={(e) => setSelectedMatchId(e.target.value)}
-            className="w-full bg-panel border border-line rounded-lg px-5 py-3.5 text-bone focus:outline-none focus:border-brass transition-colors"
-          >
-            <option value="">— choose —</option>
-            {matches.map(m => (
-              <option key={m.id} value={m.id}>
-                {new Date(m.match_date + 'T12:00:00').toLocaleDateString()} — {m.title}{m.map ? ` (${m.map})` : ''}
-              </option>
-            ))}
-          </select>
-        </div>
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+        <label className="eyebrow text-[10px] text-ash shrink-0" htmlFor="engagement-select">Select engagement</label>
+        <select
+          id="engagement-select"
+          value={selectedMatchId || ''}
+          onChange={(e) => setSelectedMatchId(e.target.value)}
+          className="w-full md:w-96 bg-panel border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass transition-colors"
+        >
+          <option value="">— choose —</option>
+          {matches.map(m => (
+            <option key={m.id} value={m.id}>
+              {new Date(m.match_date + 'T12:00:00').toLocaleDateString()} — {m.title}{m.map ? ` (${m.map})` : ''}
+            </option>
+          ))}
+        </select>
       </div>
-      <div className="rule-fade mb-8" />
 
       {/* Per-map win record */}
       {mapStats.length > 0 && (

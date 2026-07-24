@@ -6,7 +6,7 @@ import { ArrowLeft, RefreshCw, Upload } from 'lucide-react';
 import { fmtDatetime } from '../timeUtils';
 import ItemTooltip, { gradeStyle } from '../components/ItemTooltip';
 import RestrictedGate from '../components/ui/RestrictedGate';
-import { PageShell, PageHeader } from '../components/ui/PageShell';
+import { PageShell } from '../components/ui/PageShell';
 import EmptyState from '../components/ui/EmptyState';
 
 const PRIO_SHORT = { 'PvP': 'PvP', 'Second Build': '2nd', 'PvE': 'PvE' };
@@ -84,12 +84,6 @@ export default function LootHistory() {
       <Link to="/admin/loot" className="inline-flex items-center gap-1.5 text-sm text-ash hover:text-brass mb-6 transition-colors">
         <ArrowLeft className="w-3.5 h-3.5" /> Back to Loot Council
       </Link>
-      <PageHeader
-        eyebrow="War Table"
-        title="Loot History"
-        subtitle="Every item awarded by Loot Council, in order."
-      />
-
       {error && <div className="mb-6 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
 
       <div className="panel rounded-lg p-4 mb-6">

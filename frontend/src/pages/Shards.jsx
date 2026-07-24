@@ -6,7 +6,7 @@ import BOSS_WEAPONS from '../../../shared/archbossWeapons.json';
 import { Check, Loader2, AlertCircle, RefreshCw, Pencil } from 'lucide-react';
 import Modal from '../components/ui/Modal';
 import Button from '../components/ui/Button';
-import { PageShell, PageHeader } from '../components/ui/PageShell';
+import { PageShell } from '../components/ui/PageShell';
 import EmptyState from '../components/ui/EmptyState';
 
 const MAX = SHARDS.max;
@@ -104,18 +104,12 @@ export default function Shards() {
 
   return (
     <PageShell>
-      <PageHeader
-        eyebrow="Members Area"
-        title="Archboss Shards"
-        subtitle={
-          <>
-            {user?.isAdmin
-              ? 'Track every member’s shard requests. You can edit any row.'
-              : 'Track your shard requests. You can edit your own row; others are read-only.'} Max {MAX} of each.
-            <span className="block text-bone font-bold uppercase mt-2">Put how many you need, not how many you have AND keep it updated</span>
-          </>
-        }
-      />
+      <p className="text-sm text-ash mb-5">
+        {user?.isAdmin
+          ? 'Track every member’s shard requests. You can edit any row.'
+          : 'Track your shard requests. You can edit your own row; others are read-only.'} Max {MAX} of each.
+        <span className="block text-bone font-bold uppercase mt-1.5">Put how many you need, not how many you have AND keep it updated</span>
+      </p>
 
       <div className="flex items-center justify-between mb-5 gap-4">
         <input

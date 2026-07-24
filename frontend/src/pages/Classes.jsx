@@ -3,7 +3,7 @@ import axios from 'axios';
 import { useAuth } from '../auth';
 import weaponToClass from '../../../shared/weaponClasses.json';
 import { Check } from 'lucide-react';
-import { PageShell, PageHeader } from '../components/ui/PageShell';
+import { PageShell } from '../components/ui/PageShell';
 import EmptyState from '../components/ui/EmptyState';
 import Button from '../components/ui/Button';
 
@@ -76,11 +76,7 @@ export default function Classes() {
 
   return (
     <PageShell maxWidth="max-w-2xl">
-      <PageHeader
-        eyebrow="Members Area"
-        title="My Classes"
-        subtitle="Rank up to 3 classes per mode so officers can plan parties around your build."
-      />
+      <p className="text-sm text-ash mb-5">Rank up to 3 classes per mode so officers can plan parties around your build.</p>
 
       {loading ? (
         <EmptyState>Loading…</EmptyState>

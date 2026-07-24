@@ -5,7 +5,7 @@ import { useAuth } from '../auth';
 import weaponToClass from '../../../shared/weaponClasses.json';
 import { UploadCloud, Plus, Trash2, X, Image as ImageIcon, FileSpreadsheet, Loader2, Check, AlertCircle, RotateCw, Map as MapIcon } from 'lucide-react';
 import RestrictedGate from '../components/ui/RestrictedGate';
-import { PageShell, PageHeader } from '../components/ui/PageShell';
+import { PageShell } from '../components/ui/PageShell';
 import { Table, Thead } from '../components/ui/Table';
 
 const WEAPONS = ['SnS', 'Greatsword', 'Dagger', 'Crossbow', 'Longbow', 'Staff', 'Wand', 'Spear', 'Orb', 'Gauntlet'];
@@ -227,20 +227,18 @@ export default function Admin() {
 
   return (
     <PageShell maxWidth="max-w-7xl">
-      <div className="eyebrow text-brass text-[11px] mb-3">War Table</div>
-      <h1 className="font-display text-4xl md:text-5xl text-bone tracking-[0.08em]">
-        {editingMatchId ? 'Edit Match' : 'Upload a Match'}
-      </h1>
-      <p className="text-ash mt-2">
-        {editingMatchId
-          ? 'Revise the record — update any row, then save your changes.'
-          : 'Read results screenshots or a CSV, review every row, then commit it to the record.'}
-      </p>
-
-      <div className="mt-6">
+      <div className="flex items-center justify-between gap-4 mb-5">
+        <div>
+          <h1 className="font-display text-2xl text-bone tracking-[0.06em]">{editingMatchId ? 'Edit Match' : 'Upload a Match'}</h1>
+          <p className="text-ash text-sm mt-1">
+            {editingMatchId
+              ? 'Revise the record — update any row, then save your changes.'
+              : 'Read results screenshots or a CSV, review every row, then commit it to the record.'}
+          </p>
+        </div>
         <button
           onClick={() => setShowMapAdmin((v) => !v)}
-          className="inline-flex items-center gap-2 text-sm text-brass hover:text-brassbright transition-colors"
+          className="inline-flex items-center gap-2 text-sm text-brass hover:text-brassbright transition-colors shrink-0"
         >
           <MapIcon className="w-4 h-4" /> {showMapAdmin ? 'Close map manager' : 'Manage maps'}
         </button>

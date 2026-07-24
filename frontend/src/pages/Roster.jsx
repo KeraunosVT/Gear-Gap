@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
-import { PageShell, PageHeader } from '../components/ui/PageShell';
+import { PageShell } from '../components/ui/PageShell';
 import ErrorState from '../components/ui/ErrorState';
 import EmptyState from '../components/ui/EmptyState';
 import { Table, Thead, SortableTh, Tr } from '../components/ui/Table';
@@ -126,12 +126,6 @@ export default function Roster() {
 
   return (
     <PageShell>
-      <PageHeader
-        eyebrow="The Roll"
-        title="Roster of the House"
-        subtitle="Every member's all-time record across every engagement."
-      />
-
       <div className="flex flex-wrap items-center justify-between mb-4 gap-3">
         <div className="flex items-center gap-4">
           <input

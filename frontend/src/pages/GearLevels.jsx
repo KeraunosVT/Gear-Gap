@@ -3,7 +3,7 @@ import axios from 'axios';
 import { useAuth } from '../auth';
 import { RefreshCw } from 'lucide-react';
 import RestrictedGate from '../components/ui/RestrictedGate';
-import { PageShell, PageHeader } from '../components/ui/PageShell';
+import { PageShell } from '../components/ui/PageShell';
 import ErrorState from '../components/ui/ErrorState';
 import EmptyState from '../components/ui/EmptyState';
 import { Table, Thead, SortableTh, Tr } from '../components/ui/Table';
@@ -56,12 +56,6 @@ export default function GearLevels() {
 
   return (
     <PageShell maxWidth="max-w-4xl">
-      <PageHeader
-        eyebrow="War Table"
-        title="Gear Levels"
-        subtitle="Every member's submitted gear, highest item level per category."
-      />
-
       <div className="flex flex-wrap items-center justify-between mb-5 gap-4">
         <input
           value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search members…"

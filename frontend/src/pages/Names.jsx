@@ -3,7 +3,7 @@ import axios from 'axios';
 import { useAuth } from '../auth';
 import { RefreshCw, UserPlus, Check, X, Trash2 } from 'lucide-react';
 import RestrictedGate from '../components/ui/RestrictedGate';
-import { PageShell, PageHeader } from '../components/ui/PageShell';
+import { PageShell } from '../components/ui/PageShell';
 import ErrorState from '../components/ui/ErrorState';
 import EmptyState from '../components/ui/EmptyState';
 import { useFlash } from '../components/ui/useFlash';
@@ -157,12 +157,6 @@ export default function Names() {
 
   return (
     <PageShell>
-      <PageHeader
-        eyebrow="War Table"
-        title="Merge Names"
-        subtitle="Assign misread in-game names to the right player. Mapped names roll up automatically across all stats."
-      />
-
       <Toast msg={msg} />
 
       <div className="flex items-center justify-between mb-5">

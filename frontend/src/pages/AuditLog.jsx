@@ -3,7 +3,7 @@ import axios from 'axios';
 import { RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuth } from '../auth';
 import RestrictedGate from '../components/ui/RestrictedGate';
-import { PageShell, PageHeader } from '../components/ui/PageShell';
+import { PageShell } from '../components/ui/PageShell';
 import { Table, Thead, Tr } from '../components/ui/Table';
 import EmptyState from '../components/ui/EmptyState';
 import ErrorState from '../components/ui/ErrorState';
@@ -67,12 +67,6 @@ export default function AuditLog() {
 
   return (
     <PageShell maxWidth="max-w-6xl">
-      <PageHeader
-        eyebrow="War Table"
-        title="Audit Log"
-        subtitle="Every write made in the admin area — who, what, and when."
-      />
-
       <div className="flex flex-wrap items-center gap-3 mb-6">
         <select value={discordId} onChange={(e) => resetToFirstPage(setDiscordId)(e.target.value)}
           className="bg-panel border border-line rounded-lg px-3 py-2.5 text-bone focus:outline-none focus:border-brass">

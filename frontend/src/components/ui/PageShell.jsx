@@ -4,16 +4,3 @@
 export function PageShell({ maxWidth = 'max-w-6xl', paddingX = 'px-6', className = '', children }) {
   return <div className={`${maxWidth} mx-auto ${paddingX} py-12 ${className}`}>{children}</div>;
 }
-
-// The eyebrow + title + optional subtitle + fading rule block that opens
-// most pages.
-export function PageHeader({ eyebrow, title, subtitle }) {
-  return (
-    <>
-      <div className="eyebrow text-brass text-[11px] mb-3">{eyebrow}</div>
-      <h1 className="font-display text-4xl md:text-5xl text-bone tracking-[0.08em]">{title}</h1>
-      {subtitle && <p className="text-ash mt-2">{subtitle}</p>}
-      <div className="rule-fade my-8" />
-    </>
-  );
-}

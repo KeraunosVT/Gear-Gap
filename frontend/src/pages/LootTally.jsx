@@ -9,7 +9,7 @@ import ItemTooltip, { gradeStyle } from '../components/ItemTooltip';
 import SHARDS from '../../../shared/shards.json';
 import Modal from '../components/ui/Modal';
 import Button from '../components/ui/Button';
-import { PageShell, PageHeader } from '../components/ui/PageShell';
+import { PageShell } from '../components/ui/PageShell';
 import { useFlash } from '../components/ui/useFlash';
 import Toast from '../components/ui/Toast';
 
@@ -219,12 +219,6 @@ export default function LootTally() {
 
   return (
     <PageShell>
-      <PageHeader
-        eyebrow="War Table"
-        title="Loot Council"
-        subtitle="Every wishlisted item by demand. Award an item to mark it Loot Counciled."
-      />
-
       {error && <div className="mb-6 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
       <Toast msg={msg} />
 

@@ -417,22 +417,17 @@ export default function LOA() {
 
   return (
     <PageShell maxWidth="max-w-4xl">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <div className="eyebrow text-brass text-[11px] mb-3">Members Area</div>
-          <h1 className="font-display text-4xl md:text-5xl text-bone tracking-[0.08em]">Leave of Absence</h1>
-          <p className="text-ash mt-2">Let officers know when you'll be missing events.</p>
-        </div>
+      <div className="flex items-center justify-between gap-4 flex-wrap mb-6">
+        <p className="text-sm text-ash">Let officers know when you'll be missing events.</p>
         {user?.isAdmin && (
           <button
             onClick={() => setShowScheduleAdmin((v) => !v)}
-            className="inline-flex items-center gap-2 text-sm text-brass hover:text-brassbright transition-colors mt-2"
+            className="inline-flex items-center gap-2 text-sm text-brass hover:text-brassbright transition-colors shrink-0"
           >
             <Settings className="w-4 h-4" /> {showScheduleAdmin ? 'Close schedule' : 'Manage schedule'}
           </button>
         )}
       </div>
-      <div className="rule-fade my-8" />
 
       <Toast msg={msg} />
 

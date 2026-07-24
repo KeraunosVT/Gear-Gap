@@ -160,21 +160,16 @@ export default function Attendance() {
 
   return (
     <div className="max-w-6xl mx-auto px-6 py-12">
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <div className="eyebrow text-brass text-[11px] mb-3">War Table</div>
-          <h1 className="font-display text-4xl md:text-5xl text-bone tracking-[0.08em]">Attendance</h1>
-          <p className="text-ash mt-2">Snap a voice channel to log who showed up. Set a title and date, then save.</p>
-        </div>
+      <div className="flex items-center justify-between gap-4 flex-wrap mb-6">
+        <p className="text-sm text-ash">Snap a voice channel to log who showed up. Set a title and date, then save.</p>
         <button
           onClick={backfillNames} disabled={backfilling}
           title="Re-check past attendance records against mapped display names"
-          className="inline-flex items-center gap-2 text-sm text-brass hover:text-brassbright transition-colors disabled:opacity-40 mt-2"
+          className="inline-flex items-center gap-2 text-sm text-brass hover:text-brassbright transition-colors disabled:opacity-40 shrink-0"
         >
           <Wand2 className="w-4 h-4" /> {backfilling ? 'Fixing…' : 'Fix past names'}
         </button>
       </div>
-      <div className="rule-fade my-8" />
 
       {msg && (
         <div className={`mb-6 px-5 py-3 rounded-lg border text-sm ${msg.ok ? 'border-brass/40 bg-panel text-bone' : 'border-oxblood/50 bg-oxblooddeep/20 text-bone'}`}>{msg.text}</div>

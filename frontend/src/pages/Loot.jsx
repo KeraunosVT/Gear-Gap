@@ -72,18 +72,13 @@ export default function Loot() {
 
   return (
     <PageShell>
-      <div className="flex items-start justify-between gap-4 flex-wrap">
-        <div>
-          <div className="eyebrow text-brass text-[11px] mb-3">Members Area</div>
-          <h1 className="font-display text-4xl md:text-5xl text-bone tracking-[0.08em]">Loot Wishlist</h1>
-          <p className="text-ash mt-2">Mark the drops you want and how you'd use them. You're editing your own list.</p>
-        </div>
-        <div className="text-right">
-          <div className="font-mono text-3xl text-brassbright">{myCount}</div>
-          <div className="eyebrow text-[10px] text-ash mt-1">your picks</div>
+      <div className="flex items-center justify-between gap-4 flex-wrap mb-5">
+        <p className="text-sm text-ash">Mark the drops you want and how you'd use them. You're editing your own list.</p>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className="font-mono text-lg text-brassbright">{myCount}</span>
+          <span className="eyebrow text-[10px] text-ash">your picks</span>
         </div>
       </div>
-      <div className="rule-fade my-8" />
 
       <div className="flex items-center justify-between mb-6 gap-4">
         <input

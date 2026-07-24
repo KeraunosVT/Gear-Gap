@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
 import weaponToClass from '../../../shared/weaponClasses.json';
 import { ArrowLeft, Sword, Target, Heart, ShieldAlert, Trophy, TrendingUp, Shield, Gem, BarChart3 } from 'lucide-react';
-import { PageShell, PageHeader } from '../components/ui/PageShell';
+import { PageShell } from '../components/ui/PageShell';
 import EmptyState from '../components/ui/EmptyState';
 import StatTile from '../components/ui/StatTile';
 
@@ -76,13 +76,12 @@ export default function PlayerProfile() {
         <ArrowLeft className="w-4 h-4" /> Roster
       </Link>
 
-      <PageHeader
-        eyebrow="Player Profile"
-        title={p.name}
-        subtitle={p.aliases && p.aliases.length > 0 && (
-          <>Also known as <span className="text-bone/70">{p.aliases.join(' · ')}</span></>
+      <div className="mb-6">
+        <h1 className="font-display text-2xl text-bone tracking-[0.06em]">{p.name}</h1>
+        {p.aliases && p.aliases.length > 0 && (
+          <p className="text-ash text-sm mt-1">Also known as <span className="text-bone/70">{p.aliases.join(' · ')}</span></p>
         )}
-      />
+      </div>
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-10">
