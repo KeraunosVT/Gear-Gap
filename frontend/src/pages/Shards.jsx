@@ -103,7 +103,7 @@ export default function Shards() {
   const weaponModalMember = weaponModalId ? members.find((m) => m.id === weaponModalId) : null;
 
   return (
-    <PageShell>
+    <PageShell maxWidth="max-w-[1400px]">
       <p className="text-sm text-ash mb-5">
         {user?.isAdmin
           ? 'Track every member’s shard requests. You can edit any row.'
