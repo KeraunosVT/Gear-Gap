@@ -1,21 +1,15 @@
 import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../auth';
-import { ChevronDown, RefreshCw, Gavel, X, ScrollText, Plus, Pencil, Trash2, Upload, UserPlus, Coins } from 'lucide-react';
+import { ChevronDown, RefreshCw, Gavel, X, ScrollText, UserPlus } from 'lucide-react';
 import RestrictedGate from '../components/ui/RestrictedGate';
 import { fmtDatetime } from '../timeUtils';
 import ItemTooltip, { gradeStyle } from '../components/ItemTooltip';
-import SHARDS from '../../../shared/shards.json';
 import Modal from '../components/ui/Modal';
 import Button from '../components/ui/Button';
 import { PageShell } from '../components/ui/PageShell';
 import { useFlash } from '../components/ui/useFlash';
 import Toast from '../components/ui/Toast';
-
-// Same list the "Archboss Shards" wishlist page uses, so grants here line up
-// with the same 4 shard types under the same keys.
-const CURRENCY_TYPES = [{ key: 'lucent', label: 'Lucent' }, ...SHARDS.types];
-const CURRENCY_LABEL = Object.fromEntries(CURRENCY_TYPES.map((c) => [c.key, c.label]));
 
 const PRIO_SHORT = { 'PvP': 'PvP', 'Second Build': '2nd', 'PvE': 'PvE' };
 const PRIO_DOT = { 'PvP': 'bg-oxblood', 'Second Build': 'bg-brass', 'PvE': 'bg-emerald-500' };
@@ -40,25 +34,9 @@ export default function LootTally() {
   const [open, setOpen] = useState(() => new Set());
   const [pending, setPending] = useState(null); // { item, watcher }
   const [busy, setBusy] = useState(false);
-  const [managing, setManaging] = useState(false);
-  const [newCatName, setNewCatName] = useState('');
-  const [newItemName, setNewItemName] = useState('');
-  const [newItemCat, setNewItemCat] = useState('');
-  const [editingItem, setEditingItem] = useState(null);
-  const [editName, setEditName] = useState('');
-  const [editDesc, setEditDesc] = useState('');
   const [collapsed, setCollapsed] = useState(() => new Set());
-  const [importing, setImporting] = useState(false);
-  const [importResult, setImportResult] = useState(null);
-  const [qlSearch, setQlSearch] = useState('');
-  const [qlResults, setQlResults] = useState([]);
-  const [qlSearching, setQlSearching] = useState(false);
-  const [qlAddCat, setQlAddCat] = useState('');
   const [members, setMembers] = useState([]);
   const [pickBusy, setPickBusy] = useState(false);
-  const [currencyAwards, setCurrencyAwards] = useState([]);
-  const [showCurrency, setShowCurrency] = useState(false);
-  const [currencyBusy, setCurrencyBusy] = useState(false);
 
   const toggleCat = (key) => setCollapsed((prev) => {
     const next = new Set(prev);
@@ -70,43 +48,19 @@ export default function LootTally() {
     setLoading(true); setError('');
     Promise.all([
       axios.get('/api/loot/catalog'), axios.get('/api/loot'), axios.get('/api/admin/loot/awards'),
-      axios.get('/api/admin/members'), axios.get('/api/admin/currency-awards'),
+      axios.get('/api/admin/members'),
     ])
-      .then(([catRes, loot, aw, mem, cur]) => {
+      .then(([catRes, loot, aw, mem]) => {
         setCatalog(catRes.data);
         setCounts(loot.data.counts || {});
         setTally(loot.data.tally || {});
         setAwards(aw.data.awards || []);
         setMembers(mem.data.members || []);
-        setCurrencyAwards(cur.data.awards || []);
       })
       .catch((err) => setError(err.response?.data?.error || 'Could not load the tally.'))
       .finally(() => setLoading(false));
   };
   useEffect(() => { load(); }, []);
-
-  const currencyTotals = useMemo(() => {
-    const m = {};
-    currencyAwards.forEach((a) => {
-      if (!m[a.discord_id]) m[a.discord_id] = { discord_id: a.discord_id, display_name: a.display_name, byType: {} };
-      m[a.discord_id].byType[a.currency] = (m[a.discord_id].byType[a.currency] || 0) + a.amount;
-      if (a.display_name) m[a.discord_id].display_name = a.display_name;
-    });
-    return Object.values(m).sort((a, b) => (a.display_name || '').localeCompare(b.display_name || ''));
-  }, [currencyAwards]);
-
-  const giveCurrency = (discordId, currency, amount) => {
-    const member = members.find((m) => m.id === discordId);
-    setCurrencyBusy(true);
-    axios.post('/api/admin/currency-awards', { discord_id: discordId, display_name: member?.name, currency, amount })
-      .then(() => { load(); flash(`Gave ${amount.toLocaleString()} ${currency} to ${member?.name || 'member'}.`); })
-      .catch((err) => flash(err.response?.data?.error || 'Failed to record grant.', false))
-      .finally(() => setCurrencyBusy(false));
-  };
-
-  const revokeCurrency = (id) => {
-    axios.delete(`/api/admin/currency-awards/${id}`).then(load).catch((err) => flash(err.response?.data?.error || 'Revoke failed.', false));
-  };
 
   const PRIO_INDEX = useMemo(() => catalog ? Object.fromEntries(catalog.priorities.map((p, i) => [p, i])) : {}, [catalog]);
 
@@ -220,319 +174,6 @@ export default function LootTally() {
     <PageShell>
       {error && <div className="mb-6 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
       <Toast msg={msg} />
-
-      <div className="mb-8 flex items-center gap-5">
-        <button
-          onClick={() => setManaging((v) => !v)}
-          className="inline-flex items-center gap-2 text-sm text-brass hover:text-brassbright transition-colors"
-        >
-          <Pencil className="w-4 h-4" /> {managing ? 'Close item manager' : 'Manage items'}
-        </button>
-        <button
-          onClick={() => setShowCurrency((v) => !v)}
-          className="inline-flex items-center gap-2 text-sm text-brass hover:text-brassbright transition-colors"
-        >
-          <Coins className="w-4 h-4" /> {showCurrency ? 'Close currency ledger' : 'Lucent & Shards'}
-        </button>
-      </div>
-
-      {showCurrency && (
-        <div className="mb-10 panel rounded-lg p-6 space-y-6">
-          <div className="eyebrow text-brass text-[10px] mb-2">Lucent & Shards</div>
-
-          <CurrencyGiveForm members={members} busy={currencyBusy} onGive={giveCurrency} />
-
-          {currencyTotals.length > 0 && (
-            <div>
-              <label className="eyebrow text-[10px] text-ash block mb-2">Totals</label>
-              <div className="panel rounded-lg divide-y divide-line">
-                {currencyTotals.map((t) => (
-                  <div key={t.discord_id} className="flex items-center gap-3 px-4 py-2 text-sm flex-wrap">
-                    <span className="text-bone w-36 shrink-0 truncate">{t.display_name || t.discord_id}</span>
-                    <div className="flex flex-wrap gap-1.5">
-                      {CURRENCY_TYPES.filter((c) => t.byType[c.key]).map((c) => (
-                        <span key={c.key} className="inline-flex items-center gap-1 text-xs bg-hall border border-line rounded-full px-2.5 py-0.5 text-ash">
-                          {c.label} <span className="font-mono text-brassbright">{t.byType[c.key].toLocaleString()}</span>
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div>
-            <label className="eyebrow text-[10px] text-ash block mb-2">Recent grants</label>
-            {currencyAwards.length === 0 ? (
-              <p className="text-ash text-sm">Nothing given yet.</p>
-            ) : (
-              <div className="space-y-1.5 max-h-72 overflow-auto pr-1">
-                {currencyAwards.map((a) => (
-                  <div key={a.id} className="flex items-center gap-3 bg-hall border border-line rounded-lg px-3 py-2 text-sm">
-                    <span className="text-bone flex-1 truncate">{a.display_name || a.discord_id}</span>
-                    <span className="font-mono text-brassbright shrink-0">{a.amount.toLocaleString()}</span>
-                    <span className="text-ash text-xs w-32 shrink-0 truncate">{CURRENCY_LABEL[a.currency] || a.currency}</span>
-                    <span className="text-ash/60 text-[10px] w-28 text-right shrink-0">{fmtDatetime(a.awarded_at)}</span>
-                    <button onClick={() => revokeCurrency(a.id)} className="text-ash hover:text-oxblood shrink-0" title="Revoke">
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
-      {managing && catalog && (
-        <div className="mb-10 panel rounded-lg p-6 space-y-6">
-          <div className="eyebrow text-brass text-[10px] mb-2">Item Manager</div>
-
-          {/* Add category */}
-          <div>
-            <label className="eyebrow text-[10px] text-ash block mb-2">Add category</label>
-            <div className="flex gap-2">
-              <input value={newCatName} onChange={(e) => setNewCatName(e.target.value)} placeholder="e.g. Boots"
-                className="bg-hall border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass flex-1" />
-              <button
-                onClick={() => {
-                  if (!newCatName.trim()) return;
-                  axios.post('/api/admin/loot/categories', { label: newCatName.trim() })
-                    .then(() => { setNewCatName(''); load(); })
-                    .catch((err) => setError(err.response?.data?.error || 'Failed to add category.'));
-                }}
-                disabled={!newCatName.trim()}
-                className="px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          {/* Add item */}
-          <div>
-            <label className="eyebrow text-[10px] text-ash block mb-2">Add item</label>
-            <div className="flex gap-2">
-              <select value={newItemCat} onChange={(e) => setNewItemCat(e.target.value)}
-                className="bg-hall border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass">
-                <option value="">— category —</option>
-                {catalog.categories.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
-              </select>
-              <input value={newItemName} onChange={(e) => setNewItemName(e.target.value)} placeholder="Item name"
-                className="bg-hall border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass flex-1" />
-              <button
-                onClick={() => {
-                  if (!newItemCat || !newItemName.trim()) return;
-                  axios.post('/api/admin/loot/items', { category: newItemCat, name: newItemName.trim() })
-                    .then(() => { setNewItemName(''); load(); })
-                    .catch((err) => setError(err.response?.data?.error || 'Failed to add item.'));
-                }}
-                disabled={!newItemCat || !newItemName.trim()}
-                className="px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          {/* Item database */}
-          <div>
-            <label className="eyebrow text-[10px] text-ash block mb-2">Item Database</label>
-
-            {/* Sync reference data */}
-            <div className="flex items-center gap-3 mb-4">
-              <button
-                onClick={() => {
-                  setImporting(true); setImportResult(null); setError('');
-                  axios.post('/api/admin/loot/import-questlog')
-                    .then(() => {
-                      const poll = setInterval(() => {
-                        axios.get('/api/admin/loot/import-status').then((res) => {
-                          if (!res.data.running) {
-                            clearInterval(poll);
-                            setImporting(false);
-                            if (res.data.error) setError('Sync failed: ' + res.data.error);
-                            else setImportResult(res.data.result);
-                          }
-                        }).catch(() => {});
-                      }, 3000);
-                    })
-                    .catch((err) => { setError(err.response?.data?.error || 'Failed to start sync.'); setImporting(false); });
-                }}
-                disabled={importing}
-                className="px-4 py-2 border border-brass/50 text-brassbright hover:bg-panelup rounded-lg text-sm transition-colors disabled:opacity-40"
-              >
-                {importing ? 'Syncing…' : 'Sync Item Database'}
-              </button>
-              <span className="text-ash text-xs">{importing ? 'This may take a few minutes' : 'Pull latest Epic+ items from game data'}</span>
-              {importResult && (
-                <span className="text-emerald-400 text-xs">
-                  {importResult.imported} new, {importResult.skipped || 0} existing ({(importResult.duration_ms / 1000).toFixed(0)}s)
-                </span>
-              )}
-            </div>
-
-            {/* Search and add */}
-            <div className="flex gap-2 mb-3">
-              <input value={qlSearch} onChange={(e) => setQlSearch(e.target.value)} placeholder="Search items…"
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && qlSearch.trim()) {
-                    setQlSearching(true);
-                    axios.get('/api/admin/loot/questlog-search', { params: { q: qlSearch.trim() } })
-                      .then((res) => setQlResults(res.data.items || []))
-                      .catch(() => setQlResults([]))
-                      .finally(() => setQlSearching(false));
-                  }
-                }}
-                className="bg-hall border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass flex-1" />
-              <select value={qlAddCat} onChange={(e) => setQlAddCat(e.target.value)}
-                className="bg-hall border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass">
-                <option value="">— category —</option>
-                {(catalog?.categories || []).map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
-              </select>
-              <button
-                onClick={() => {
-                  if (!qlSearch.trim()) return;
-                  setQlSearching(true);
-                  axios.get('/api/admin/loot/questlog-search', { params: { q: qlSearch.trim() } })
-                    .then((res) => setQlResults(res.data.items || []))
-                    .catch(() => setQlResults([]))
-                    .finally(() => setQlSearching(false));
-                }}
-                disabled={qlSearching || !qlSearch.trim()}
-                className="px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40">
-                {qlSearching ? '…' : 'Search'}
-              </button>
-            </div>
-            {qlResults.length > 0 && (
-              <div className="space-y-1 max-h-[300px] overflow-auto">
-                {qlResults.map((it) => {
-                  const g = it.grade >= 51 ? 'text-amber-400' : it.grade >= 41 ? 'text-purple-400' : 'text-bone';
-                  return (
-                    <div key={it.id} className="flex items-center gap-2 bg-hall border border-line rounded-lg px-3 py-2">
-                      {it.icon && <img src={it.icon} alt="" className="w-8 h-8 rounded border border-line object-cover shrink-0" />}
-                      <div className="flex-1 min-w-0">
-                        <div className={`text-sm truncate ${g}`}>{it.name}</div>
-                        <div className="text-[10px] text-ash">{it.sub_category}</div>
-                      </div>
-                      <button
-                        onClick={() => {
-                          if (!qlAddCat) { setError('Select a category first.'); return; }
-                          axios.post('/api/admin/loot/add-from-questlog', { questlog_id: it.id, category: qlAddCat })
-                            .then(() => { load(); flash(`Added "${it.name}".`); })
-                            .catch((err) => setError(err.response?.data?.error || 'Failed to add.'));
-                        }}
-                        disabled={!qlAddCat}
-                        className="px-3 py-1 text-xs bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40 shrink-0">
-                        Add
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Existing items by category */}
-          <div className="space-y-4">
-            {catalog.categories.map((cat) => (
-              <div key={cat.key}>
-                <div className="flex items-center gap-2 mb-2">
-                  <h4 className="font-display text-bone tracking-wide">{cat.label}</h4>
-                  <button
-                    onClick={() => {
-                      if (!confirm(`Delete the "${cat.label}" category and all its items?`)) return;
-                      axios.delete(`/api/admin/loot/categories/${cat.key}`)
-                        .then(load)
-                        .catch((err) => setError(err.response?.data?.error || 'Failed to delete category.'));
-                    }}
-                    className="text-ash hover:text-oxblood" title="Delete category"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-                <div className="space-y-1">
-                  {cat.items.map((item) => (
-                    <div key={item.key} className="bg-hall border border-line rounded-lg px-3 py-1.5">
-                      {editingItem === item.key ? (
-                        <div className="space-y-2 py-1">
-                          <input value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="Item name"
-                            className="bg-panel border border-line rounded px-2 py-1 text-bone focus:outline-none focus:border-brass w-full text-sm" />
-                          <textarea value={editDesc} onChange={(e) => setEditDesc(e.target.value)} placeholder="Description (optional)" rows={2}
-                            className="bg-panel border border-line rounded px-2 py-1 text-bone focus:outline-none focus:border-brass w-full text-sm resize-none" />
-                          <div className="flex items-center gap-2">
-                            <label className="inline-flex items-center gap-1.5 text-xs text-brass hover:text-brassbright cursor-pointer">
-                              <Upload className="w-3.5 h-3.5" /> Upload icon
-                              <input type="file" accept="image/*" className="hidden" onChange={(e) => {
-                                const f = e.target.files[0];
-                                if (!f) return;
-                                const form = new FormData();
-                                form.append('image', f);
-                                axios.post(`/api/admin/loot/items/${item.key}/image`, form)
-                                  .then(() => load())
-                                  .catch((err) => setError(err.response?.data?.error || 'Upload failed.'));
-                              }} />
-                            </label>
-                            {item.image_url && <img src={item.image_url} alt="" className="w-6 h-6 rounded border border-line object-cover" />}
-                            {!item.questlog_data && (
-                              <button onClick={() => {
-                                const name = item.name || editName;
-                                axios.get('/api/admin/loot/questlog-search', { params: { q: name } })
-                                  .then((res) => {
-                                    const items = res.data.items || [];
-                                    if (items.length === 0) { setError(`No match for "${name}". Sync the item database first.`); return; }
-                                    const match = items.find((r) => r.name.toLowerCase() === name.toLowerCase()) || items[0];
-                                    return axios.put(`/api/admin/loot/link-questlog/${item.key}`, { questlog_id: match.id })
-                                      .then(() => { load(); flash(`Linked "${match.name}".`); });
-                                  })
-                                  .catch((err) => setError(err.response?.data?.error || err.message || 'Link failed.'));
-                              }} className="text-brass hover:text-brassbright text-xs">Auto-link</button>
-                            )}
-                            {item.questlog_data && (
-                              <button onClick={() => {
-                                axios.put(`/api/admin/loot/unlink-questlog/${item.key}`)
-                                  .then(() => { load(); flash('Unlinked.'); })
-                                  .catch((err) => setError(err.response?.data?.error || 'Unlink failed.'));
-                              }} className="text-emerald-400 hover:text-oxblood text-[10px] inline-flex items-center gap-0.5">linked <X className="w-2.5 h-2.5" /></button>
-                            )}
-                            <div className="flex-1" />
-                            <button onClick={() => {
-                              axios.put(`/api/admin/loot/items/${item.key}`, { name: editName.trim(), description: editDesc })
-                                .then(() => { setEditingItem(null); load(); })
-                                .catch((err) => setError(err.response?.data?.error || 'Failed to save.'));
-                            }} className="text-emerald-400 hover:text-emerald-300 text-xs font-semibold">Save</button>
-                            <button onClick={() => setEditingItem(null)} className="text-ash hover:text-bone text-xs">Cancel</button>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-2">
-                          {item.image_url && <img src={item.image_url} alt="" className="w-6 h-6 rounded border border-line object-cover shrink-0" />}
-                          <span className="text-bone text-sm flex-1">{item.name}</span>
-                          {item.description && <span className="text-ash text-[10px] shrink-0">has desc</span>}
-                          <button onClick={() => { setEditingItem(item.key); setEditName(item.name); setEditDesc(item.description || ''); }}
-                            className="text-ash hover:text-brass" title="Edit">
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                          <button onClick={() => {
-                            if (!confirm(`Delete "${item.name}"?`)) return;
-                            axios.delete(`/api/admin/loot/items/${item.key}`)
-                              .then(load)
-                              .catch((err) => setError(err.response?.data?.error || 'Failed to delete item.'));
-                          }} className="text-ash hover:text-oxblood" title="Delete">
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                  {cat.items.length === 0 && <p className="text-ash text-xs pl-1">No items — add one above or delete this category.</p>}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8">
         {/* Main list */}
@@ -711,98 +352,6 @@ function AddPickRow({ itemName, members, priorities, busy, onAdd }) {
         title={`Add to wishlist for ${itemName}`}
         className="inline-flex items-center gap-1 px-3 py-1.5 text-xs bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40">
         <UserPlus className="w-3.5 h-3.5" /> Add
-      </button>
-    </div>
-  );
-}
-
-// Quick "give lucent/shards to a member" form — kept as its own component so its
-// in-progress selection resets after each submit without touching page state.
-function CurrencyGiveForm({ members, busy, onGive }) {
-  const [memberId, setMemberId] = useState('');
-  const [query, setQuery] = useState('');
-  const [open, setOpen] = useState(false);
-  const [currency, setCurrency] = useState('lucent');
-  const [amount, setAmount] = useState('');
-
-  const suggestions = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q || memberId) return [];
-    return members.filter((m) => (m.name || '').toLowerCase().includes(q)).slice(0, 8);
-  }, [query, memberId, members]);
-
-  const pick = (m) => { setMemberId(m.id); setQuery(m.name); setOpen(false); };
-  const clear = () => { setMemberId(''); setQuery(''); setOpen(false); };
-
-  const onQueryChange = (e) => {
-    setQuery(e.target.value);
-    setOpen(true);
-    if (memberId) setMemberId(''); // typing again invalidates the previous pick
-  };
-
-  const onQueryBlur = () => {
-    // Give a suggestion's onClick a chance to register before we close/validate.
-    setTimeout(() => {
-      setOpen(false);
-      if (memberId) return;
-      const q = query.trim().toLowerCase();
-      const exact = q && members.find((m) => (m.name || '').toLowerCase() === q);
-      if (exact) { setMemberId(exact.id); setQuery(exact.name); }
-      else setQuery(''); // unresolved text can't be sent as a target
-    }, 150);
-  };
-
-  const onQueryKeyDown = (e) => {
-    if (e.key === 'Enter' && suggestions.length > 0) { e.preventDefault(); pick(suggestions[0]); }
-    else if (e.key === 'Escape') setOpen(false);
-  };
-
-  const submit = () => {
-    const amt = parseInt(amount, 10);
-    if (!memberId || !Number.isFinite(amt) || amt <= 0) return;
-    onGive(memberId, currency, amt);
-    setAmount('');
-  };
-
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <div className="relative flex-1 min-w-[160px]">
-        <input
-          type="text" value={query} onChange={onQueryChange}
-          onFocus={() => setOpen(true)} onBlur={onQueryBlur} onKeyDown={onQueryKeyDown}
-          placeholder="Member…" autoComplete="off"
-          className="w-full bg-hall border border-line rounded-lg pl-3 pr-8 py-2 text-sm text-bone focus:outline-none focus:border-brass"
-        />
-        {memberId && (
-          <button type="button" onClick={clear} title="Clear"
-            className="absolute right-2 top-1/2 -translate-y-1/2 text-ash hover:text-oxblood">
-            <X className="w-3.5 h-3.5" />
-          </button>
-        )}
-        {open && suggestions.length > 0 && (
-          <div className="absolute z-10 mt-1 w-full bg-hall border border-line rounded-lg shadow-lg max-h-56 overflow-auto">
-            {suggestions.map((m) => (
-              <button
-                key={m.id} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => pick(m)}
-                className="w-full text-left px-3 py-1.5 text-sm text-bone hover:bg-panelup transition-colors"
-              >
-                {m.name}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-      <select value={currency} onChange={(e) => setCurrency(e.target.value)}
-        className="bg-hall border border-line rounded-lg px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass">
-        {CURRENCY_TYPES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
-      </select>
-      <input
-        type="number" min={1} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount"
-        className="bg-hall border border-line rounded-lg px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass w-28"
-      />
-      <button type="button" onClick={submit} disabled={busy || !memberId || !amount}
-        className="inline-flex items-center gap-1.5 px-4 py-2 text-sm bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40">
-        <Coins className="w-4 h-4" /> Give
       </button>
     </div>
   );

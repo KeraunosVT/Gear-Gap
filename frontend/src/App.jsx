@@ -15,6 +15,8 @@ import Admin from './pages/Admin';
 import Parties from './pages/Parties';
 import Names from './pages/Names';
 import LootTally from './pages/LootTally';
+import LootItems from './pages/LootItems';
+import LootCurrency from './pages/LootCurrency';
 import LootHistory from './pages/LootHistory';
 import Attendance from './pages/Attendance';
 import PlayerProfile from './pages/PlayerProfile';
@@ -81,6 +83,8 @@ function Gate() {
           <Route path="/admin/parties" element={<Parties />} />
           <Route path="/admin/names" element={<Names />} />
           <Route path="/admin/loot" element={<LootTally />} />
+          <Route path="/admin/loot/items" element={<LootItems />} />
+          <Route path="/admin/loot/currency" element={<LootCurrency />} />
           <Route path="/admin/loot/history" element={<LootHistory />} />
           <Route path="/admin/attendance" element={<Attendance />} />
           <Route path="/admin/gear-levels" element={<GearLevels />} />
