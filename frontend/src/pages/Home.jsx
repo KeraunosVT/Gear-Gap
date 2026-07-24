@@ -2,10 +2,8 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { Users, Shield, Swords, Heart, CalendarDays, Clock, Package } from 'lucide-react';
-import Sigil from '../components/Sigil';
 import { GUILD } from '../guild';
 import { fmtTimeEst, todayInGuildTz } from '../timeUtils';
-import Button from '../components/ui/Button';
 import ErrorState from '../components/ui/ErrorState';
 import StatTile from '../components/ui/StatTile';
 import ItemTooltip, { gradeStyle } from '../components/ItemTooltip';
@@ -126,33 +124,12 @@ export default function Home() {
       {/* ── BANNER HERO ─────────────────────────────────────────── */}
       <section className="border-b border-line">
         <div className="max-w-6xl mx-auto px-6 pt-20 pb-16 flex flex-col items-center text-center">
-          {/* Heraldic banner */}
-          <div className="rise relative mb-8">
-            <div
-              className="w-28 h-40 bg-gradient-to-b from-oxblood to-oxblooddeep border-x border-t border-brass/40 flex items-start justify-center pt-7"
-              style={{ clipPath: 'polygon(0 0, 100% 0, 100% 86%, 50% 100%, 0 86%)' }}
-            >
-              <Sigil className="w-14 h-[4.5rem] text-brassbright" />
-            </div>
-          </div>
-
           <div className="rise rise-1 eyebrow text-brass text-[11px] mb-5">
             Throne &amp; Liberty
           </div>
           <h1 className="rise rise-1 font-display font-bold text-bone text-5xl md:text-7xl tracking-[0.08em] leading-tight">
             {GUILD.house}
           </h1>
-          <p className="rise rise-2 font-display text-brassbright text-lg md:text-xl tracking-[0.12em] mt-6">
-            {GUILD.motto}
-          </p>
-          <p className="rise rise-2 max-w-xl text-ash mt-5 leading-relaxed">
-            {GUILD.creed}
-          </p>
-
-          <Button as={Link} to="/war-record" size="lg" className="rise rise-3 mt-10 tracking-wide">
-            Enter the War Record
-            <span aria-hidden>→</span>
-          </Button>
         </div>
       </section>
 
