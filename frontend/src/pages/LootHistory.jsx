@@ -124,7 +124,6 @@ export default function LootHistory() {
             const item = itemByKey[a.item_key];
             return (
               <div key={a.id} className="flex items-center gap-3 px-5 py-3">
-                {item?.image_url && <img src={item.image_url} alt="" className="w-8 h-8 rounded border border-line object-cover shrink-0" />}
                 <div className="min-w-0 flex-1">
                   {item ? (
                     <ItemTooltip item={item}>
