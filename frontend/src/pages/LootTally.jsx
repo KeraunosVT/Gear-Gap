@@ -1,8 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
-import { Link } from 'react-router-dom';
 import { useAuth } from '../auth';
-import { ChevronDown, RefreshCw, Gavel, X, ScrollText, Plus, Pencil, Trash2, Upload, History, UserPlus, Coins } from 'lucide-react';
+import { ChevronDown, RefreshCw, Gavel, X, ScrollText, Plus, Pencil, Trash2, Upload, UserPlus, Coins } from 'lucide-react';
 import RestrictedGate from '../components/ui/RestrictedGate';
 import { fmtDatetime } from '../timeUtils';
 import ItemTooltip, { gradeStyle } from '../components/ItemTooltip';
@@ -229,9 +228,6 @@ export default function LootTally() {
         >
           <Pencil className="w-4 h-4" /> {managing ? 'Close item manager' : 'Manage items'}
         </button>
-        <Link to="/admin/loot/history" className="inline-flex items-center gap-2 text-sm text-brass hover:text-brassbright transition-colors">
-          <History className="w-4 h-4" /> Loot History
-        </Link>
         <button
           onClick={() => setShowCurrency((v) => !v)}
           className="inline-flex items-center gap-2 text-sm text-brass hover:text-brassbright transition-colors"

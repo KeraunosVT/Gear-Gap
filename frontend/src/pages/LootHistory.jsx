@@ -1,8 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
-import { Link } from 'react-router-dom';
 import { useAuth } from '../auth';
-import { ArrowLeft, RefreshCw, Upload } from 'lucide-react';
+import { RefreshCw, Upload } from 'lucide-react';
 import { fmtDatetime } from '../timeUtils';
 import ItemTooltip, { gradeStyle } from '../components/ItemTooltip';
 import RestrictedGate from '../components/ui/RestrictedGate';
@@ -81,9 +80,6 @@ export default function LootHistory() {
 
   return (
     <PageShell maxWidth="max-w-4xl">
-      <Link to="/admin/loot" className="inline-flex items-center gap-1.5 text-sm text-ash hover:text-brass mb-6 transition-colors">
-        <ArrowLeft className="w-3.5 h-3.5" /> Back to Loot Council
-      </Link>
       {error && <div className="mb-6 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
 
       <div className="panel rounded-lg p-4 mb-6">

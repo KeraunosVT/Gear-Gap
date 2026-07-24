@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Swords, Users, Gem, Package, CalendarOff, Layers, Gauge,
-  Upload, LayoutGrid, Tag, Gavel, ClipboardCheck, ScrollText, LogOut, Settings,
+  Upload, LayoutGrid, Tag, Gavel, ClipboardCheck, ScrollText, LogOut, Settings, ChevronDown,
 } from 'lucide-react';
 import Sigil from './Sigil';
 import { GUILD } from '../guild';
@@ -27,7 +27,9 @@ export const adminLinks = [
   { to: '/admin', label: 'Upload Match', end: true, icon: Upload },
   { to: '/admin/parties', label: 'Parties', icon: LayoutGrid },
   { to: '/admin/names', label: 'Names', icon: Tag },
-  { to: '/admin/loot', label: 'Loot Council', icon: Gavel },
+  { to: '/admin/loot', label: 'Loot Council', icon: Gavel, children: [
+    { to: '/admin/loot/history', label: 'Loot History' },
+  ] },
   { to: '/admin/attendance', label: 'Attendance', icon: ClipboardCheck },
   { to: '/admin/gear-levels', label: 'Gear Levels', icon: Gauge },
   { to: '/admin/audit-log', label: 'Audit Log', icon: ScrollText },
@@ -140,16 +142,63 @@ function SettingsMenu() {
 }
 
 function NavSection({ title, links, linkClass, collapsed }) {
+  const { pathname } = useLocation();
+  const [expanded, setExpanded] = useState(() => new Set());
+
+  const isParentActive = (to) => pathname === to || pathname.startsWith(`${to}/`);
+  const isOpen = (link) => expanded.has(link.to) || link.children.some((c) => c.to === pathname);
+  const toggle = (to) => setExpanded((prev) => {
+    const next = new Set(prev);
+    next.has(to) ? next.delete(to) : next.add(to);
+    return next;
+  });
+
   return (
     <div>
       {!collapsed && <div className="eyebrow text-[10px] text-ash/75 px-3 mb-1.5">{title}</div>}
       <div className="space-y-0.5">
-        {links.map(({ to, label, end, icon: Icon }) => (
-          <NavLink key={to} to={to} end={end} className={linkClass} title={collapsed ? label : undefined}>
-            <Icon className="w-4 h-4 shrink-0" />
-            {!collapsed && <span className="truncate">{label}</span>}
-          </NavLink>
-        ))}
+        {links.map(({ to, label, end, icon: Icon, children }) => {
+          // Collapsed rail has no room for a chevron/sub-list — just link
+          // straight to the parent page, same as any other icon-only item.
+          if (!children || collapsed) {
+            return (
+              <NavLink key={to} to={to} end={end} className={linkClass} title={collapsed ? label : undefined}>
+                <Icon className="w-4 h-4 shrink-0" />
+                {!collapsed && <span className="truncate">{label}</span>}
+              </NavLink>
+            );
+          }
+
+          const open = isOpen({ to, children });
+          return (
+            <div key={to}>
+              <div className={linkClass({ isActive: isParentActive(to) })}>
+                <NavLink to={to} end={end} className="flex items-center gap-3 flex-1 min-w-0">
+                  <Icon className="w-4 h-4 shrink-0" />
+                  <span className="truncate">{label}</span>
+                </NavLink>
+                <button
+                  onClick={() => toggle(to)} aria-label={open ? `Collapse ${label}` : `Expand ${label}`} aria-expanded={open}
+                  className="p-1 -mr-1 shrink-0 text-ash hover:text-bone"
+                >
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
+                </button>
+              </div>
+              {open && (
+                <div className="ml-4 pl-3 mt-0.5 border-l border-line space-y-0.5">
+                  {children.map((child) => (
+                    <NavLink
+                      key={child.to} to={child.to}
+                      className={({ isActive }) => `block px-3 py-1.5 rounded-md text-sm truncate transition-colors ${isActive ? 'text-brassbright bg-panel' : 'text-ash hover:text-bone'}`}
+                    >
+                      {child.label}
+                    </NavLink>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
