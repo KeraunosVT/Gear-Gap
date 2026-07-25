@@ -73,12 +73,19 @@ async function parseGearScreenshot(buffer, mimeType) {
   return { weapon, armor, accessory, average };
 }
 
+const MAX_LEVEL = 80;
+
 module.exports = function createGearIlvl(supabase) {
   return {
     parseGearScreenshot,
 
-    // A new submission replaces whatever this member had on file before.
+    // A new submission replaces whatever this member had on file before —
+    // except maxed_at, which is set once (the first time weapon/armor/
+    // accessory all hit MAX_LEVEL) and then left alone on every later
+    // resubmission, so members at the cap keep the order they actually
+    // achieved it in rather than being reshuffled by later screenshots.
     async submit(discordId, displayName, extracted) {
+      const isMaxed = extracted.weapon === MAX_LEVEL && extracted.armor === MAX_LEVEL && extracted.accessory === MAX_LEVEL;
       const row = {
         discord_id: discordId,
         display_name: displayName || null,
@@ -88,6 +95,10 @@ module.exports = function createGearIlvl(supabase) {
         average: extracted.average,
         submitted_at: new Date().toISOString(),
       };
+      if (isMaxed) {
+        const { data: existing } = await supabase.from('gear_levels').select('maxed_at').eq('discord_id', discordId).single();
+        row.maxed_at = existing?.maxed_at || new Date().toISOString();
+      }
       const { error } = await supabase.from('gear_levels').upsert(row, { onConflict: 'discord_id' });
       if (error) throw new Error(error.message);
       return row;

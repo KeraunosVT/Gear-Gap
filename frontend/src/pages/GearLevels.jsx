@@ -8,6 +8,9 @@ import ErrorState from '../components/ui/ErrorState';
 import EmptyState from '../components/ui/EmptyState';
 import { Table, Thead, SortableTh, Tr } from '../components/ui/Table';
 
+const MAX_LEVEL = 80;
+const isMaxed = (e) => e.weapon === MAX_LEVEL && e.armor === MAX_LEVEL && e.accessory === MAX_LEVEL;
+
 const COLUMNS = [
   { key: 'display_name', label: 'Member', align: 'left' },
   { key: 'weapon', label: 'Weapon', align: 'right' },
@@ -44,6 +47,12 @@ export default function GearLevels() {
     const list = entries.filter((e) => (e.display_name || '').toLowerCase().includes(f));
     const dir = sortDir === 'asc' ? 1 : -1;
     return [...list].sort((a, b) => {
+      // Members who've hit 80/80/80 keep a fixed order among themselves —
+      // first to achieve it ranks first — instead of being reshuffled every
+      // time they're tied at the cap.
+      if (sortKey === 'average' && isMaxed(a) && isMaxed(b)) {
+        return new Date(a.maxed_at || 0) - new Date(b.maxed_at || 0);
+      }
       const va = a[sortKey], vb = b[sortKey];
       if (typeof va === 'string' || typeof vb === 'string') return String(va || '').localeCompare(String(vb || '')) * dir;
       return ((Number(va) || 0) - (Number(vb) || 0)) * dir;
