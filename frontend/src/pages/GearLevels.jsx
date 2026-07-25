@@ -7,6 +7,7 @@ import { PageShell } from '../components/ui/PageShell';
 import ErrorState from '../components/ui/ErrorState';
 import EmptyState from '../components/ui/EmptyState';
 import { Table, Thead, SortableTh, Tr } from '../components/ui/Table';
+import { fmtDatetime } from '../timeUtils';
 
 const MAX_LEVEL = 80;
 const isMaxed = (e) => e.weapon === MAX_LEVEL && e.armor === MAX_LEVEL && e.accessory === MAX_LEVEL;
@@ -17,6 +18,7 @@ const COLUMNS = [
   { key: 'armor', label: 'Armor', align: 'right' },
   { key: 'accessory', label: 'Accessory', align: 'right' },
   { key: 'average', label: 'Average', align: 'right' },
+  { key: 'maxed_at', label: 'Maxed', align: 'right' },
 ];
 
 export default function GearLevels() {
@@ -97,6 +99,7 @@ export default function GearLevels() {
                 <td className="p-4 text-right font-mono text-bone">{e.armor || '—'}</td>
                 <td className="p-4 text-right font-mono text-bone">{e.accessory || '—'}</td>
                 <td className="p-4 text-right font-mono text-brassbright">{e.average || '—'}</td>
+                <td className="p-4 text-right text-ash text-xs">{e.maxed_at ? fmtDatetime(e.maxed_at) : '—'}</td>
               </Tr>
             ))}
           </tbody>
