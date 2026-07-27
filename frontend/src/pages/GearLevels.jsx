@@ -61,6 +61,11 @@ export default function GearLevels() {
     });
   }, [entries, filter, sortKey, sortDir]);
 
+  const guildAverage = useMemo(() => {
+    if (entries.length === 0) return 0;
+    return entries.reduce((sum, e) => sum + (Number(e.average) || 0), 0) / entries.length;
+  }, [entries]);
+
   if (!user?.isAdmin) {
     return <RestrictedGate />;
   }
@@ -73,7 +78,12 @@ export default function GearLevels() {
           className="bg-panel border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass w-full max-w-xs"
         />
         <div className="flex items-center gap-4">
-          {!loading && !error && <span className="text-sm text-ash">{rows.length} submitted</span>}
+          {!loading && !error && (
+            <>
+              <span className="text-sm text-ash">Guild average <span className="text-brassbright font-mono">{guildAverage.toLocaleString(undefined, { maximumFractionDigits: 1 })}</span></span>
+              <span className="text-sm text-ash">{rows.length} submitted</span>
+            </>
+          )}
           <button onClick={load} className="inline-flex items-center gap-2 text-sm text-ash hover:text-brass"><RefreshCw className="w-4 h-4" /></button>
         </div>
       </div>
