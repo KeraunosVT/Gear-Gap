@@ -1,12 +1,13 @@
 import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../auth';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, History } from 'lucide-react';
 import RestrictedGate from '../components/ui/RestrictedGate';
 import { PageShell } from '../components/ui/PageShell';
 import ErrorState from '../components/ui/ErrorState';
 import EmptyState from '../components/ui/EmptyState';
 import { Table, Thead, SortableTh, Tr } from '../components/ui/Table';
+import Modal from '../components/ui/Modal';
 import { fmtDatetime } from '../timeUtils';
 
 const MAX_LEVEL = 80;
@@ -66,6 +67,19 @@ export default function GearLevels() {
     return entries.reduce((sum, e) => sum + (Number(e.average) || 0), 0) / entries.length;
   }, [entries]);
 
+  const [historyMember, setHistoryMember] = useState(null);
+  const [historyEntries, setHistoryEntries] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  const openHistory = (entry) => {
+    setHistoryMember(entry);
+    setHistoryLoading(true);
+    axios.get(`/api/admin/gear-ilvl/${entry.discord_id}/history`)
+      .then((res) => setHistoryEntries(res.data.entries || []))
+      .catch(() => setHistoryEntries([]))
+      .finally(() => setHistoryLoading(false));
+  };
+
   if (!user?.isAdmin) {
     return <RestrictedGate />;
   }
@@ -100,6 +114,7 @@ export default function GearLevels() {
             {COLUMNS.map((c) => (
               <SortableTh key={c.key} label={c.label} sortKey={c.key} activeKey={sortKey} dir={sortDir} onSort={sortBy} align={c.align} />
             ))}
+            <th className="p-4 w-10"></th>
           </Thead>
           <tbody>
             {rows.map((e) => (
@@ -110,10 +125,39 @@ export default function GearLevels() {
                 <td className="p-4 text-right font-mono text-bone">{e.accessory || '—'}</td>
                 <td className="p-4 text-right font-mono text-brassbright">{e.average || '—'}</td>
                 <td className="p-4 text-right text-ash text-xs">{e.maxed_at ? fmtDatetime(e.maxed_at) : '—'}</td>
+                <td className="p-4 text-center">
+                  <button onClick={() => openHistory(e)} className="text-ash hover:text-brass" title="View submission history">
+                    <History className="w-3.5 h-3.5" />
+                  </button>
+                </td>
               </Tr>
             ))}
           </tbody>
         </Table>
+      )}
+
+      {historyMember && (
+        <Modal onClose={() => setHistoryMember(null)} maxWidth="max-w-lg" scrollable>
+          <div className="eyebrow text-brass text-[11px] mb-3">Gear Level History</div>
+          <h2 className="font-display text-xl text-bone tracking-[0.06em] mb-4">{historyMember.display_name || 'Member'}</h2>
+          {historyLoading ? (
+            <p className="text-ash text-sm">Loading…</p>
+          ) : historyEntries.length === 0 ? (
+            <p className="text-ash text-sm">No submission history on file.</p>
+          ) : (
+            <div className="space-y-2">
+              {historyEntries.map((h) => (
+                <div key={h.id} className="flex items-center gap-3 bg-hall border border-line rounded-lg px-3 py-2 text-sm">
+                  <span className="text-ash text-xs w-36 shrink-0">{fmtDatetime(h.submitted_at)}</span>
+                  <span className="font-mono text-bone">W {h.weapon}</span>
+                  <span className="font-mono text-bone">A {h.armor}</span>
+                  <span className="font-mono text-bone">Ac {h.accessory}</span>
+                  <span className="font-mono text-brassbright ml-auto">Avg {h.average}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </Modal>
       )}
     </PageShell>
   );

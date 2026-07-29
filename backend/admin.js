@@ -170,6 +170,14 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     res.json({ entries });
   });
 
+  router.get('/gear-ilvl/:discordId/history', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const { data, error } = await supabase.from('gear_level_history')
+      .select('*').eq('discord_id', req.params.discordId).order('submitted_at', { ascending: false });
+    if (error) return res.status(500).json({ error: 'Failed to load gear level history.' });
+    res.json({ entries: data || [] });
+  });
+
   // ── Loot council: awards ────────────────────────────────────────────────────
   router.get('/loot/awards', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });

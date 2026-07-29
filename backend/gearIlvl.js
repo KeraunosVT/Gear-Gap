@@ -101,7 +101,23 @@ module.exports = function createGearIlvl(supabase) {
       }
       const { error } = await supabase.from('gear_levels').upsert(row, { onConflict: 'discord_id' });
       if (error) throw new Error(error.message);
+
+      // Append-only log, separate from the upserted "current" row above — this
+      // is what lets a member's gear progression be viewed over time instead
+      // of only ever showing their latest submission.
+      const { maxed_at, ...historyRow } = row;
+      await supabase.from('gear_level_history').insert(historyRow).then(({ error: histErr }) => {
+        if (histErr) console.error('gear_level_history insert failed:', histErr.message);
+      });
+
       return row;
+    },
+
+    async historyForMember(discordId) {
+      const { data, error } = await supabase.from('gear_level_history')
+        .select('*').eq('discord_id', discordId).order('submitted_at', { ascending: false });
+      if (error) { console.error('gearIlvl.historyForMember error:', error.message); return []; }
+      return data || [];
     },
 
     async forMember(discordId) {
