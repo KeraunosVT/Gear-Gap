@@ -15,7 +15,7 @@ A guild-management web app for a *Throne & Liberty* guild, built around Discord:
 **For officers**
 - **Attendance** — snap a voice channel's members into a logged event, tied to the recurring event schedule; also runnable straight from Discord via `/attendance`
 - **Loot Council** — see wishlist demand, award items, track Lucent and archboss-shard grants per member
-- **Parties** — drag-and-drop party builder with roles, saved rosters, posts directly to Discord
+- **Parties** — drag-and-drop party builder with roles, saved rosters, posts directly to Discord. Each roster is saved against the date/event it's for, so reopening it re-checks LOA for that occasion and reports what changed since — who has filed since you built it, and who's since cancelled
 - **Gear Levels / Merge Names** — guild-wide gear-level leaderboard; reconcile OCR-misread in-game names to the right player
 - **Admin** — match/screenshot ingestion, member role management, event schedule management
 

@@ -10,6 +10,7 @@ const createAttendance = require('./attendance');
 const SHARDS = require('../shared/shards.json');
 
 const ROLE_EMOJI = { Tank: '🛡️', DPS: '⚔️', Healer: '💚' };
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // Levenshtein edit distance — used to suggest the closest known player for an
 // unmapped (likely OCR-misread) name.
@@ -649,10 +650,22 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
   });
 
   // ── Roster CRUD ─────────────────────────────────────────────────────────────
+  // A roster is bound to the occasion it was built for (event_date, and
+  // optionally one event_schedule_id) so loading it can re-check LOA against
+  // that date instead of against today. Both are nullable — rosters saved
+  // before the binding existed simply have no occasion to re-check.
+  // Returns the columns to write, or null if the date is malformed.
+  const rosterOccasion = (body) => {
+    const date = body.event_date || null;
+    if (date && !DATE_RE.test(date)) return null;
+    return { event_date: date, event_schedule_id: body.event_schedule_id || null };
+  };
+
   router.get('/rosters', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
     const { data, error } = await supabase
-      .from('rosters').select('id, name, updated_at').order('updated_at', { ascending: false });
+      .from('rosters').select('id, name, updated_at, event_date, event_schedule_id')
+      .order('updated_at', { ascending: false });
     if (error) return res.status(500).json({ error: 'Failed to load rosters.' });
     res.json({ rosters: data || [] });
   });
@@ -669,10 +682,12 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
     const { name, layout } = req.body || {};
     if (!name || !layout) return res.status(400).json({ error: 'Name and layout are required.' });
+    const occasion = rosterOccasion(req.body || {});
+    if (!occasion) return res.status(400).json({ error: 'Date must be in YYYY-MM-DD format.' });
     const id = crypto.randomUUID();
     const now = new Date().toISOString();
     const { error } = await supabase.from('rosters')
-      .insert({ id, name: String(name).slice(0, 120), layout, created_at: now, updated_at: now });
+      .insert({ id, name: String(name).slice(0, 120), layout, ...occasion, created_at: now, updated_at: now });
     if (error) return res.status(500).json({ error: 'Failed to save roster.' });
     res.json({ id });
   });
@@ -680,8 +695,10 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
   router.put('/rosters/:id', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
     const { name, layout } = req.body || {};
+    const occasion = rosterOccasion(req.body || {});
+    if (!occasion) return res.status(400).json({ error: 'Date must be in YYYY-MM-DD format.' });
     const { error } = await supabase.from('rosters')
-      .update({ name: String(name || '').slice(0, 120), layout, updated_at: new Date().toISOString() })
+      .update({ name: String(name || '').slice(0, 120), layout, ...occasion, updated_at: new Date().toISOString() })
       .eq('id', req.params.id);
     if (error) return res.status(500).json({ error: 'Failed to update roster.' });
     res.json({ ok: true });
