@@ -4,7 +4,7 @@ import {
   DndContext, DragOverlay, PointerSensor, useSensor, useSensors, useDroppable, closestCorners,
 } from '@dnd-kit/core';
 import {
-  SortableContext, useSortable, arrayMove, verticalListSortingStrategy,
+  SortableContext, useSortable, arrayMove, verticalListSortingStrategy, rectSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useAuth } from '../auth';
@@ -892,7 +892,7 @@ export default function Parties() {
       <DndContext sensors={sensors} collisionDetection={closestCorners}
         onDragStart={({ active }) => setActiveId(active.id)} onDragOver={onDragOver} onDragEnd={onDragEnd}>
         <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
-          {/* Pools + Absent */}
+          {/* Role pools */}
           <div className="flex flex-col gap-4 lg:sticky lg:top-20 lg:self-start">
             <div className="panel rounded-lg p-3">
               <div className="flex items-center justify-between mb-2">
@@ -925,20 +925,9 @@ export default function Parties() {
                 ))}
               </div>
             )}
-
-            <DroppableColumn id="absent" itemIds={items.absent} className="panel rounded-lg p-4">
-              <div className="flex items-center justify-between mb-3">
-                <div className="eyebrow text-[10px] text-oxblood flex items-center gap-2"><CalendarOff className="w-3.5 h-3.5" /> Absent ({items.absent.length})</div>
-              </div>
-              <div className="space-y-2 max-h-[300px] overflow-auto pr-1 min-h-[60px]">
-                {items.absent.length === 0
-                  ? <div className="text-ash/50 text-xs text-center py-6">Drop absent members here</div>
-                  : items.absent.map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} loa={loaById.get(id)} classMode={classMode} assignedClass={classAssignments[classMode][id]} onClassChange={(cls) => setMemberClass(classMode, id, cls)} />)}
-              </div>
-            </DroppableColumn>
           </div>
 
-          {/* Parties */}
+          {/* Parties + Absent */}
           <div className="flex flex-col gap-1.5">
             {[PARTY_IDS.slice(0, 6), PARTY_IDS.slice(6, 12)].map((row, i) => (
               <div key={i} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3 items-start">
@@ -958,6 +947,23 @@ export default function Parties() {
                 ))}
               </div>
             ))}
+
+            {/* Absent sits under the parties rather than in the left rail: it's
+                full-width here, so members lay out in a wrapping grid instead of
+                one tall column, and it stays out of the way until needed. */}
+            <DroppableColumn id="absent" itemIds={items.absent} strategy={rectSortingStrategy}
+              className="panel rounded-lg p-3 mt-1.5">
+              <div className="eyebrow text-[10px] text-oxblood flex items-center gap-2 mb-2">
+                <CalendarOff className="w-3.5 h-3.5" /> Absent ({items.absent.length})
+              </div>
+              {items.absent.length === 0 ? (
+                <div className="text-ash/50 text-xs text-center py-4 border border-dashed border-line rounded">Drop absent members here</div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2 max-h-[320px] overflow-auto pr-1">
+                  {items.absent.map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} loa={loaById.get(id)} classMode={classMode} assignedClass={classAssignments[classMode][id]} onClassChange={(cls) => setMemberClass(classMode, id, cls)} />)}
+                </div>
+              )}
+            </DroppableColumn>
           </div>
         </div>
 
@@ -968,10 +974,13 @@ export default function Parties() {
 }
 
 // Droppable container that also provides a SortableContext for its items.
-function DroppableColumn({ id, itemIds, className, children }) {
+// Pools and parties are single columns; Absent lays out as a wrapping grid and
+// passes rectSortingStrategy so drag previews shift correctly in two dimensions
+// instead of assuming a vertical list.
+function DroppableColumn({ id, itemIds, className, children, strategy = verticalListSortingStrategy }) {
   const { setNodeRef, isOver } = useDroppable({ id });
   return (
-    <SortableContext id={id} items={itemIds} strategy={verticalListSortingStrategy}>
+    <SortableContext id={id} items={itemIds} strategy={strategy}>
       <div ref={setNodeRef} className={`${className} transition-colors ${isOver ? 'border-brass/70 ring-1 ring-brass/40' : ''}`}>
         {children}
       </div>
