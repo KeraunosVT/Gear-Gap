@@ -13,9 +13,9 @@ A guild-management web app for a *Throne & Liberty* guild, built around Discord:
 - **Leave of Absence** — submit LOA for a single event, a date range, or recurring days (pick more than one at once); optionally scope any of these to a time window (e.g. "I can make the 6pm event but I'm out after that," or "out 7–8pm, back after") — also via `/loa` in Discord
 
 **For officers**
-- **Attendance** — snap a voice channel's members into a logged event, tied to the recurring event schedule; also runnable straight from Discord via `/attendance`
+- **Attendance** — snap a voice channel's members into a logged event, tied to the recurring event schedule; also runnable straight from Discord via `/attendance`. Expanding a logged event splits everyone who didn't show into *excused* (an LOA was on file for that date) and *no-show* (neither turned up nor filed)
 - **Loot Council** — see wishlist demand, award items, track Lucent and archboss-shard grants per member
-- **Parties** — drag-and-drop party builder with roles, saved rosters, posts directly to Discord. Each roster is saved against the date/event it's for, so reopening it re-checks LOA for that occasion and reports what changed since — who has filed since you built it, and who's since cancelled
+- **Parties** — drag-and-drop party builder with roles, saved rosters, posts directly to Discord. Each roster is saved against the date/event it's for, so reopening it re-checks LOA for that occasion and reports what changed since — who has filed since you built it, and who's since cancelled. The posted image lists who's on leave underneath the parties, so members can see they were accounted for
 - **Gear Levels / Merge Names** — guild-wide gear-level leaderboard; reconcile OCR-misread in-game names to the right player
 - **Admin** — match/screenshot ingestion, member role management, event schedule management
 

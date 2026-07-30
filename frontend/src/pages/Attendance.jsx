@@ -7,6 +7,38 @@ import RestrictedGate from '../components/ui/RestrictedGate';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
+const LOA_TYPE_LABEL = { event: 'Out this event', range: 'Away (date range)', recurring: 'Out weekly' };
+
+// Tooltip text for an excused absence: the window if the LOA had one, otherwise
+// what kind it was, plus the reason.
+function loaReason(loa) {
+  if (!loa) return undefined;
+  const when = loa.start_time
+    ? (loa.end_time
+      ? `Out ${fmtTimeEst(loa.start_time)} – ${fmtTimeEst(loa.end_time)}`
+      : `Out from ${fmtTimeEst(loa.start_time)} on`)
+    : LOA_TYPE_LABEL[loa.type] || 'On leave of absence';
+  return loa.reason ? `${when} — ${loa.reason}` : when;
+}
+
+function NameGroup({ label, tone, children }) {
+  return (
+    <div>
+      <div className={`eyebrow text-[10px] mb-2 ${tone}`}>{label}</div>
+      <div className="flex flex-wrap gap-2">{children}</div>
+    </div>
+  );
+}
+
+function NameChip({ children, className = '', title }) {
+  return (
+    <span title={title}
+      className={`inline-flex items-center gap-1.5 text-sm bg-hall border rounded-full px-3 py-1 ${className || 'border-line text-ash'}`}>
+      {children}
+    </span>
+  );
+}
+
 export default function Attendance() {
   const { user } = useAuth();
 
@@ -138,7 +170,9 @@ export default function Attendance() {
     if (detail[id]) return;
     try {
       const res = await axios.get(`/api/admin/events/${id}`);
-      setDetail((d) => ({ ...d, [id]: res.data.attendees || [] }));
+      // absences is best-effort server-side (needs a dated event and Discord),
+      // so it may be null even when attendees loaded fine.
+      setDetail((d) => ({ ...d, [id]: { attendees: res.data.attendees || [], absences: res.data.absences || null } }));
     } catch {
       flash('Could not load attendees.', false);
       setExpanded(null);
@@ -288,7 +322,9 @@ export default function Attendance() {
             <div className="panel rounded-lg divide-y divide-line">
               {events.map((ev) => {
                 const isOpen = expanded === ev.id;
-                const attendees = detail[ev.id];
+                const info = detail[ev.id];
+                const attendees = info?.attendees;
+                const absences = info?.absences;
                 return (
                   <div key={ev.id}>
                     <button
@@ -317,19 +353,42 @@ export default function Attendance() {
                     </button>
 
                     {isOpen && (
-                      <div className="px-5 pb-4">
+                      <div className="px-5 pb-4 space-y-4">
                         {!attendees ? (
                           <div className="py-4 text-center text-ash"><Loader2 className="w-4 h-4 animate-spin inline mr-2" />Loading…</div>
-                        ) : attendees.length === 0 ? (
-                          <div className="py-4 text-center text-ash">No attendees recorded.</div>
                         ) : (
-                          <div className="flex flex-wrap gap-2">
-                            {attendees.map((a) => (
-                              <span key={a.id} className="inline-flex items-center gap-1.5 text-sm bg-hall border border-line rounded-full px-3 py-1 text-ash">
-                                {a.display_name}
-                              </span>
-                            ))}
-                          </div>
+                          <>
+                            {attendees.length === 0 ? (
+                              <div className="py-4 text-center text-ash">No attendees recorded.</div>
+                            ) : (
+                              <NameGroup label={`Attended (${attendees.length})`} tone="text-ash">
+                                {attendees.map((a) => (
+                                  <NameChip key={a.id}>{a.display_name}</NameChip>
+                                ))}
+                              </NameGroup>
+                            )}
+
+                            {/* Absences are only computable for a dated event,
+                                and only worth showing when someone is missing. */}
+                            {absences?.excused.length > 0 && (
+                              <NameGroup label={`Excused — LOA on file (${absences.excused.length})`} tone="text-brass">
+                                {absences.excused.map((m) => (
+                                  <NameChip key={m.discord_id} title={loaReason(m.loa)} className="border-brass/30 text-brass">
+                                    {m.display_name}
+                                  </NameChip>
+                                ))}
+                              </NameGroup>
+                            )}
+                            {absences?.unexcused.length > 0 && (
+                              <NameGroup label={`No-show — no LOA filed (${absences.unexcused.length})`} tone="text-oxblood">
+                                {absences.unexcused.map((m) => (
+                                  <NameChip key={m.discord_id} className="border-oxblood/40 text-bone">
+                                    {m.display_name}
+                                  </NameChip>
+                                ))}
+                              </NameGroup>
+                            )}
+                          </>
                         )}
                       </div>
                     )}

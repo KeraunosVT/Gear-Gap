@@ -12,7 +12,7 @@ import RestrictedGate from '../components/ui/RestrictedGate';
 import Button from '../components/ui/Button';
 import { PageShell } from '../components/ui/PageShell';
 import { todayInGuildTz, fmtTimeEst } from '../timeUtils';
-import { Save, Trash2, Send, Plus, RefreshCw, Users, CalendarOff, CalendarDays, X } from 'lucide-react';
+import { Save, Trash2, Send, Plus, RefreshCw, Users, CalendarOff, CalendarDays, CalendarCheck, X } from 'lucide-react';
 
 const ROLES = ['Tank', 'DPS', 'Healer'];
 const ROLE_STYLE = {
@@ -73,7 +73,21 @@ function loaSummary(loa) {
   return loa.reason ? `${when} — ${loa.reason}` : when;
 }
 
-function renderRosterImage(partyIds, items, partyNames, roles, byId, classMode, classAssignments) {
+// Greedy wrap of a comma-separated name list to a pixel width.
+function wrapNames(names, ctx, maxW) {
+  const lines = [];
+  let line = '';
+  names.forEach((name, i) => {
+    const piece = name + (i < names.length - 1 ? ',' : '');
+    const candidate = line ? `${line} ${piece}` : piece;
+    if (line && ctx.measureText(candidate).width > maxW) { lines.push(line); line = piece; }
+    else line = candidate;
+  });
+  if (line) lines.push(line);
+  return lines;
+}
+
+function renderRosterImage(partyIds, items, partyNames, roles, byId, classMode, classAssignments, absentWhy) {
   const parties = partyIds.filter((pid) => items[pid].length > 0);
   if (parties.length === 0) return null;
 
@@ -91,7 +105,27 @@ function renderRosterImage(partyIds, items, partyNames, roles, byId, classMode, 
   const maxMembers = Math.max(...parties.map((pid) => items[pid].length));
   const cardH = headerH + maxMembers * rowH + 12;
   const w = padX * 2 + cols * colW + (cols - 1) * gapX;
-  const h = padY + titleH + rows * cardH + (rows - 1) * gapY + padY;
+
+  // Members an LOA is holding out, posted so they can see they were accounted
+  // for and so anyone who forgot to file notices they were expected. Members an
+  // officer benched are deliberately left off: that's a roster decision, not an
+  // availability fact, and publishing it reads as a callout.
+  const onLeave = (items.absent || [])
+    .filter((id) => (absentWhy || {})[id] === 'loa')
+    .map((id) => byId[id]?.name || 'Unknown');
+  // Wrapping needs text metrics before the real canvas can be sized, so measure
+  // on a throwaway context using the same font the footer renders with.
+  const leaveLineH = 16;
+  let leaveLines = [];
+  if (onLeave.length) {
+    const measure = document.createElement('canvas').getContext('2d');
+    measure.font = '12px sans-serif';
+    leaveLines = wrapNames(onLeave, measure, w - padX * 2 - 24);
+  }
+  const leaveH = leaveLines.length ? 34 + leaveLines.length * leaveLineH : 0;
+
+  const h = padY + titleH + rows * cardH + (rows - 1) * gapY
+    + (leaveH ? gapY + leaveH : 0) + padY;
 
   const canvas = document.createElement('canvas');
   canvas.width = w * 2;
@@ -181,6 +215,26 @@ function renderRosterImage(partyIds, items, partyNames, roles, byId, classMode, 
     });
   });
 
+  if (leaveLines.length) {
+    const fy = padY + titleH + rows * cardH + (rows - 1) * gapY + gapY;
+    ctx.fillStyle = '#1b1b1e';
+    ctx.strokeStyle = '#2c2c30';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(padX, fy, w - padX * 2, leaveH, 4);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#d64545';
+    ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(`ON LEAVE (${onLeave.length})`, padX + 12, fy + 20);
+
+    ctx.fillStyle = '#8a8a8d';
+    ctx.font = '12px sans-serif';
+    leaveLines.forEach((line, i) => ctx.fillText(line, padX + 12, fy + 40 + i * leaveLineH));
+  }
+
   return canvas;
 }
 
@@ -212,6 +266,11 @@ export default function Parties() {
   // What changed in the LOA picture between when a roster was saved and now.
   // Set by load(), cleared once the officer acts on it or moves the occasion.
   const [loaDiff, setLoaDiff] = useState(null);
+  // discord_id → why they're in the Absent box: 'loa' if an absence put them
+  // there, 'benched' if an officer did. Kept live (not derived at save time) so
+  // a bench can be reconsidered when the occasion moves — a member parked for
+  // Tuesday's LOA shouldn't stay parked once you switch to Saturday.
+  const [absentWhy, setAbsentWhy] = useState({});
   const [schedule, setSchedule] = useState([]);
   const [classMode, setClassMode] = useState('pvp');
   const [classAssignments, setClassAssignments] = useState({ pvp: {}, pve: {} });
@@ -353,6 +412,33 @@ export default function Parties() {
     };
   }, [items, loaById]);
 
+  // Keep absentWhy in step with the Absent box. Anyone arriving without an
+  // already-recorded reason is classified once, on arrival: a definite absence
+  // covering them means the absence put them there, otherwise an officer
+  // dragged them in. The reason then sticks — it records why they were benched,
+  // which doesn't change retroactively when the occasion moves. Reading LOA off
+  // the ref keeps this firing on Absent-box changes only.
+  useEffect(() => {
+    setAbsentWhy((prev) => {
+      const next = {};
+      let changed = items.absent.length !== Object.keys(prev).length;
+      items.absent.forEach((id) => {
+        next[id] = prev[id] || (isFullyOut(loaRef.current, id) ? 'loa' : 'benched');
+        if (prev[id] !== next[id]) changed = true;
+      });
+      return changed ? next : prev;
+    });
+  }, [items.absent]);
+
+  // Benched by an absence that no longer applies to the current occasion —
+  // the mirror of loaConflicts, and what stops the Absent box accumulating
+  // people as an officer moves between dates. Deliberate benches never appear
+  // here; the officer meant those.
+  const staleBenches = useMemo(
+    () => items.absent.filter((id) => absentWhy[id] === 'loa' && !isFullyOut(loaById, id)),
+    [items.absent, absentWhy, loaById],
+  );
+
   // Re-bucket anyone sitting in an unassigned pool column (never an actual
   // party or the absent box — those are deliberate placements) to match their
   // role in whichever mode was just switched to.
@@ -457,11 +543,10 @@ export default function Parties() {
 
   // `why` separates an LOA-driven bench from a deliberate one, so loading this
   // roster later can tell "their LOA was cancelled, want them back?" from "the
-  // officer sat them out on purpose" and only ask about the former. Derived from
-  // the LOA picture at save time, so dragging needs no extra bookkeeping.
+  // officer sat them out on purpose" and only ask about the former.
   const buildPayloadAbsent = () =>
     items.absent.map((id) => ({
-      id, name: byId[id]?.name || 'Unknown', why: loaById.has(id) ? 'loa' : 'benched',
+      id, name: byId[id]?.name || 'Unknown', why: absentWhy[id] || 'benched',
     }));
 
   const resetBoard = () => {
@@ -472,7 +557,7 @@ export default function Parties() {
     });
     setItems(next);
     setPartyNames(initNames()); setRosterId(null); setRosterName(''); setExtra({});
-    setClassAssignments({ pvp: {}, pve: {} }); setLoaDiff(null);
+    setClassAssignments({ pvp: {}, pve: {} }); setLoaDiff(null); setAbsentWhy({});
   };
 
   // Move everyone definitely out off the board in one go — the explicit version
@@ -502,7 +587,6 @@ export default function Parties() {
       returning.forEach((id) => { next[poolForRole(roles[id])].push(id); });
       return next;
     });
-    setLoaDiff((d) => (d ? { ...d, nowBack: d.nowBack.filter((m) => !returning.has(m.id)) } : d));
   };
 
   const save = async () => {
@@ -566,23 +650,22 @@ export default function Parties() {
         else nextItems[poolForRole(mergedRolesByMode[classMode][id])].push(id);
       });
 
-      // What the LOA picture says now vs. what it said when this was saved.
-      // nowOut is assigned members who have since filed; nowBack is members
-      // benched *for* LOA whose LOA no longer applies. Deliberate benches
-      // ('benched') are left out — the officer meant those.
+      // Assigned members who have filed since this was saved. Only this half of
+      // the comparison lives here, because it names which party each one is in
+      // — something nothing else can say. The reverse case (benched for an
+      // absence that no longer applies) is covered live by staleBenches, which
+      // reads the restored `why` markers below and stays correct as the
+      // occasion moves, so repeating it here would say the same thing twice.
       // Names come from byId where possible — the layout's copy is whatever it
       // was when saved, which goes stale when someone changes their name.
       const nameNow = (m) => byId[m.id]?.name || m.name || 'Unknown';
       const nowOut = (r.layout?.parties || []).flatMap((lp) =>
         (lp.members || []).filter((m) => isFullyOut(loa, m.id))
           .map((m) => ({ id: m.id, name: nameNow(m), party: lp.name || lp.id })));
-      // Not just "no entry at all" — an absence that has narrowed to a time
-      // window since it was filed also means they're worth reconsidering.
-      const nowBack = (r.layout?.absent || [])
-        .filter((m) => m.why === 'loa' && !isFullyOut(loa, m.id))
-        .map((m) => ({ id: m.id, name: nameNow(m) }));
+      const savedWhy = {};
+      (r.layout?.absent || []).forEach((m) => { savedWhy[m.id] = m.why || 'benched'; });
 
-      setItems(nextItems); setPartyNames(nextNames);
+      setItems(nextItems); setPartyNames(nextNames); setAbsentWhy(savedWhy);
       setRolesByMode(mergedRolesByMode); setExtra(nextExtra);
       setClassAssignments(r.layout?.classAssignments || { pvp: {}, pve: {} });
       setRosterId(r.id); setRosterName(r.name);
@@ -590,7 +673,7 @@ export default function Parties() {
         loaFetchedFor.current = `${date}|${event}`;
         setLoaDate(date); setLoaEvent(event); setLoaById(loa);
       }
-      setLoaDiff(date && (nowOut.length || nowBack.length) ? { nowOut, nowBack } : null);
+      setLoaDiff(date && nowOut.length ? { nowOut } : null);
       flash(`Loaded "${r.name}".`);
     } catch (err) { flash(err.response?.data?.error || 'Load failed.', false); }
   };
@@ -603,9 +686,13 @@ export default function Parties() {
   };
 
   const post = async () => {
+    // Last check before it's public: posting a roster that has people in it who
+    // are known to be out is the failure this whole flow exists to prevent.
+    if (loaConflicts.fullInParties.length > 0
+      && !window.confirm(`${namesFor(loaConflicts.fullInParties)} ${loaConflicts.fullInParties.length === 1 ? 'is' : 'are'} on LOA but still in a party. Post anyway?`)) return;
     setBusy(true);
     try {
-      const canvas = renderRosterImage(PARTY_IDS, items, partyNames, roles, byId, classMode, classAssignments);
+      const canvas = renderRosterImage(PARTY_IDS, items, partyNames, roles, byId, classMode, classAssignments, absentWhy);
       if (!canvas) { flash('No parties to post.', false); setBusy(false); return; }
       const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
       const form = new FormData();
@@ -660,39 +747,38 @@ export default function Parties() {
         <div className={`mb-6 px-5 py-3 rounded-lg border text-sm ${msg.ok ? 'border-brass/40 bg-panel text-bone' : 'border-oxblood/50 bg-oxblooddeep/20 text-bone'}`}>{msg.text}</div>
       )}
 
-      {/* What moved since this roster was saved. Informational — every change
-          is applied by the officer, never automatically. */}
+      {/* Which parties lost someone since this roster was saved. Informational
+          — every change is applied by the officer, never automatically. */}
       {loaDiff && (
-        <div className="mb-4 px-5 py-3 rounded-lg border border-brass/40 bg-panel text-sm">
-          <div className="flex items-start justify-between gap-4">
-            <div className="space-y-1.5">
-              <div className="eyebrow text-[10px] text-brass">LOA changed since this roster was saved</div>
-              {loaDiff.nowOut.length > 0 && (
-                <div className="text-bone">
-                  <span className="text-oxblood font-semibold">Now on LOA:</span>{' '}
-                  {loaDiff.nowOut.map((m) => `${m.name} (${m.party})`).join(', ')}
-                </div>
-              )}
-              {loaDiff.nowBack.length > 0 && (
-                <div className="text-bone">
-                  <span className="text-emerald-400 font-semibold">No longer on LOA:</span>{' '}
-                  {loaDiff.nowBack.map((m) => m.name).join(', ')}
-                  {' — still in Absent.'}
-                </div>
-              )}
-            </div>
-            <div className="flex items-center gap-2 shrink-0">
-              {loaDiff.nowBack.length > 0 && (
-                <button onClick={() => returnFromAbsent(loaDiff.nowBack.map((m) => m.id))}
-                  className="px-3 py-1.5 text-xs rounded border border-line text-ash hover:text-bone hover:border-brass/60 transition-colors">
-                  Return {loaDiff.nowBack.length} to pool
-                </button>
-              )}
-              <button onClick={() => setLoaDiff(null)} className="p-1 text-ash hover:text-bone" title="Dismiss">
-                <X className="w-4 h-4" />
-              </button>
+        <div className="mb-3 px-5 py-3 rounded-lg border border-brass/40 bg-panel text-sm flex items-start justify-between gap-4">
+          <div>
+            <div className="eyebrow text-[10px] text-brass mb-1">LOA changed since this roster was saved</div>
+            <div className="text-bone">
+              <span className="text-oxblood font-semibold">Now on LOA:</span>{' '}
+              {loaDiff.nowOut.map((m) => `${m.name} (${m.party})`).join(', ')}
             </div>
           </div>
+          <button onClick={() => setLoaDiff(null)} className="p-1 text-ash hover:text-bone shrink-0" title="Dismiss">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Benched for an absence that no longer applies — the counterpart to the
+          conflict bar below, and what keeps the Absent box from silting up as
+          an officer moves between dates. */}
+      {staleBenches.length > 0 && (
+        <div className="mb-3 px-5 py-3 rounded-lg border border-emerald-500/40 bg-panel text-sm flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2 text-bone">
+            <CalendarCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span>
+              <span className="font-semibold">{namesFor(staleBenches)}</span>
+              {staleBenches.length === 1 ? ' is' : ' are'} in Absent for an LOA that doesn&apos;t apply to this occasion.
+            </span>
+          </div>
+          <Button variant="secondary" size="none" className="px-3 py-1.5 text-xs shrink-0" onClick={() => returnFromAbsent(staleBenches)}>
+            Return {staleBenches.length} to pool
+          </Button>
         </div>
       )}
 

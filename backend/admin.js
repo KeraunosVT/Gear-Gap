@@ -5,7 +5,8 @@ const multer = require('multer');
 const Papa = require('papaparse');
 const { parseScreenshot, parseCsv, WEAPONS } = require('./ingest');
 const { listMembers, postEmbed, postImage } = require('./discord');
-const { todayInGuildTz } = require('./loa');
+const createLoa = require('./loa');
+const { todayInGuildTz } = createLoa;
 const createAttendance = require('./attendance');
 const SHARDS = require('../shared/shards.json');
 
@@ -102,6 +103,7 @@ const team = (v) => {
 module.exports = function createAdminRouter(supabase, gateway, lootCatalog, identities) {
   const router = express.Router();
   const attendance = supabase ? createAttendance(supabase) : null;
+  const loa = supabase ? createLoa(supabase) : null;
 
   router.get('/whoami', (req, res) => {
     res.json({ admin: true, username: req.user.username });
@@ -929,7 +931,43 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
       .from('event_attendance').select('*').eq('event_id', req.params.id)
       .order('display_name');
     if (aErr) return res.status(500).json({ error: 'Failed to load attendees.' });
-    res.json({ event, attendees: attendees || [] });
+
+    // Who didn't show, split by whether they'd said so. An LOA on file for the
+    // event's date makes an absence excused; anything left is someone who
+    // neither turned up nor filed — the number officers actually want, and the
+    // only place attendance and LOA are compared.
+    //
+    // Best-effort: this needs Discord (for the member roster) and can't be
+    // computed for an undated event, and neither is worth failing the attendee
+    // list over, so absences comes back null and the UI just omits the section.
+    let absences = null;
+    if (event.event_date && loa) {
+      try {
+        const [unavailable, roster, ids] = await Promise.all([
+          loa.unavailableOn({ date: event.event_date, eventScheduleId: event.event_schedule_id || null }),
+          listMembers(),
+          identities.load(),
+        ]);
+        const present = new Set((attendees || []).map((a) => String(a.discord_id)));
+        const excusedBy = new Map(unavailable.map((u) => [String(u.discord_id), u]));
+        const missing = roster
+          .filter((m) => !present.has(String(m.id)))
+          .map((m) => ({
+            discord_id: m.id,
+            display_name: ids.displayNameFor(m.id, m.name),
+            loa: excusedBy.get(String(m.id)) || null,
+          }))
+          .sort((a, b) => a.display_name.localeCompare(b.display_name));
+        absences = {
+          excused: missing.filter((m) => m.loa),
+          unexcused: missing.filter((m) => !m.loa),
+        };
+      } catch (err) {
+        console.error('Attendance absence breakdown failed:', err.message);
+      }
+    }
+
+    res.json({ event, attendees: attendees || [], absences });
   });
 
   router.post('/events', async (req, res) => {
@@ -1068,84 +1106,21 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     res.json({ ok: true });
   });
 
-  // ── LOA: who's out on a given date/event (for party builder) ────────────────
-  // Shared by the 'event' and 'recurring' branches below: does an event at
-  // `eventTime` fall inside this LOA entry's absence window? No start_time
-  // means no restriction at all; a start with no end is an open-ended cutoff
-  // ("out from this time onward"); both means a bounded window they're back
-  // after (e.g. out 7-8pm, available again at 8). An event with no recorded
-  // time can't be compared, so it falls back to counting the member absent.
-  const withinLoaWindow = (entry, eventTime) => {
-    if (!entry.start_time || !eventTime) return true;
-    if (eventTime < entry.start_time) return false;
-    if (entry.end_time && eventTime >= entry.end_time) return false;
-    return true;
-  };
-
+  // ── LOA: who's out on a given date/event (for the party builder) ────────────
+  // The window and reason come back too, not just the fact of the absence — the
+  // builder needs them to tell "gone all night" from "out 7-8, back after",
+  // which are different planning problems. Safe to include reason because the
+  // whole /api/admin router is admin-gated, the same condition under which
+  // loa.all() exposes it.
   router.get('/loa/unavailable', async (req, res) => {
-    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    if (!loa) return res.status(503).json({ error: 'Database not configured.' });
     const date = req.query.date || todayInGuildTz();
-    const eventFilter = req.query.event || null;
-    const dow = new Date(date + 'T12:00:00').getDay();
-    const [{ data, error }, eventRow] = await Promise.all([
-      supabase.from('loa_entries')
-        .select('discord_id, display_name, type, event_date, event_schedule_id, start_date, end_date, day_of_week, start_time, end_time, reason'),
-      eventFilter
-        ? supabase.from('event_schedule').select('event_time').eq('id', eventFilter).single().then((r) => r.data)
-        : Promise.resolve(null),
-    ]);
-    if (error) {
-      console.error('LOA unavailable error:', error.message);
-      return res.status(500).json({ error: 'Failed to load LOAs.', detail: error.message });
+    try {
+      const unavailable = await loa.unavailableOn({ date, eventScheduleId: req.query.event || null });
+      res.json({ date, unavailable });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message || 'Failed to load LOAs.' });
     }
-    const eventTime = eventRow?.event_time || null;
-    const out = new Map();
-    (data || []).forEach((e) => {
-      let matches = false;
-      // Event (one-off, this date): scoped to one event, a time window, or
-      // both — same two knobs as recurring below, just for a single date
-      // instead of every week.
-      if (e.type === 'event' && e.event_date === date) {
-        const scopeMatches = !e.event_schedule_id || !eventFilter || e.event_schedule_id === eventFilter;
-        matches = scopeMatches && withinLoaWindow(e, eventTime);
-      }
-      if (e.type === 'range' && e.start_date <= date && e.end_date >= date) matches = true;
-      // Recurring: matches every week on its day-of-week. If it's scoped to one
-      // event, it only counts when that event is the one being checked (or when
-      // no specific event filter was given, same as the 'event' type above).
-      if (e.type === 'recurring' && e.day_of_week === dow) {
-        const scopeMatches = !e.event_schedule_id || !eventFilter || e.event_schedule_id === eventFilter;
-        matches = scopeMatches && withinLoaWindow(e, eventTime);
-      }
-      if (!matches) return;
-
-      // The window and reason go back too, not just the fact of the absence:
-      // the party builder needs them to tell "gone all night" from "out 7-8,
-      // back after" — which are different planning problems. Safe to include
-      // reason here because the whole /api/admin router is admin-gated, same
-      // condition under which loa.all() exposes it.
-      //
-      // `partial` marks an absence we could only match loosely. A time-scoped
-      // entry checked against a known event time was verified to collide, so
-      // it's definite; with no event selected there's no time to compare, so
-      // it's a heads-up rather than a block — someone out after 8pm is still
-      // available for the 6pm.
-      const entry = {
-        discord_id: e.discord_id,
-        display_name: e.display_name,
-        type: e.type,
-        start_time: e.start_time || null,
-        end_time: e.end_time || null,
-        reason: e.reason || null,
-        partial: Boolean(e.start_time) && !eventTime,
-      };
-      // One member can match several entries (a vacation range plus a standing
-      // night off, say). Keep whichever constrains them most, so a whole-day
-      // absence isn't masked by a time-boxed one that happened to be read last.
-      const prev = out.get(e.discord_id);
-      if (!prev || (prev.partial && !entry.partial)) out.set(e.discord_id, entry);
-    });
-    res.json({ date, unavailable: [...out.values()] });
   });
 
   return router;

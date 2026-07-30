@@ -51,6 +51,18 @@ function parseTimeWindow(start, end) {
   return { cleanStart, cleanEnd };
 }
 
+// Does an event at `eventTime` fall inside this entry's absence window? No
+// start_time means no restriction at all; a start with no end is an open-ended
+// cutoff ("out from this time onward"); both means a bounded window they're
+// back after (out 7-8pm, available again at 8). An event with no recorded time
+// can't be compared, so it falls back to counting the member absent.
+function withinLoaWindow(entry, eventTime) {
+  if (!entry.start_time || !eventTime) return true;
+  if (eventTime < entry.start_time) return false;
+  if (entry.end_time && eventTime >= entry.end_time) return false;
+  return true;
+}
+
 // "Today" as a YYYY-MM-DD string in the guild's own timezone, not the server's.
 // new Date().toISOString() reads the UTC calendar day, which silently rolls
 // over to tomorrow from ~7-8pm ET onward — exactly when people are building
@@ -84,6 +96,65 @@ module.exports = function createLoa(supabase) {
     async eventsForDate(dateStr) {
       if (!isValidDate(dateStr)) return [];
       return this.eventsForDay(dayOfWeek(dateStr));
+    },
+
+    // Who's out on a date, optionally narrowed to one scheduled event. Lives
+    // here, alongside the submit* methods, for the same reason they do: the
+    // party builder and the attendance breakdown both ask "is this person out?"
+    // and must get the same answer, which means one implementation, not two.
+    //
+    // Each result carries the window and reason as well as the fact of the
+    // absence, plus a `partial` flag marking one that could only be matched
+    // loosely: a time-scoped entry checked against a known event time was
+    // verified to collide, but with no event selected there's no time to
+    // compare against, so it's a heads-up rather than a hard block — someone
+    // out after 8pm is still available for the 6pm.
+    async unavailableOn({ date, eventScheduleId = null }) {
+      if (!isValidDate(date)) throw httpError(400, 'Date must be in YYYY-MM-DD format.');
+      const dow = dayOfWeek(date);
+      const [{ data, error }, eventRow] = await Promise.all([
+        supabase.from('loa_entries').select(
+          'discord_id, display_name, type, event_date, event_schedule_id, start_date, end_date, day_of_week, start_time, end_time, reason',
+        ),
+        eventScheduleId
+          ? supabase.from('event_schedule').select('event_time').eq('id', eventScheduleId).single().then((r) => r.data)
+          : Promise.resolve(null),
+      ]);
+      if (error) {
+        console.error('loa.unavailableOn error:', error.message);
+        throw httpError(500, 'Failed to load LOAs.');
+      }
+      const eventTime = eventRow?.event_time || null;
+      const inScope = (e) => !e.event_schedule_id || !eventScheduleId || e.event_schedule_id === eventScheduleId;
+
+      const out = new Map();
+      (data || []).forEach((e) => {
+        let matches = false;
+        // Event: a one-off on this date, scoped to one event, a time window, or
+        // both. Recurring is the same two knobs, applied every week on its
+        // day-of-week instead of to a single date. A range covers whole days
+        // and has no time scoping to check.
+        if (e.type === 'event' && e.event_date === date) matches = inScope(e) && withinLoaWindow(e, eventTime);
+        if (e.type === 'range' && e.start_date <= date && e.end_date >= date) matches = true;
+        if (e.type === 'recurring' && e.day_of_week === dow) matches = inScope(e) && withinLoaWindow(e, eventTime);
+        if (!matches) return;
+
+        const entry = {
+          discord_id: e.discord_id,
+          display_name: e.display_name,
+          type: e.type,
+          start_time: e.start_time || null,
+          end_time: e.end_time || null,
+          reason: e.reason || null,
+          partial: Boolean(e.start_time) && !eventTime,
+        };
+        // One member can match several entries (a vacation range plus a
+        // standing night off, say). Keep whichever constrains them most, so a
+        // whole-day absence isn't masked by a time-boxed one read after it.
+        const prev = out.get(e.discord_id);
+        if (!prev || (prev.partial && !entry.partial)) out.set(e.discord_id, entry);
+      });
+      return [...out.values()];
     },
 
     // `eventScheduleId` and `startTime` are each optional, but at least one is
