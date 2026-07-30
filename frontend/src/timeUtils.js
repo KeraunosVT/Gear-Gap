@@ -1,12 +1,58 @@
 export const GUILD_TZ = 'America/New_York';
 
+// Mirror of the guild-night model in backend/loa.js — keep the two in step.
+// A guild night doesn't end at midnight: the 12:30am Guild Field Boss is the
+// tail of the previous evening's block, not the start of a new day. The
+// schedule stores each event on the calendar day it actually occurs (Sunday
+// 00:30), and these map it back to the night it belongs to (Saturday).
+export const GUILD_DAY_START = '01:00';
+const GUILD_DAY_START_MIN = 60;
+const MINUTES_PER_DAY = 1440;
+
+const minutesOf = (hhmm) => {
+  const [h, m] = String(hhmm).split(':').map(Number);
+  return h * 60 + m;
+};
+
+// Where a wall-clock time falls within the guild night, as minutes from its
+// start — so 00:30 (1470) sorts after 21:00 (1260) instead of before it, which
+// is what comparing "HH:MM" as text would give you.
+export function daySlot(hhmm) {
+  const mins = minutesOf(hhmm);
+  return mins < GUILD_DAY_START_MIN ? mins + MINUTES_PER_DAY : mins;
+}
+
+// The day-of-week a scheduled event belongs to, from the calendar day and time
+// it's stored under: a 00:30 event stored on Sunday is part of Saturday night.
+export function guildDayOfWeek(dow, eventTime) {
+  if (!eventTime || minutesOf(eventTime) >= GUILD_DAY_START_MIN) return dow;
+  return (dow + 6) % 7;
+}
+
+// True when an event runs after midnight, so its calendar day is a day ahead
+// of the night it belongs to — worth labelling wherever it's listed.
+export const isAfterMidnight = (eventTime) => Boolean(eventTime) && minutesOf(eventTime) < GUILD_DAY_START_MIN;
+
+// Events for one guild night, newest-last. Not a plain day_of_week filter:
+// Saturday night's list has to pull in the Sunday 00:30 row and leave Sunday
+// evening's rows out.
+export function eventsForGuildDay(schedule, dow) {
+  return (schedule || [])
+    .filter((s) => guildDayOfWeek(s.day_of_week, s.event_time) === dow)
+    .sort((a, b) => (a.event_time ? daySlot(a.event_time) : -1) - (b.event_time ? daySlot(b.event_time) : -1)
+      || String(a.name).localeCompare(String(b.name)));
+}
+
 // "Today" as YYYY-MM-DD in the guild's own timezone, not the browser's. Plain
 // new Date().toISOString().slice(0, 10) reads the UTC calendar day, which
 // rolls over to tomorrow from ~7-8pm ET onward — right when officers are
 // building rosters for that night's event — so date defaults/comparisons
-// against LOA entries need this instead.
+// against LOA entries need this instead. Rolls at GUILD_DAY_START rather than
+// midnight for the same reason: at 12:30am the night in progress is still
+// last night's.
 export function todayInGuildTz() {
-  return new Date().toLocaleDateString('en-CA', { timeZone: GUILD_TZ });
+  const shifted = new Date(Date.now() - GUILD_DAY_START_MIN * 60_000);
+  return shifted.toLocaleDateString('en-CA', { timeZone: GUILD_TZ });
 }
 
 export function fmtTimeEst(t) {

@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../auth';
 import { RefreshCw, Camera, Trash2, ChevronDown, Users, CalendarDays, Loader2, ArrowUp, ArrowDown, BarChart3, Wand2 } from 'lucide-react';
-import { fmtTimeEst } from '../timeUtils';
+import { fmtTimeEst, guildDayOfWeek, isAfterMidnight } from '../timeUtils';
 import RestrictedGate from '../components/ui/RestrictedGate';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -271,9 +271,14 @@ export default function Attendance() {
               className="w-full bg-panel border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
             >
               <option value="">— custom / none —</option>
+              {/* Labelled by the night it belongs to: an after-midnight event
+                  is stored on the next calendar day, so its raw day_of_week
+                  would name the wrong night to whoever is logging it. */}
               {schedule.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.name} — {DAYS[s.day_of_week]}{s.event_time ? ` at ${fmtTimeEst(s.event_time)}` : ''}
+                  {s.name} — {DAYS[guildDayOfWeek(s.day_of_week, s.event_time)]}
+                  {isAfterMidnight(s.event_time) ? ' night' : ''}
+                  {s.event_time ? ` at ${fmtTimeEst(s.event_time)}` : ''}
                 </option>
               ))}
             </select>

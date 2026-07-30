@@ -3,7 +3,7 @@ import axios from 'axios';
 import { useAuth } from '../auth';
 import { CalendarOff, CalendarX2, Plus, Trash2, Settings, X, Repeat, ChevronDown, Pencil, Check } from 'lucide-react';
 
-import { fmtTimeEst, fmtDatetime, todayInGuildTz } from '../timeUtils';
+import { fmtTimeEst, fmtDatetime, todayInGuildTz, eventsForGuildDay, isAfterMidnight, guildDayOfWeek } from '../timeUtils';
 import Tabs from '../components/ui/Tabs';
 import { PageShell } from '../components/ui/PageShell';
 import { useFlash } from '../components/ui/useFlash';
@@ -95,10 +95,11 @@ export default function LOA() {
     return m;
   }, [schedule]);
 
+  // The night, not the calendar day — Saturday's list includes the 12:30 AM
+  // event stored on Sunday, and excludes Sunday's own evening events.
   const eventsOnDate = useMemo(() => {
     if (!eventDate) return [];
-    const dow = new Date(eventDate + 'T12:00:00').getDay();
-    return schedule.filter((s) => s.day_of_week === dow);
+    return eventsForGuildDay(schedule, new Date(eventDate + 'T12:00:00').getDay());
   }, [eventDate, schedule]);
 
   // An event is tied to one specific weekday, so it can only scope a recurring
@@ -107,7 +108,7 @@ export default function LOA() {
   const eventsOnRecurDay = useMemo(() => {
     if (recurDays.size !== 1) return [];
     const [dow] = recurDays;
-    return schedule.filter((s) => s.day_of_week === dow);
+    return eventsForGuildDay(schedule, dow);
   }, [recurDays, schedule]);
 
   const toggleRecurDay = (i) => {
@@ -484,7 +485,15 @@ export default function LOA() {
                 </div>
               ) : (
                 <div key={s.id} className="flex items-center justify-between bg-hall border border-line rounded-lg px-3 py-2">
-                  <span className="text-bone text-sm">{s.name} <span className="text-ash">— {DAYS[s.day_of_week]}{s.event_time ? ` at ${fmtTimeEst(s.event_time)}` : ''}</span></span>
+                  {/* Day shown is the calendar day the event is stored under,
+                      which is what the edit form expects. For an after-midnight
+                      event that isn't the night it belongs to, so spell that
+                      out rather than leave "Sunday at 12:30 AM" to be misread. */}
+                  <span className="text-bone text-sm">{s.name} <span className="text-ash">— {DAYS[s.day_of_week]}{s.event_time ? ` at ${fmtTimeEst(s.event_time)}` : ''}</span>
+                    {isAfterMidnight(s.event_time) && (
+                      <span className="text-brass"> · {DAYS[guildDayOfWeek(s.day_of_week, s.event_time)]} night</span>
+                    )}
+                  </span>
                   <div className="flex items-center gap-1">
                     <button onClick={() => startEditEvent(s)} className="text-ash hover:text-brass p-0.5"><Pencil className="w-3.5 h-3.5" /></button>
                     <button onClick={() => deleteScheduleEvent(s.id)} className="text-ash hover:text-oxblood p-0.5"><Trash2 className="w-3.5 h-3.5" /></button>

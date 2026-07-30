@@ -506,10 +506,17 @@ async function autocompleteAttendanceEvent(interaction) {
   const choices = events
     .filter((e) => e.name.toLowerCase().includes(focused))
     .slice(0, 25)
-    .map((e) => ({
-      name: e.event_time ? `${e.name} (${DAY_NAMES[e.day_of_week]}, ${fmt12h(e.event_time)})` : `${e.name} (${DAY_NAMES[e.day_of_week]})`,
-      value: e.id,
-    }));
+    // Labelled by the night it belongs to, matching how the guild talks about
+    // it — an after-midnight event is stored on the next calendar day, so
+    // DAY_NAMES[e.day_of_week] alone would name the wrong night.
+    .map((e) => {
+      const night = DAY_NAMES[createLoa.guildDayOfWeek(e.day_of_week, e.event_time)];
+      const late = createLoa.isAfterMidnight(e.event_time) ? ' night' : '';
+      return {
+        name: e.event_time ? `${e.name} (${night}${late}, ${fmt12h(e.event_time)})` : `${e.name} (${night})`,
+        value: e.id,
+      };
+    });
   await interaction.respond(choices).catch(() => {});
 }
 

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { Users, Shield, Swords, Heart, CalendarDays, Clock, Package } from 'lucide-react';
 import { GUILD } from '../guild';
-import { fmtTimeEst, todayInGuildTz } from '../timeUtils';
+import { fmtTimeEst, todayInGuildTz, eventsForGuildDay, isAfterMidnight } from '../timeUtils';
 import ErrorState from '../components/ui/ErrorState';
 import StatTile from '../components/ui/StatTile';
 import ItemTooltip, { gradeStyle } from '../components/ItemTooltip';
@@ -18,12 +18,20 @@ function addDaysToDateStr(dateStr, days) {
   return dt.toISOString().slice(0, 10);
 }
 
+// Walks forward by guild night, not calendar day, so the 12:30am event shows
+// as the tail of the night it belongs to instead of that morning's first item.
+// `date` stays the calendar date the event actually occurs on, which is what
+// the countdown has to tick against — a night's 12:30am event is on the day
+// after the night itself.
 function nextOccurrences(schedule, todayStr, count = 3) {
   const out = [];
   for (let i = 0; i < 14 && out.length < count; i++) {
-    const dateStr = addDaysToDateStr(todayStr, i);
-    const dow = new Date(dateStr + 'T12:00:00').getDay();
-    schedule.filter((s) => s.day_of_week === dow).forEach((s) => out.push({ ...s, date: dateStr }));
+    const nightStr = addDaysToDateStr(todayStr, i);
+    const dow = new Date(nightStr + 'T12:00:00').getDay();
+    eventsForGuildDay(schedule, dow).forEach((s) => out.push({
+      ...s,
+      date: isAfterMidnight(s.event_time) ? addDaysToDateStr(nightStr, 1) : nightStr,
+    }));
   }
   return out.slice(0, count);
 }

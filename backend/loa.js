@@ -4,6 +4,43 @@
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const GUILD_TZ = 'America/New_York';
 
+// A guild night doesn't end at midnight. The 12:30am Guild Field Boss is the
+// tail of the previous evening's block, not the start of a new day — the
+// schedule stores it on the calendar day it actually occurs (Sunday 00:30),
+// and everything here maps that back to the night it belongs to (Saturday).
+//
+// Anything before this wall-clock time counts as the night before. It has to
+// sit after the guild's latest event (12:30am) and before the earliest of the
+// following evening, which leaves the small hours free; 01:00 is the line.
+const GUILD_DAY_START = '01:00';
+const GUILD_DAY_START_MIN = 60;
+const MINUTES_PER_DAY = 1440;
+
+const minutesOf = (hhmm) => {
+  const [h, m] = String(hhmm).split(':').map(Number);
+  return h * 60 + m;
+};
+
+// Where a wall-clock time falls within the guild night, as minutes from its
+// start. Times before the rollover are pushed past the previous evening's, so
+// 00:30 (1470) correctly compares and sorts later than 21:00 (1260) — plain
+// "HH:MM" string comparison gets this exactly backwards.
+function daySlot(hhmm) {
+  const mins = minutesOf(hhmm);
+  return mins < GUILD_DAY_START_MIN ? mins + MINUTES_PER_DAY : mins;
+}
+
+// The day-of-week a scheduled event belongs to, from the calendar day and time
+// it's stored under: a 00:30 event stored on Sunday is part of Saturday night.
+function guildDayOfWeek(dow, eventTime) {
+  if (!eventTime || minutesOf(eventTime) >= GUILD_DAY_START_MIN) return dow;
+  return (dow + 6) % 7;
+}
+
+// True when an event runs after midnight, so its calendar day is one ahead of
+// the night it belongs to. Used to label it as such wherever it's listed.
+const isAfterMidnight = (eventTime) => Boolean(eventTime) && minutesOf(eventTime) < GUILD_DAY_START_MIN;
+
 function httpError(status, message) {
   const err = new Error(message);
   err.status = status;
@@ -39,15 +76,17 @@ function parseTimeOfDay(input) {
 
 // Validates and normalizes the optional start/end time pair shared by
 // submitEvent and submitRecurring. `end` requires a `start` (an end alone,
-// with no defined start, is ambiguous), and must be later in the day — this
-// only models a same-day window, not one that crosses midnight.
+// with no defined start, is ambiguous). An end earlier in the clock than the
+// start is read as crossing midnight — "out 11pm to 1am" is a normal thing to
+// say here, given the night runs past 12:30am — so only an end identical to
+// the start is rejected, as that describes no window at all.
 function parseTimeWindow(start, end) {
   const cleanStart = start ? parseTimeOfDay(start) : null;
   if (start && !cleanStart) throw httpError(400, 'Start time must be a valid time, e.g. 9:00 PM.');
   const cleanEnd = end ? parseTimeOfDay(end) : null;
   if (end && !cleanEnd) throw httpError(400, 'End time must be a valid time, e.g. 9:00 PM.');
   if (cleanEnd && !cleanStart) throw httpError(400, 'End time needs a start time too.');
-  if (cleanEnd && cleanEnd <= cleanStart) throw httpError(400, 'End time must be after start time.');
+  if (cleanEnd && cleanEnd === cleanStart) throw httpError(400, 'End time must be different from the start time.');
   return { cleanStart, cleanEnd };
 }
 
@@ -56,11 +95,21 @@ function parseTimeWindow(start, end) {
 // cutoff ("out from this time onward"); both means a bounded window they're
 // back after (out 7-8pm, available again at 8). An event with no recorded time
 // can't be compared, so it falls back to counting the member absent.
+//
+// Compared in guild-night slots, never as raw clock strings: "out from 9pm"
+// has to cover the 12:30am event that same night, and '00:30' < '21:00' as
+// text says the opposite.
 function withinLoaWindow(entry, eventTime) {
   if (!entry.start_time || !eventTime) return true;
-  if (eventTime < entry.start_time) return false;
-  if (entry.end_time && eventTime >= entry.end_time) return false;
-  return true;
+  const at = daySlot(eventTime);
+  const from = daySlot(entry.start_time);
+  if (at < from) return false;
+  if (!entry.end_time) return true;
+  // An end that isn't after the start ran past the rollover ("out 11pm-1am"),
+  // so it closes on the next slot round rather than the current one.
+  let to = daySlot(entry.end_time);
+  if (to <= from) to += MINUTES_PER_DAY;
+  return at < to;
 }
 
 // "Today" as a YYYY-MM-DD string in the guild's own timezone, not the server's.
@@ -68,8 +117,12 @@ function withinLoaWindow(entry, eventTime) {
 // over to tomorrow from ~7-8pm ET onward — exactly when people are building
 // rosters for that night's event — so callers needing "today" must use this
 // instead of toISOString().slice(0, 10).
+// Rolls over at GUILD_DAY_START rather than midnight, for the same reason it
+// doesn't use UTC: at 12:30am an officer snapping attendance or building the
+// roster for the event starting right now means last night, not today.
 function todayInGuildTz() {
-  return new Date().toLocaleDateString('en-CA', { timeZone: GUILD_TZ });
+  const shifted = new Date(Date.now() - GUILD_DAY_START_MIN * 60_000);
+  return shifted.toLocaleDateString('en-CA', { timeZone: GUILD_TZ });
 }
 
 module.exports = function createLoa(supabase) {
@@ -84,12 +137,19 @@ module.exports = function createLoa(supabase) {
     isValidDate,
     parseTimeOfDay,
 
-    // Events on the recurring schedule for a given day-of-week (0=Sunday..6=Saturday).
+    // Events on the recurring schedule for a given guild night (0=Sunday..6=Saturday).
+    // Not a plain day_of_week match: an after-midnight event is stored on the
+    // calendar day it occurs, so Saturday night's list has to pull the Sunday
+    // 00:30 row in and leave Sunday evening's rows out. Filtered in JS because
+    // the schedule is a couple of dozen rows and the alternative is an or()
+    // spanning two days. Ordered by slot so the small hours come last.
     async eventsForDay(dow) {
-      const { data, error } = await supabase.from('event_schedule')
-        .select('*').eq('day_of_week', dow).order('name');
+      const { data, error } = await supabase.from('event_schedule').select('*');
       if (error) { console.error('loa.eventsForDay error:', error.message); return []; }
-      return data || [];
+      return (data || [])
+        .filter((e) => guildDayOfWeek(e.day_of_week, e.event_time) === dow)
+        .sort((a, b) => (a.event_time ? daySlot(a.event_time) : -1) - (b.event_time ? daySlot(b.event_time) : -1)
+          || String(a.name).localeCompare(String(b.name)));
     },
 
     // Same, but keyed off a calendar date instead of a raw day-of-week number.
@@ -102,6 +162,10 @@ module.exports = function createLoa(supabase) {
     // here, alongside the submit* methods, for the same reason they do: the
     // party builder and the attendance breakdown both ask "is this person out?"
     // and must get the same answer, which means one implementation, not two.
+    //
+    // `date` is a guild night, not a calendar day — so the night of Saturday
+    // the 1st covers the 12:30am event that lands on Sunday the 2nd. Every
+    // caller's default comes from todayInGuildTz(), which is already shifted.
     //
     // Each result carries the window and reason as well as the fact of the
     // absence, plus a `partial` flag marking one that could only be matched
@@ -173,9 +237,14 @@ module.exports = function createLoa(supabase) {
       let eventName = null;
       if (eventScheduleId) {
         const { data: ev, error: evErr } = await supabase.from('event_schedule')
-          .select('id, name, day_of_week').eq('id', eventScheduleId).single();
+          .select('id, name, day_of_week, event_time').eq('id', eventScheduleId).single();
         if (evErr || !ev) throw httpError(400, 'Unknown event.');
-        if (ev.day_of_week !== dayOfWeek(eventDate)) throw httpError(400, "That event isn't scheduled on that date.");
+        // Against the night it belongs to, not the calendar day it's stored on
+        // — otherwise picking Saturday + the 12:30am event is rejected as a
+        // mismatch, even though that's exactly Saturday night's last event.
+        if (guildDayOfWeek(ev.day_of_week, ev.event_time) !== dayOfWeek(eventDate)) {
+          throw httpError(400, "That event isn't scheduled on that date.");
+        }
         eventName = ev.name;
       }
 
@@ -228,9 +297,12 @@ module.exports = function createLoa(supabase) {
       let eventName = null;
       if (eventScheduleId) {
         const { data: ev, error: evErr } = await supabase.from('event_schedule')
-          .select('id, name, day_of_week').eq('id', eventScheduleId).single();
+          .select('id, name, day_of_week, event_time').eq('id', eventScheduleId).single();
         if (evErr || !ev) throw httpError(400, 'Unknown event.');
-        if (ev.day_of_week !== dow) throw httpError(400, "That event isn't scheduled on that day.");
+        // The night it belongs to, as in submitEvent above.
+        if (guildDayOfWeek(ev.day_of_week, ev.event_time) !== dow) {
+          throw httpError(400, "That event isn't scheduled on that day.");
+        }
         eventName = ev.name;
       }
 
@@ -291,3 +363,7 @@ module.exports = function createLoa(supabase) {
 
 module.exports.todayInGuildTz = todayInGuildTz;
 module.exports.parseTimeOfDay = parseTimeOfDay;
+module.exports.daySlot = daySlot;
+module.exports.guildDayOfWeek = guildDayOfWeek;
+module.exports.isAfterMidnight = isAfterMidnight;
+module.exports.GUILD_DAY_START = GUILD_DAY_START;

@@ -3,6 +3,7 @@
 // command so both write through the same validation instead of maintaining
 // it twice (same pattern as loa.js).
 const crypto = require('crypto');
+const { guildDayOfWeek, daySlot } = require('./loa');
 
 function httpError(status, message) {
   const err = new Error(message);
@@ -12,12 +13,17 @@ function httpError(status, message) {
 
 module.exports = function createAttendance(supabase) {
   return {
-    // Every scheduled event, for populating a dropdown/autocomplete.
+    // Every scheduled event, for populating a dropdown/autocomplete. Ordered by
+    // the night each belongs to and its position in that night, so the 12:30am
+    // event sits at the end of its own evening rather than at the top of the
+    // following morning — matching how these lists are labelled.
     async listSchedule() {
-      const { data, error } = await supabase.from('event_schedule')
-        .select('*').order('day_of_week').order('name');
+      const { data, error } = await supabase.from('event_schedule').select('*');
       if (error) { console.error('attendance.listSchedule error:', error.message); return []; }
-      return data || [];
+      return (data || []).sort((a, b) =>
+        guildDayOfWeek(a.day_of_week, a.event_time) - guildDayOfWeek(b.day_of_week, b.event_time)
+        || (a.event_time ? daySlot(a.event_time) : -1) - (b.event_time ? daySlot(b.event_time) : -1)
+        || String(a.name).localeCompare(String(b.name)));
     },
 
     async getScheduleEvent(id) {

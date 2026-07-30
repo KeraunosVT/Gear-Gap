@@ -80,6 +80,19 @@ All configuration is environment variables, read from `backend/.env` (see `requi
 
 Guild branding (house name, tag, motto, creed) is edited directly in [`frontend/src/guild.js`](frontend/src/guild.js).
 
+### Guild nights run past midnight
+
+A guild night doesn't end at midnight. The 12:30 AM Guild Field Boss is the tail of the previous evening's block, not the start of a new day — so "Saturday's events" means Saturday 8 PM through Sunday 12:30 AM, and a member who files *"out from 9 PM Saturday"* is out for that 12:30 AM boss too.
+
+The schedule stores each event on the calendar day it **actually occurs** (the 12:30 AM boss is stored under Sunday). The code maps that back to the night it belongs to: anything before `GUILD_DAY_START` (01:00 ET) counts as the night before. That constant lives in [`backend/loa.js`](backend/loa.js), mirrored in [`frontend/src/timeUtils.js`](frontend/src/timeUtils.js) — change both together. It must sit after the guild's latest event and before the earliest of the next evening.
+
+Two consequences worth knowing:
+
+- Times are never compared as `"HH:MM"` strings, since `"00:30" < "21:00"` is true as text but false as a night. Everything goes through `daySlot()`, which measures minutes from the start of the guild night.
+- An LOA whose end time is earlier than its start is read as crossing midnight, so *"out 11 PM–1 AM"* is a valid window.
+
+To check which day each event is filed under: `node scripts/dumpEventSchedule.js` (read-only).
+
 ### Weapon legend (optional, improves screenshot accuracy)
 
 Place a reference image at `backend/assets/weapon-legend.png` (or override the path with `WEAPON_LEGEND_PATH`) showing each Throne & Liberty weapon icon next to its name. When present, it's sent to Gemini as the first image on every screenshot parse so the model can compare each scoreboard icon against a labeled reference — the single biggest accuracy win for weapon detection. Without it, screenshot reading still works from the text descriptions in the prompt, just a bit less reliably.

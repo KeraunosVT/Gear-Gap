@@ -11,10 +11,11 @@ import { useAuth } from '../auth';
 import RestrictedGate from '../components/ui/RestrictedGate';
 import Button from '../components/ui/Button';
 import { PageShell } from '../components/ui/PageShell';
-import { todayInGuildTz, fmtTimeEst } from '../timeUtils';
+import { todayInGuildTz, fmtTimeEst, eventsForGuildDay, isAfterMidnight } from '../timeUtils';
 import { Save, Trash2, Send, Plus, Copy, RefreshCw, Users, CalendarOff, CalendarDays, CalendarCheck, X } from 'lucide-react';
 
 const ROLES = ['Tank', 'DPS', 'Healer'];
+const DAY_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const ROLE_STYLE = {
   Tank:   { dot: 'bg-sky-400',     ring: 'border-l-sky-400' },
   DPS:    { dot: 'bg-oxblood',     ring: 'border-l-oxblood' },
@@ -358,8 +359,7 @@ export default function Parties() {
 
   const eventsForDate = useMemo(() => {
     if (!loaDate) return [];
-    const dow = new Date(loaDate + 'T12:00:00').getDay();
-    return schedule.filter((s) => s.day_of_week === dow);
+    return eventsForGuildDay(schedule, new Date(loaDate + 'T12:00:00').getDay());
   }, [loaDate, schedule]);
 
   // Which date+event the LOA set in state was fetched for. Keeps load() — which
@@ -790,7 +790,15 @@ export default function Parties() {
           <select value={loaEvent} onChange={(e) => changeLoaEvent(e.target.value)}
             className="bg-hall border border-line rounded px-2 py-1.5 text-bone text-sm focus:outline-none focus:border-brass">
             <option value="">All events</option>
-            {eventsForDate.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            {/* After-midnight events belong to this night but land on the next
+                calendar day, so the day is shown to head off "why is the 12:30
+                AM one under Saturday?". */}
+            {eventsForDate.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}{s.event_time ? ` — ${fmtTimeEst(s.event_time)}` : ''}
+                {isAfterMidnight(s.event_time) ? ` ${DAY_ABBR[s.day_of_week]}` : ''}
+              </option>
+            ))}
           </select>
           {loaById.size > 0 && <span className="text-oxblood font-mono">{loaById.size} out</span>}
         </div>
