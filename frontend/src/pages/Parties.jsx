@@ -40,7 +40,12 @@ const initItems = () => ({
   absent: [],
   ...Object.fromEntries(PARTY_IDS.map((id) => [id, []])),
 });
-const initNames = () => Object.fromEntries(PARTY_IDS.map((id, i) => [id, `Party ${i + 1}`]));
+// The last slot is the overflow/standby group rather than a numbered party, so
+// it's named for what it's used for. Still renameable like any other.
+const FILL_PARTY_ID = 'p12';
+const initNames = () => Object.fromEntries(
+  PARTY_IDS.map((id, i) => [id, id === FILL_PARTY_ID ? 'Fill' : `Party ${i + 1}`]),
+);
 const findContainer = (id, src) => (id in src ? id : Object.keys(src).find((k) => src[k].includes(id)));
 
 const ROLE_COLOR = { Tank: '#38bdf8', DPS: '#b0423a', Healer: '#4ade80' };
