@@ -12,7 +12,7 @@ import RestrictedGate from '../components/ui/RestrictedGate';
 import Button from '../components/ui/Button';
 import { PageShell } from '../components/ui/PageShell';
 import { todayInGuildTz, fmtTimeEst } from '../timeUtils';
-import { Save, Trash2, Send, Plus, RefreshCw, Users, CalendarOff, CalendarDays, CalendarCheck, X } from 'lucide-react';
+import { Save, Trash2, Send, Plus, Copy, RefreshCw, Users, CalendarOff, CalendarDays, CalendarCheck, X } from 'lucide-react';
 
 const ROLES = ['Tank', 'DPS', 'Healer'];
 const ROLE_STYLE = {
@@ -589,18 +589,56 @@ export default function Parties() {
     });
   };
 
+  // The board as a savable roster. Shared by save and duplicate, so a copy is
+  // always of what's on screen — including edits not yet written back.
+  const buildBody = (name) => ({
+    name,
+    layout: { parties: buildPayloadParties(), absent: buildPayloadAbsent(), classAssignments, rolesByMode },
+    // The occasion the board is currently set to is the occasion the roster is
+    // for — that's what makes re-checking LOA on load possible.
+    event_date: loaDate || null,
+    event_schedule_id: loaEvent || null,
+  });
+
   const save = async () => {
     if (!rosterName.trim()) return flash('Name the roster first.', false);
     setBusy(true);
-    const layout = { parties: buildPayloadParties(), absent: buildPayloadAbsent(), classAssignments, rolesByMode };
-    // The occasion the board is currently set to is the occasion the roster is
-    // for — that's what makes re-checking LOA on load possible.
-    const body = { name: rosterName, layout, event_date: loaDate || null, event_schedule_id: loaEvent || null };
+    const body = buildBody(rosterName);
     try {
       if (rosterId) await axios.put(`/api/admin/rosters/${rosterId}`, body);
       else { const res = await axios.post('/api/admin/rosters', body); setRosterId(res.data.id); }
       loadSaved(); flash('Roster saved.');
     } catch (err) { flash(err.response?.data?.error || 'Save failed.', false); }
+    finally { setBusy(false); }
+  };
+
+  // "Siege" → "Siege (copy)" → "Siege (copy 2)" … an existing suffix is stripped
+  // first so repeated duplication doesn't pile them up, and taken names are
+  // skipped so the dropdown never shows two entries reading the same.
+  const copyName = (name) => {
+    const base = name.replace(/ \(copy(?: \d+)?\)$/, '').trim() || 'Roster';
+    const taken = new Set(saved.map((r) => r.name));
+    let candidate = `${base} (copy)`;
+    for (let n = 2; taken.has(candidate); n += 1) candidate = `${base} (copy ${n})`;
+    return candidate.slice(0, 120);
+  };
+
+  // Save the board as a new roster, leaving the loaded one untouched, and switch
+  // to editing the copy. This is how a roster gets reused for another night:
+  // duplicate it, move the date, and the LOA bars re-check the new occasion
+  // against the copy — where load-change-date-Update overwrites last week's.
+  const duplicate = async () => {
+    if (!rosterId) return;
+    setBusy(true);
+    const name = copyName(rosterName);
+    try {
+      const res = await axios.post('/api/admin/rosters', buildBody(name));
+      setRosterId(res.data.id); setRosterName(name);
+      // The diff banner is about the roster that was loaded; the copy is
+      // freshly saved, so there's nothing to have changed since.
+      setLoaDiff(null);
+      loadSaved(); flash(`Duplicated as "${name}".`);
+    } catch (err) { flash(err.response?.data?.error || 'Duplicate failed.', false); }
     finally { setBusy(false); }
   };
 
@@ -720,6 +758,11 @@ export default function Parties() {
           {saved.map((r) => <option key={r.id} value={r.id}>{r.name}{r.event_date ? ` — ${r.event_date}` : ''}</option>)}
         </select>
         <button onClick={resetBoard} className="inline-flex items-center gap-2 px-3 py-2 text-ash hover:text-bone transition-colors"><Plus className="w-4 h-4" /> New</button>
+        <button onClick={duplicate} disabled={!rosterId || busy}
+          title={rosterId ? 'Save this board as a new roster, leaving the original untouched' : 'Load a roster first'}
+          className="inline-flex items-center gap-2 px-3 py-2 text-ash hover:text-bone transition-colors disabled:opacity-40 disabled:hover:text-ash">
+          <Copy className="w-4 h-4" /> Duplicate
+        </button>
         <Button variant="destructive" size="none" className="px-3 py-2" onClick={del}><Trash2 className="w-4 h-4" /> Delete</Button>
         <div className="flex items-center gap-2 text-sm text-ash">
           <CalendarDays className="w-4 h-4" />
