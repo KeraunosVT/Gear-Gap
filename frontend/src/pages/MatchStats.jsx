@@ -1,4 +1,4 @@
-import { Sword, Target, Heart, Users, ShieldAlert, Pencil, Map as MapIcon } from 'lucide-react';
+import { Sword, Target, Heart, Users, ShieldAlert, Pencil, Trash2, Map as MapIcon } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
@@ -8,6 +8,8 @@ import ErrorState from '../components/ui/ErrorState';
 import EmptyState from '../components/ui/EmptyState';
 import { PageShell } from '../components/ui/PageShell';
 import { Table, Thead, Tr } from '../components/ui/Table';
+import { useFlash } from '../components/ui/useFlash';
+import Toast from '../components/ui/Toast';
 
 function getClassName(weapon1, weapon2) {
   if (!weapon1) return 'Unknown';
@@ -22,7 +24,7 @@ function getClassName(weapon1, weapon2) {
 
 export default function MatchStats() {
   const { user } = useAuth();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [matches, setMatches] = useState([]);
   const [selectedMatchId, setSelectedMatchId] = useState(null);
   const [matchDetail, setMatchDetail] = useState(null);
@@ -30,6 +32,8 @@ export default function MatchStats() {
   const [listError, setListError] = useState(false);
   const [detailError, setDetailError] = useState(false);
   const [mapStats, setMapStats] = useState([]);
+  const [deleting, setDeleting] = useState(false);
+  const [msg, flash] = useFlash();
 
   const loadMatches = () => {
     setLoading(true);
@@ -55,14 +59,47 @@ export default function MatchStats() {
 
   useEffect(() => { loadMatches(); }, []);
   useEffect(() => { loadDetail(selectedMatchId); }, [selectedMatchId]);
-  useEffect(() => {
+  useEffect(() => { loadMapStats(); }, []);
+
+  const loadMapStats = () => {
     axios.get('/api/maps/stats').then((res) => setMapStats(res.data.stats || [])).catch(() => {});
-  }, []);
+  };
 
   const selectedMatch = matchDetail?.match;
   const players = matchDetail?.players || [];
   const classBreakdown = matchDetail?.classBreakdown || [];
   const teamStats = matchDetail?.teamStats || {};
+
+  // Admin-only, and irreversible: the player rows go with it via ON DELETE
+  // CASCADE, which also moves every one of those players' all-time totals — so
+  // the confirm names the match and says how many records go with it.
+  const deleteMatch = async () => {
+    if (!selectedMatch || deleting) return;
+    const label = selectedMatch.title || 'this match';
+    const ok = window.confirm(
+      `Delete "${label}"?\n\nThis removes ${players.length} player record${players.length === 1 ? '' : 's'} and adjusts their all-time war stats. This cannot be undone.`,
+    );
+    if (!ok) return;
+    setDeleting(true);
+    try {
+      await axios.delete(`/api/admin/match/${selectedMatch.id}`);
+      // Drop it locally and land on whatever took its place, rather than
+      // refetching and selecting an id the server no longer has.
+      const idx = matches.findIndex((m) => m.id === selectedMatch.id);
+      const remaining = matches.filter((m) => m.id !== selectedMatch.id);
+      setMatches(remaining);
+      setMatchDetail(null);
+      setSelectedMatchId(remaining.length ? remaining[Math.min(idx, remaining.length - 1)].id : null);
+      // A ?match= pointing at the deleted record would 404 on refresh.
+      if (searchParams.get('match')) setSearchParams({});
+      loadMapStats(); // map win/loss totals just changed
+      flash(`Deleted "${label}".`);
+    } catch (err) {
+      flash(err.response?.data?.error || 'Delete failed.', false);
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   const topKills = [...players].sort((a, b) => (b.kills || 0) - (a.kills || 0)).slice(0, 10);
   const topDamage = [...players].sort((a, b) => (b.damage_dealt || 0) - (a.damage_dealt || 0)).slice(0, 10);
@@ -71,6 +108,8 @@ export default function MatchStats() {
 
   return (
     <PageShell maxWidth="max-w-7xl">
+      <Toast msg={msg} />
+
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
         <label className="eyebrow text-[10px] text-ash shrink-0" htmlFor="engagement-select">Select engagement</label>
@@ -169,13 +208,22 @@ export default function MatchStats() {
               </span>
             )}
             {user?.isAdmin && (
-              <Link
-                to={`/admin?edit=${selectedMatch.id}`}
-                className="inline-flex items-center gap-1.5 text-sm text-ash hover:text-brass transition-colors"
-                title="Edit this match"
-              >
-                <Pencil className="w-4 h-4" /> Edit
-              </Link>
+              <>
+                <Link
+                  to={`/admin?edit=${selectedMatch.id}`}
+                  className="inline-flex items-center gap-1.5 text-sm text-ash hover:text-brass transition-colors"
+                  title="Edit this match"
+                >
+                  <Pencil className="w-4 h-4" /> Edit
+                </Link>
+                <button
+                  onClick={deleteMatch} disabled={deleting}
+                  className="inline-flex items-center gap-1.5 text-sm text-ash hover:text-oxblood transition-colors disabled:opacity-40"
+                  title="Delete this match and its player records"
+                >
+                  <Trash2 className="w-4 h-4" /> {deleting ? 'Deleting…' : 'Delete'}
+                </button>
+              </>
             )}
           </div>
           <p className="text-ash mb-6">
