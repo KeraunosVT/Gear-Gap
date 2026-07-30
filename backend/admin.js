@@ -877,11 +877,24 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     }
   });
 
-  // ── Delete a match (player rows follow via ON DELETE CASCADE) ──────────────
+  // ── Delete a match (player_match_stats rows follow via ON DELETE CASCADE) ───
+  // The cascade only holds once migration 005 has run: player_match_stats used
+  // to carry a second, non-cascading foreign key on match_id, which blocked
+  // every delete here with a 23503. Report that case specifically rather than
+  // as a bare 500 — it's a schema problem no amount of retrying will fix.
   router.delete('/match/:id', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
     const { error } = await supabase.from('wargame_matches').delete().eq('id', req.params.id);
-    if (error) return res.status(500).json({ error: 'Failed to delete match.' });
+    if (error) {
+      console.error('Match delete error:', error.code, error.message, error.details || '');
+      if (error.code === '23503') {
+        return res.status(409).json({
+          error: 'Player records still reference this match, so it can\'t be deleted. '
+            + 'Migration 005 (fix match stats FK) needs to be applied.',
+        });
+      }
+      return res.status(500).json({ error: 'Failed to delete match.', detail: error.message });
+    }
     res.json({ ok: true });
   });
 
