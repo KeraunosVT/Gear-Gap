@@ -1,4 +1,4 @@
-import { Sword, Target, Heart, Users, ShieldAlert, Pencil, Trash2, Map as MapIcon } from 'lucide-react';
+import { Sword, Target, Heart, Users, ShieldAlert, Pencil, Trash2, Share2, Map as MapIcon } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
@@ -69,6 +69,23 @@ export default function MatchStats() {
   const players = matchDetail?.players || [];
   const classBreakdown = matchDetail?.classBreakdown || [];
   const teamStats = matchDetail?.teamStats || {};
+
+  // Deep link to the selected match. Built from the canonical route and the id
+  // rather than window.location, because picking a match from the dropdown
+  // doesn't push a URL — the address bar still says whatever you arrived on.
+  // The page already reads ?match= on load, so the link needs nothing new.
+  const shareMatch = async () => {
+    if (!selectedMatch) return;
+    const url = `${window.location.origin}/war-record?match=${selectedMatch.id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      flash('Link copied — paste it anywhere.');
+    } catch {
+      // The clipboard API needs a secure context and permission; if either is
+      // missing, show the link so it can still be copied by hand.
+      window.prompt('Copy this link:', url);
+    }
+  };
 
   // Admin-only, and irreversible: the player rows go with it via ON DELETE
   // CASCADE, which also moves every one of those players' all-time totals — so
@@ -207,6 +224,13 @@ export default function MatchStats() {
                 <MapIcon className="w-3.5 h-3.5" /> {selectedMatch.map}
               </span>
             )}
+            <button
+              onClick={shareMatch}
+              className="inline-flex items-center gap-1.5 text-sm text-ash hover:text-brass transition-colors"
+              title="Copy a link straight to this match"
+            >
+              <Share2 className="w-4 h-4" /> Share
+            </button>
             {user?.isAdmin && (
               <>
                 <Link
