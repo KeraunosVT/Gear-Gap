@@ -11,7 +11,7 @@ import { useAuth } from '../auth';
 import RestrictedGate from '../components/ui/RestrictedGate';
 import Button from '../components/ui/Button';
 import { PageShell } from '../components/ui/PageShell';
-import { todayInGuildTz } from '../timeUtils';
+import { todayInGuildTz, fmtTimeEst } from '../timeUtils';
 import { Save, Trash2, Send, Plus, RefreshCw, Users, CalendarOff, CalendarDays, X } from 'lucide-react';
 
 const ROLES = ['Tank', 'DPS', 'Healer'];
@@ -44,6 +44,34 @@ const findContainer = (id, src) => (id in src ? id : Object.keys(src).find((k) =
 
 const ROLE_COLOR = { Tank: '#38bdf8', DPS: '#b0423a', Healer: '#4ade80' };
 const ROLE_SYMBOL = { Tank: '🛡️', DPS: '⚔️', Healer: '💚' };
+
+// Whether an absence is definite enough to act on. A `partial` entry from
+// /loa/unavailable is time-scoped and couldn't be checked against an event time
+// (because no single event was picked), so it's a prompt to look at the window
+// rather than grounds for benching — someone out after 8pm is fine for the 6pm.
+// Those stay on the board flagged; only definite absences are moved.
+const isFullyOut = (loa, id) => {
+  const entry = loa.get(id);
+  return Boolean(entry) && !entry.partial;
+};
+
+const LOA_TYPE_LABEL = { event: 'Out this event', range: 'Away (date range)', recurring: 'Out weekly' };
+
+// Compact time for the inline card label, where a full "7:00 PM ET – 8:00 PM ET"
+// is far too wide. The tooltip carries the fully qualified version.
+const shortTime = (t) => fmtTimeEst(t).replace(' ET', '').replace(':00', '');
+
+// Human summary of an absence for a card tooltip: the window if there is one,
+// otherwise what kind of absence it is, plus the reason.
+function loaSummary(loa) {
+  if (!loa) return null;
+  const when = loa.start_time
+    ? (loa.end_time
+      ? `Out ${fmtTimeEst(loa.start_time)} – ${fmtTimeEst(loa.end_time)}`
+      : `Out from ${fmtTimeEst(loa.start_time)} on`)
+    : LOA_TYPE_LABEL[loa.type] || 'On leave of absence';
+  return loa.reason ? `${when} — ${loa.reason}` : when;
+}
 
 function renderRosterImage(partyIds, items, partyNames, roles, byId, classMode, classAssignments) {
   const parties = partyIds.filter((pid) => items[pid].length > 0);
@@ -177,7 +205,10 @@ export default function Parties() {
   const [busy, setBusy] = useState(false);
   const [loaDate, setLoaDate] = useState(todayInGuildTz);
   const [loaEvent, setLoaEvent] = useState('');
-  const [loaSet, setLoaSet] = useState(new Set());
+  // discord_id → the absence that applies to the current occasion (type, time
+  // window, reason, and whether it's `partial`). A Map rather than a set of ids
+  // so cards can explain *how* someone is out, not just that they are.
+  const [loaById, setLoaById] = useState(new Map());
   // What changed in the LOA picture between when a roster was saved and now.
   // Set by load(), cleared once the officer acts on it or moves the occasion.
   const [loaDiff, setLoaDiff] = useState(null);
@@ -187,8 +218,8 @@ export default function Parties() {
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
-  const loaSetRef = useRef(loaSet);
-  useEffect(() => { loaSetRef.current = loaSet; }, [loaSet]);
+  const loaRef = useRef(loaById);
+  useEffect(() => { loaRef.current = loaById; }, [loaById]);
 
   const rolesByModeRef = useRef(rolesByMode);
   useEffect(() => { rolesByModeRef.current = rolesByMode; }, [rolesByMode]);
@@ -232,14 +263,14 @@ export default function Parties() {
         setItems((prev) => {
           const placed = new Set([...PARTY_IDS, 'absent'].flatMap((k) => prev[k]));
           const unplaced = ms.map((m) => m.id).filter((id) => !placed.has(id));
-          const loa = loaSetRef.current;
+          const loa = loaRef.current;
           const currentRoles = merged[classMode];
           const next = { ...prev };
           POOL_KEYS.forEach((k) => { next[k] = []; });
           unplaced.forEach((id) => {
-            if (!loa.has(id)) next[poolForRole(currentRoles[id])].push(id);
+            if (!isFullyOut(loa, id)) next[poolForRole(currentRoles[id])].push(id);
           });
-          next.absent = [...prev.absent, ...unplaced.filter((id) => loa.has(id))];
+          next.absent = [...prev.absent, ...unplaced.filter((id) => isFullyOut(loa, id))];
           return next;
         });
       })
@@ -256,14 +287,14 @@ export default function Parties() {
       .catch(() => {});
   };
 
-  // Resolves to the set of discord_ids out for a date/event instead of setting
-  // state itself — load() needs the roster's own LOA set in hand to diff it
-  // against what was saved, before any of it reaches the board.
+  // Resolves to who's out for a date/event instead of setting state itself —
+  // load() needs the roster's own LOA picture in hand to diff it against what
+  // was saved, before any of it reaches the board.
   const fetchLoa = (date, event) => {
     const params = `date=${date}${event ? `&event=${event}` : ''}`;
     return axios.get(`/api/admin/loa/unavailable?${params}`)
-      .then((res) => new Set((res.data.unavailable || []).map((u) => u.discord_id)))
-      .catch(() => new Set());
+      .then((res) => new Map((res.data.unavailable || []).map((u) => [u.discord_id, u])))
+      .catch(() => new Map());
   };
 
   const eventsForDate = useMemo(() => {
@@ -283,14 +314,14 @@ export default function Parties() {
   useEffect(() => {
     loadSaved(); loadSchedule();
     loaFetchedFor.current = `${loaDate}|${loaEvent}`;
-    fetchLoa(loaDate, loaEvent).then((s) => { setLoaSet(s); loaSetRef.current = s; loadMembers(); });
+    fetchLoa(loaDate, loaEvent).then((s) => { setLoaById(s); loaRef.current = s; loadMembers(); });
   }, []);
 
   useEffect(() => {
     const key = `${loaDate}|${loaEvent}`;
     if (loaFetchedFor.current === key) return;
     loaFetchedFor.current = key;
-    fetchLoa(loaDate, loaEvent).then(setLoaSet);
+    fetchLoa(loaDate, loaEvent).then(setLoaById);
   }, [loaDate, loaEvent]);
 
   // Moving the occasion changes who's flagged, but never moves anyone: the
@@ -306,13 +337,21 @@ export default function Parties() {
   };
   const changeLoaEvent = (event) => { setLoaEvent(event); setLoaDiff(null); };
 
-  // Anyone on LOA for the current occasion who's still sitting on the board.
-  // Parties are called out separately because that's the case that actually
-  // breaks a roster; pool leftovers are just tidying.
-  const loaConflicts = useMemo(() => ({
-    inParties: PARTY_IDS.flatMap((pid) => items[pid].filter((id) => loaSet.has(id))),
-    inPools: POOL_KEYS.flatMap((k) => items[k].filter((id) => loaSet.has(id))),
-  }), [items, loaSet]);
+  // Anyone on LOA for the current occasion who's still sitting on the board,
+  // split by how definite the absence is (see isFullyOut). Only `full` is ever
+  // bulk-moved; `partial` is surfaced so an officer can check the window and
+  // decide, since it may not collide with this event at all.
+  const loaConflicts = useMemo(() => {
+    const onBoard = [...PARTY_IDS, ...POOL_KEYS].flatMap((k) => items[k].filter((id) => loaById.has(id)));
+    const inParties = PARTY_IDS.flatMap((pid) => items[pid].filter((id) => loaById.has(id)));
+    return {
+      full: onBoard.filter((id) => isFullyOut(loaById, id)),
+      partial: onBoard.filter((id) => !isFullyOut(loaById, id)),
+      // Definite absences sitting in a party — the case that breaks a roster,
+      // as opposed to one just cluttering the pool.
+      fullInParties: inParties.filter((id) => isFullyOut(loaById, id)),
+    };
+  }, [items, loaById]);
 
   // Re-bucket anyone sitting in an unassigned pool column (never an actual
   // party or the absent box — those are deliberate placements) to match their
@@ -422,13 +461,13 @@ export default function Parties() {
   // the LOA picture at save time, so dragging needs no extra bookkeeping.
   const buildPayloadAbsent = () =>
     items.absent.map((id) => ({
-      id, name: byId[id]?.name || 'Unknown', why: loaSet.has(id) ? 'loa' : 'benched',
+      id, name: byId[id]?.name || 'Unknown', why: loaById.has(id) ? 'loa' : 'benched',
     }));
 
   const resetBoard = () => {
     const next = initItems();
     members.forEach((m) => {
-      if (loaSet.has(m.id)) next.absent.push(m.id);
+      if (isFullyOut(loaById, m.id)) next.absent.push(m.id);
       else next[poolForRole(roles[m.id])].push(m.id);
     });
     setItems(next);
@@ -436,10 +475,11 @@ export default function Parties() {
     setClassAssignments({ pvp: {}, pve: {} }); setLoaDiff(null);
   };
 
-  // Move everyone on LOA off the board in one go — the explicit version of what
-  // used to happen silently on every date change.
+  // Move everyone definitely out off the board in one go — the explicit version
+  // of what used to happen silently on every date change. Partial absences are
+  // deliberately left alone; the officer resolves those per-person.
   const benchLoaConflicts = () => {
-    const moving = [...loaConflicts.inParties, ...loaConflicts.inPools];
+    const moving = loaConflicts.full;
     if (moving.length === 0) return;
     const movingSet = new Set(moving);
     setItems((prev) => {
@@ -491,7 +531,7 @@ export default function Parties() {
       // diff, since there's no date to say "since you saved this" about.
       const date = r.event_date || null;
       const event = r.event_schedule_id || '';
-      const loa = date ? await fetchLoa(date, event) : loaSet;
+      const loa = date ? await fetchLoa(date, event) : loaById;
 
       const nextItems = initItems();
       const nextNames = initNames();
@@ -522,7 +562,7 @@ export default function Parties() {
       const assigned = new Set([...PARTY_IDS, 'absent'].flatMap((p) => nextItems[p]));
       const unassigned = members.map((m) => m.id).filter((mid) => !assigned.has(mid));
       unassigned.forEach((id) => {
-        if (loa.has(id)) nextItems.absent.push(id);
+        if (isFullyOut(loa, id)) nextItems.absent.push(id);
         else nextItems[poolForRole(mergedRolesByMode[classMode][id])].push(id);
       });
 
@@ -534,10 +574,12 @@ export default function Parties() {
       // was when saved, which goes stale when someone changes their name.
       const nameNow = (m) => byId[m.id]?.name || m.name || 'Unknown';
       const nowOut = (r.layout?.parties || []).flatMap((lp) =>
-        (lp.members || []).filter((m) => loa.has(m.id))
+        (lp.members || []).filter((m) => isFullyOut(loa, m.id))
           .map((m) => ({ id: m.id, name: nameNow(m), party: lp.name || lp.id })));
+      // Not just "no entry at all" — an absence that has narrowed to a time
+      // window since it was filed also means they're worth reconsidering.
       const nowBack = (r.layout?.absent || [])
-        .filter((m) => m.why === 'loa' && !loa.has(m.id))
+        .filter((m) => m.why === 'loa' && !isFullyOut(loa, m.id))
         .map((m) => ({ id: m.id, name: nameNow(m) }));
 
       setItems(nextItems); setPartyNames(nextNames);
@@ -546,7 +588,7 @@ export default function Parties() {
       setRosterId(r.id); setRosterName(r.name);
       if (date) {
         loaFetchedFor.current = `${date}|${event}`;
-        setLoaDate(date); setLoaEvent(event); setLoaSet(loa);
+        setLoaDate(date); setLoaEvent(event); setLoaById(loa);
       }
       setLoaDiff(date && (nowOut.length || nowBack.length) ? { nowOut, nowBack } : null);
       flash(`Loaded "${r.name}".`);
@@ -603,7 +645,7 @@ export default function Parties() {
             <option value="">All events</option>
             {eventsForDate.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
-          {loaSet.size > 0 && <span className="text-oxblood font-mono">{loaSet.size} out</span>}
+          {loaById.size > 0 && <span className="text-oxblood font-mono">{loaById.size} out</span>}
         </div>
         <button onClick={() => setClassMode((m) => m === 'pvp' ? 'pve' : 'pvp')}
           className="inline-flex items-center gap-0 rounded-full border border-line bg-hall p-0.5 cursor-pointer shrink-0" title="Toggle PvP / PvE classes and roles">
@@ -654,24 +696,42 @@ export default function Parties() {
         </div>
       )}
 
-      {/* Live conflict prompt: on-LOA members still sitting on the board. */}
-      {(loaConflicts.inParties.length > 0 || loaConflicts.inPools.length > 0) && (
-        <div className="mb-6 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-sm flex items-center justify-between gap-4">
+      {/* Live conflict prompt: members definitely out, still on the board. */}
+      {loaConflicts.full.length > 0 && (
+        <div className="mb-3 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-sm flex items-center justify-between gap-4">
           <div className="flex items-center gap-2 text-bone">
             <CalendarOff className="w-4 h-4 text-oxblood shrink-0" />
-            {loaConflicts.inParties.length > 0 ? (
+            {loaConflicts.fullInParties.length > 0 ? (
               <span>
-                <span className="font-semibold">{namesFor(loaConflicts.inParties)}</span>
-                {loaConflicts.inParties.length === 1 ? ' is' : ' are'} on LOA for this occasion but still in a party.
-                {loaConflicts.inPools.length > 0 && ` ${loaConflicts.inPools.length} more in the pool.`}
+                <span className="font-semibold">{namesFor(loaConflicts.fullInParties)}</span>
+                {loaConflicts.fullInParties.length === 1 ? ' is' : ' are'} on LOA for this occasion but still in a party.
+                {loaConflicts.full.length > loaConflicts.fullInParties.length
+                  && ` ${loaConflicts.full.length - loaConflicts.fullInParties.length} more in the pool.`}
               </span>
             ) : (
-              <span>{loaConflicts.inPools.length} member{loaConflicts.inPools.length === 1 ? '' : 's'} in the pool {loaConflicts.inPools.length === 1 ? 'is' : 'are'} on LOA for this occasion.</span>
+              <span>
+                {loaConflicts.full.length} member{loaConflicts.full.length === 1 ? '' : 's'} in the pool
+                {loaConflicts.full.length === 1 ? ' is' : ' are'} on LOA for this occasion.
+              </span>
             )}
           </div>
           <Button variant="secondary" size="none" className="px-3 py-1.5 text-xs shrink-0" onClick={benchLoaConflicts}>
-            Move {loaConflicts.inParties.length + loaConflicts.inPools.length} to Absent
+            Move {loaConflicts.full.length} to Absent
           </Button>
+        </div>
+      )}
+
+      {/* Time-scoped absences that may or may not collide with what's being
+          built. No bulk action — picking a specific event above resolves them
+          into a definite yes/no, and the card tooltips show each window. */}
+      {loaConflicts.partial.length > 0 && (
+        <div className="mb-6 px-5 py-2.5 rounded-lg border border-brass/30 bg-panel text-sm text-ash flex items-center gap-2">
+          <CalendarOff className="w-4 h-4 text-brass shrink-0" />
+          <span>
+            <span className="text-bone font-semibold">{namesFor(loaConflicts.partial)}</span>
+            {loaConflicts.partial.length === 1 ? ' has' : ' have'} an LOA for part of this day — hover for the window
+            {!loaEvent && ', or pick an event above to check it exactly'}.
+          </span>
         </div>
       )}
 
@@ -705,7 +765,7 @@ export default function Parties() {
                     <div className="space-y-2 max-h-[260px] overflow-auto pr-1 min-h-[50px]">
                       {poolViews[key].length === 0
                         ? <div className="text-ash/50 text-xs py-4 text-center">Empty</div>
-                        : poolViews[key].map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} isLoa={loaSet.has(id)} classMode={classMode} assignedClass={classAssignments[classMode][id]} onClassChange={(cls) => setMemberClass(classMode, id, cls)} />)}
+                        : poolViews[key].map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} loa={loaById.get(id)} classMode={classMode} assignedClass={classAssignments[classMode][id]} onClassChange={(cls) => setMemberClass(classMode, id, cls)} />)}
                     </div>
                   </DroppableColumn>
                 ))}
@@ -719,7 +779,7 @@ export default function Parties() {
               <div className="space-y-2 max-h-[300px] overflow-auto pr-1 min-h-[60px]">
                 {items.absent.length === 0
                   ? <div className="text-ash/50 text-xs text-center py-6">Drop absent members here</div>
-                  : items.absent.map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} isLoa={loaSet.has(id)} classMode={classMode} assignedClass={classAssignments[classMode][id]} onClassChange={(cls) => setMemberClass(classMode, id, cls)} />)}
+                  : items.absent.map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} loa={loaById.get(id)} classMode={classMode} assignedClass={classAssignments[classMode][id]} onClassChange={(cls) => setMemberClass(classMode, id, cls)} />)}
               </div>
             </DroppableColumn>
           </div>
@@ -738,7 +798,7 @@ export default function Parties() {
                     <div className="space-y-1">
                       {items[pid].length === 0
                         ? <div className="text-ash/50 text-xs text-center py-3 border border-dashed border-line rounded">Drop members here</div>
-                        : items[pid].map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} inParty isLoa={loaSet.has(id)} classMode={classMode} assignedClass={classAssignments[classMode][id]} onClassChange={(cls) => setMemberClass(classMode, id, cls)} />)}
+                        : items[pid].map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} inParty loa={loaById.get(id)} classMode={classMode} assignedClass={classAssignments[classMode][id]} onClassChange={(cls) => setMemberClass(classMode, id, cls)} />)}
                     </div>
                   </DroppableColumn>
                 ))}
@@ -747,7 +807,7 @@ export default function Parties() {
           </div>
         </div>
 
-        <DragOverlay>{activeMember ? <MemberCardBase member={activeMember} role={roles[activeMember.id]} overlay /> : null}</DragOverlay>
+        <DragOverlay>{activeMember ? <MemberCardBase member={activeMember} role={roles[activeMember.id]} loa={loaById.get(activeMember.id)} overlay /> : null}</DragOverlay>
       </DndContext>
     </PageShell>
   );
@@ -771,20 +831,32 @@ function SortableMember(props) {
   return <MemberCardBase ref={setNodeRef} style={style} handle={{ ...attributes, ...listeners }} isDragging={isDragging} {...props} />;
 }
 
-const MemberCardBase = forwardRef(function MemberCardBase({ member, role, onRole, inParty, overlay, style, handle, isDragging, isLoa, classMode, assignedClass, onClassChange }, ref) {
+const MemberCardBase = forwardRef(function MemberCardBase({ member, role, onRole, inParty, overlay, style, handle, isDragging, loa, classMode, assignedClass, onClassChange }, ref) {
   const rs = ROLE_STYLE[role];
   const classes = ((classMode === 'pve' ? member.pve_classes : member.pvp_classes) || []).filter(Boolean);
   const current = assignedClass || classes[0];
+  // A definite absence is dimmed and reddened; a partial one stays at full
+  // strength in brass, because the member may well still be usable — the
+  // difference is the whole point of showing the window.
+  const partial = Boolean(loa?.partial);
+  const loaTitle = loaSummary(loa);
   return (
     <div
       ref={ref} style={style} {...handle}
-      className={`group relative flex items-center gap-1.5 bg-hall border border-line ${rs ? `border-l-2 ${rs.ring}` : ''} rounded px-2 py-1.5 cursor-grab active:cursor-grabbing select-none ${isDragging ? 'opacity-30' : ''} ${overlay ? 'shadow-xl ring-1 ring-brass/40' : ''} ${isLoa ? 'opacity-50' : ''}`}
+      title={loaTitle || undefined}
+      className={`group relative flex items-center gap-1.5 bg-hall border border-line ${rs ? `border-l-2 ${rs.ring}` : ''} rounded px-2 py-1.5 cursor-grab active:cursor-grabbing select-none ${isDragging ? 'opacity-30' : ''} ${overlay ? 'shadow-xl ring-1 ring-brass/40' : ''} ${loa && !partial ? 'opacity-50' : ''} ${partial ? 'ring-1 ring-brass/40' : ''}`}
     >
       {member.avatar
         ? <img src={member.avatar} alt="" className="w-6 h-6 rounded-full border border-line shrink-0" />
         : <span className="w-6 h-6 rounded-full bg-panelup border border-line shrink-0 flex items-center justify-center text-[10px] text-brass">{(member.name || '?').slice(0, 1).toUpperCase()}</span>}
       <div className="min-w-0 flex-1">
-        <span className={`text-sm truncate block ${member.missing ? 'text-ash italic' : isLoa ? 'text-oxblood' : 'text-bone'}`} title={isLoa ? 'On leave of absence' : member.missing ? 'No longer in the server' : member.name}>{member.name}</span>
+        <span className={`text-sm truncate block ${member.missing ? 'text-ash italic' : loa && !partial ? 'text-oxblood' : partial ? 'text-brass' : 'text-bone'}`}
+          title={loaTitle || (member.missing ? 'No longer in the server' : member.name)}>{member.name}</span>
+        {loa?.start_time && (
+          <span className={`text-[10px] truncate block ${partial ? 'text-brass' : 'text-oxblood'}`}>
+            {loa.end_time ? `out ${shortTime(loa.start_time)}–${shortTime(loa.end_time)}` : `out from ${shortTime(loa.start_time)}`}
+          </span>
+        )}
         {classes.length === 1 && (
           <span className="text-[10px] text-brass truncate block">{classes[0]}</span>
         )}
@@ -798,7 +870,7 @@ const MemberCardBase = forwardRef(function MemberCardBase({ member, role, onRole
           </select>
         )}
       </div>
-      {isLoa && <CalendarOff className="w-3.5 h-3.5 text-oxblood shrink-0" title="LOA" />}
+      {loa && <CalendarOff className={`w-3.5 h-3.5 shrink-0 ${partial ? 'text-brass' : 'text-oxblood'}`} />}
       {onRole && (
         <div className="flex gap-1 opacity-60 group-hover:opacity-100 transition-opacity" onPointerDown={(e) => e.stopPropagation()}>
           {ROLES.map((r) => (

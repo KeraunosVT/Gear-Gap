@@ -1089,7 +1089,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     const dow = new Date(date + 'T12:00:00').getDay();
     const [{ data, error }, eventRow] = await Promise.all([
       supabase.from('loa_entries')
-        .select('discord_id, display_name, type, event_date, event_schedule_id, start_date, end_date, day_of_week, start_time, end_time'),
+        .select('discord_id, display_name, type, event_date, event_schedule_id, start_date, end_date, day_of_week, start_time, end_time, reason'),
       eventFilter
         ? supabase.from('event_schedule').select('event_time').eq('id', eventFilter).single().then((r) => r.data)
         : Promise.resolve(null),
@@ -1099,7 +1099,6 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
       return res.status(500).json({ error: 'Failed to load LOAs.', detail: error.message });
     }
     const eventTime = eventRow?.event_time || null;
-    if (eventFilter) console.log('loa.unavailable debug:', { date, eventFilter, eventTime });
     const out = new Map();
     (data || []).forEach((e) => {
       let matches = false;
@@ -1116,16 +1115,35 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
       // no specific event filter was given, same as the 'event' type above).
       if (e.type === 'recurring' && e.day_of_week === dow) {
         const scopeMatches = !e.event_schedule_id || !eventFilter || e.event_schedule_id === eventFilter;
-        const timeMatches = withinLoaWindow(e, eventTime);
-        matches = scopeMatches && timeMatches;
-        if (eventFilter) {
-          console.log('loa.unavailable debug recurring entry:', {
-            discord_id: e.discord_id, event_schedule_id: e.event_schedule_id,
-            start_time: e.start_time, end_time: e.end_time, scopeMatches, timeMatches, matches,
-          });
-        }
+        matches = scopeMatches && withinLoaWindow(e, eventTime);
       }
-      if (matches) out.set(e.discord_id, { discord_id: e.discord_id, display_name: e.display_name });
+      if (!matches) return;
+
+      // The window and reason go back too, not just the fact of the absence:
+      // the party builder needs them to tell "gone all night" from "out 7-8,
+      // back after" — which are different planning problems. Safe to include
+      // reason here because the whole /api/admin router is admin-gated, same
+      // condition under which loa.all() exposes it.
+      //
+      // `partial` marks an absence we could only match loosely. A time-scoped
+      // entry checked against a known event time was verified to collide, so
+      // it's definite; with no event selected there's no time to compare, so
+      // it's a heads-up rather than a block — someone out after 8pm is still
+      // available for the 6pm.
+      const entry = {
+        discord_id: e.discord_id,
+        display_name: e.display_name,
+        type: e.type,
+        start_time: e.start_time || null,
+        end_time: e.end_time || null,
+        reason: e.reason || null,
+        partial: Boolean(e.start_time) && !eventTime,
+      };
+      // One member can match several entries (a vacation range plus a standing
+      // night off, say). Keep whichever constrains them most, so a whole-day
+      // absence isn't masked by a time-boxed one that happened to be read last.
+      const prev = out.get(e.discord_id);
+      if (!prev || (prev.partial && !entry.partial)) out.set(e.discord_id, entry);
     });
     res.json({ date, unavailable: [...out.values()] });
   });
