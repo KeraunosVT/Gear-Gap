@@ -576,6 +576,23 @@ export default function Parties() {
     flash(`Moved ${moving.length} member${moving.length === 1 ? '' : 's'} to Absent.`);
   };
 
+  // Click a party member to send them back to the pool for their role — the
+  // reverse of dragging them in, without the drag. Fired only for pointer
+  // travel under the sensor's own activation threshold (see MemberCardBase),
+  // so it can never land at the end of a real drag.
+  const returnToPool = (id) => {
+    setItems((prev) => {
+      const container = findContainer(id, prev);
+      if (!PARTY_IDS.includes(container)) return prev;
+      const dest = poolForRole(roles[id]);
+      return {
+        ...prev,
+        [container]: prev[container].filter((x) => x !== id),
+        [dest]: [...prev[dest], id],
+      };
+    });
+  };
+
   // Put members whose LOA no longer applies back into the pool for their role,
   // out of the Absent box they were parked in when the roster was saved.
   const returnFromAbsent = (ids) => {
@@ -927,7 +944,7 @@ export default function Parties() {
                     <div className="space-y-1">
                       {items[pid].length === 0
                         ? <div className="text-ash/50 text-xs text-center py-3 border border-dashed border-line rounded">Drop members here</div>
-                        : items[pid].map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} inParty loa={loaById.get(id)} classMode={classMode} assignedClass={classAssignments[classMode][id]} onClassChange={(cls) => setMemberClass(classMode, id, cls)} />)}
+                        : items[pid].map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} inParty loa={loaById.get(id)} classMode={classMode} assignedClass={classAssignments[classMode][id]} onClassChange={(cls) => setMemberClass(classMode, id, cls)} onQuickMove={returnToPool} />)}
                     </div>
                   </DroppableColumn>
                 ))}
@@ -960,7 +977,12 @@ function SortableMember(props) {
   return <MemberCardBase ref={setNodeRef} style={style} handle={{ ...attributes, ...listeners }} isDragging={isDragging} {...props} />;
 }
 
-const MemberCardBase = forwardRef(function MemberCardBase({ member, role, onRole, inParty, overlay, style, handle, isDragging, loa, classMode, assignedClass, onClassChange }, ref) {
+// Pointer travel below this counts as a click rather than a drag. It matches
+// the PointerSensor's activationConstraint exactly: under it, the sensor never
+// activated, so a click handler here cannot collide with a drag.
+const CLICK_SLOP_PX = 5;
+
+const MemberCardBase = forwardRef(function MemberCardBase({ member, role, onRole, inParty, overlay, style, handle, isDragging, loa, classMode, assignedClass, onClassChange, onQuickMove }, ref) {
   const rs = ROLE_STYLE[role];
   const classes = ((classMode === 'pve' ? member.pve_classes : member.pvp_classes) || []).filter(Boolean);
   const current = assignedClass || classes[0];
@@ -969,10 +991,29 @@ const MemberCardBase = forwardRef(function MemberCardBase({ member, role, onRole
   // difference is the whole point of showing the window.
   const partial = Boolean(loa?.partial);
   const loaTitle = loaSummary(loa);
+  const hint = onQuickMove ? 'Click to send back to the pool' : null;
+  const title = [loaTitle, hint].filter(Boolean).join(' · ') || undefined;
+
+  // Where the pointer went down, to measure travel on release. Nested controls
+  // (role buttons, the class select) stop pointerdown from reaching here, so
+  // this stays null for those and their release is ignored below.
+  const downAt = useRef(null);
+  const onPointerDown = (e) => {
+    handle?.onPointerDown?.(e); // dnd-kit's own listener — compose, don't replace
+    downAt.current = onQuickMove ? { x: e.clientX, y: e.clientY } : null;
+  };
+  const onPointerUp = (e) => {
+    const from = downAt.current;
+    downAt.current = null;
+    if (!from) return;
+    if (Math.hypot(e.clientX - from.x, e.clientY - from.y) < CLICK_SLOP_PX) onQuickMove(member.id);
+  };
+
   return (
     <div
       ref={ref} style={style} {...handle}
-      title={loaTitle || undefined}
+      onPointerDown={onPointerDown} onPointerUp={onPointerUp}
+      title={title}
       className={`group relative flex items-center gap-1.5 bg-hall border border-line ${rs ? `border-l-2 ${rs.ring}` : ''} rounded px-2 py-1.5 cursor-grab active:cursor-grabbing select-none ${isDragging ? 'opacity-30' : ''} ${overlay ? 'shadow-xl ring-1 ring-brass/40' : ''} ${loa && !partial ? 'opacity-50' : ''} ${partial ? 'ring-1 ring-brass/40' : ''}`}
     >
       {member.avatar
