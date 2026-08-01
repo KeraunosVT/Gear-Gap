@@ -21,9 +21,29 @@ const ICON_PREFIX = 'currency-icons/';
 
 // Shard icons can be added here as their source URLs turn up, or passed on the
 // command line — the shard keys are in shared/shards.json.
+//
+// The archboss pieces are I_Arcboss_piece_001..003; only those three exist
+// (004+ are 404), so the five shard types in shards.json can't each have their
+// own. Which piece belongs to which shard is a game-knowledge call, not
+// something the filenames give away.
+const MISC = 'https://cdn.questlog.gg/throne-and-liberty/assets/Game/Image/Icon/Item_128/Misc';
+const ARCBOSS_PIECE = (n) => `${MISC}/I_Arcboss_piece_${n}.webp`;
+
 const KNOWN = {
   lucent: 'https://cdn.questlog.gg/throne-and-liberty/assets/Game/Image/Icon/BM_Large/ICO_BMCoin_Gold_BM.webp',
+  tevent_ashen: ARCBOSS_PIECE('001'),
+  queen_ashen_carapace: ARCBOSS_PIECE('002'), // Queen Bellandir
+  thundercloud_scale: ARCBOSS_PIECE('003'),
+  scorched_frostblooms: `${MISC}/BFB_Ice_Flower_001.webp`,
+  scorched_branches: `${MISC}/BFB_IT_BroorkTree_001.webp`,
 };
+
+// If another currency is ever added: don't bother searching questlog's item API
+// for its icon. These are currency assets and appear nowhere in
+// database.getItems under any category, and the filenames aren't derivable
+// either — the set above spans ICO_BMCoin_Gold_BM, I_Arcboss_piece_00N,
+// BFB_Ice_Flower_001 and BFB_IT_BroorkTree_001. Take the path off a questlog
+// page by hand and pass it on the command line.
 
 async function mirror(supabase, key, url) {
   const res = await axios.get(url, { responseType: 'arraybuffer' });
