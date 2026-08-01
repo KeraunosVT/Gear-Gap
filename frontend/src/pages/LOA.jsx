@@ -365,6 +365,69 @@ export default function LOA() {
     return [...m.values()].sort((a, b) => (a.display_name || '').localeCompare(b.display_name || ''));
   }, [recurringEntries]);
 
+  // ── Calendar ────────────────────────────────────────────────────────────────
+  // Which month the calendar tab is showing, as YYYY-MM. Starts on the month
+  // containing today's guild date, not the browser's — at 12:30am on the 1st
+  // those are different months.
+  const [calMonth, setCalMonth] = useState(() => todayInGuildTz().slice(0, 7));
+
+  const shiftMonth = (delta) => {
+    const [y, m] = calMonth.split('-').map(Number);
+    const d = new Date(Date.UTC(y, m - 1 + delta, 1));
+    setCalMonth(d.toISOString().slice(0, 7));
+  };
+
+  // Every cell in the grid: the month padded out to whole Sunday–Saturday weeks,
+  // so the first and last rows aren't ragged. Dates outside the month are kept
+  // and dimmed rather than blanked — an absence spanning a month boundary should
+  // still be visible where it falls.
+  const calendarCells = useMemo(() => {
+    const [y, m] = calMonth.split('-').map(Number);
+    const first = new Date(Date.UTC(y, m - 1, 1));
+    const last = new Date(Date.UTC(y, m, 0));
+    const gridStart = new Date(first.getTime() - first.getUTCDay() * 86400000);
+    const gridEnd = new Date(last.getTime() + (6 - last.getUTCDay()) * 86400000);
+    const cells = [];
+    for (let t = gridStart.getTime(); t <= gridEnd.getTime(); t += 86400000) {
+      const iso = new Date(t).toISOString().slice(0, 10);
+      cells.push({ date: iso, inMonth: iso.slice(0, 7) === calMonth });
+    }
+    return cells;
+  }, [calMonth]);
+
+  // Who's absent on each visible day. Same three projections the agenda uses —
+  // a one-off on its date, a range across every day it covers, a recurring entry
+  // on each matching day-of-week — but over the whole grid rather than a
+  // forward-only window, so past months read correctly too.
+  const calendarByDate = useMemo(() => {
+    const inGrid = new Set(calendarCells.map((c) => c.date));
+    const groups = {};
+    const add = (d, e) => { if (inGrid.has(d)) (groups[d] = groups[d] || []).push(e); };
+
+    allEntries.forEach((e) => {
+      if (e.type === 'event' && e.event_date) add(e.event_date, e);
+      else if (e.type === 'range' && e.start_date && e.end_date) {
+        eachDate(e.start_date, e.end_date).forEach((d) => add(d, e));
+      }
+    });
+    calendarCells.forEach(({ date }) => {
+      const dow = new Date(date + 'T12:00:00').getDay();
+      recurringEntries.filter((e) => e.day_of_week === dow).forEach((e) => add(date, e));
+    });
+
+    // Someone with both a range and a recurring entry covering the same day is
+    // one person absent, not two — the calendar counts people, not rows.
+    Object.keys(groups).forEach((d) => {
+      const seen = new Map();
+      groups[d].forEach((e) => { if (!seen.has(e.discord_id)) seen.set(e.discord_id, e); });
+      groups[d] = [...seen.values()].sort((a, b) =>
+        (a.display_name || '').localeCompare(b.display_name || ''));
+    });
+    return groups;
+  }, [allEntries, recurringEntries, calendarCells]);
+
+  const [calDay, setCalDay] = useState(null); // day whose full list is open
+
   // How far ahead to project recurring absences onto the agenda. Recurring
   // entries have no end date, so unlike event/range entries the agenda can't
   // just span "however far out the data goes" — it needs an explicit cutoff.
@@ -516,6 +579,7 @@ export default function LOA() {
               { key: 'submit', label: 'Submit LOA' },
               { key: 'mine', label: 'My LOAs' },
               { key: 'board', label: 'LOA Board' },
+              { key: 'calendar', label: 'Calendar' },
             ]}
             active={tab}
             onChange={setTab}
@@ -823,6 +887,106 @@ export default function LOA() {
                     </div>
                   ))}
                 </div>
+              )}
+            </div>
+          )}
+
+          {/* Calendar */}
+          {tab === 'calendar' && (
+            <div className="panel rounded-lg p-4">
+              <div className="flex items-center justify-between gap-3 mb-4">
+                <button onClick={() => shiftMonth(-1)}
+                  className="p-1.5 rounded-md text-ash hover:text-bone hover:bg-hall transition-colors" title="Previous month">
+                  <ChevronDown className="w-4 h-4 rotate-90" />
+                </button>
+                <div className="flex items-center gap-3">
+                  <h3 className="font-display text-lg text-bone tracking-[0.06em]">
+                    {new Date(`${calMonth}-01T12:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                  </h3>
+                  {calMonth !== todayStr.slice(0, 7) && (
+                    <button onClick={() => setCalMonth(todayStr.slice(0, 7))}
+                      className="text-xs text-brass hover:text-brassbright transition-colors">Today</button>
+                  )}
+                </div>
+                <button onClick={() => shiftMonth(1)}
+                  className="p-1.5 rounded-md text-ash hover:text-bone hover:bg-hall transition-colors" title="Next month">
+                  <ChevronDown className="w-4 h-4 -rotate-90" />
+                </button>
+              </div>
+
+              <div className="grid grid-cols-7 gap-1 mb-1">
+                {DAYS.map((d) => (
+                  <div key={d} className="eyebrow text-[10px] text-ash text-center py-1">{d.slice(0, 3)}</div>
+                ))}
+              </div>
+
+              <div className="grid grid-cols-7 gap-1">
+                {calendarCells.map(({ date, inMonth }) => {
+                  const out = calendarByDate[date] || [];
+                  const isToday = date === todayStr;
+                  return (
+                    <button
+                      key={date}
+                      onClick={() => out.length && setCalDay(calDay === date ? null : date)}
+                      className={`min-h-[76px] rounded-lg border p-1.5 text-left align-top transition-colors ${
+                        calDay === date ? 'border-brass bg-hall'
+                          : isToday ? 'border-brass/50 bg-hall/40'
+                            : 'border-line bg-hall/20'
+                      } ${inMonth ? '' : 'opacity-40'} ${out.length ? 'hover:border-brass/60 cursor-pointer' : 'cursor-default'}`}
+                    >
+                      <div className="flex items-baseline justify-between mb-1">
+                        <span className={`text-xs font-mono ${isToday ? 'text-brassbright' : inMonth ? 'text-bone' : 'text-ash'}`}>
+                          {Number(date.slice(8, 10))}
+                        </span>
+                        {out.length > 0 && (
+                          <span className="text-[10px] font-mono text-oxblood">{out.length}</span>
+                        )}
+                      </div>
+                      {/* Two names, then a count — a cell is a glance, not a list.
+                          Clicking opens the full roster for the day below. */}
+                      <div className="space-y-0.5">
+                        {out.slice(0, 2).map((e) => (
+                          <div key={e.id} className="text-[10px] text-ash truncate leading-tight">
+                            {e.display_name || 'Member'}
+                          </div>
+                        ))}
+                        {out.length > 2 && (
+                          <div className="text-[10px] text-ash/60 leading-tight">+{out.length - 2} more</div>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {calDay && (
+                <div className="mt-4 border-t border-line pt-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="text-bone text-sm font-medium">{formatDateHeader(calDay)}</h4>
+                    <button onClick={() => setCalDay(null)} className="text-ash hover:text-bone" title="Close">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <div className="space-y-1.5">
+                    {(calendarByDate[calDay] || []).map((e) => (
+                      <div key={e.id} className="flex items-center gap-3 bg-hall border border-line rounded-lg px-3 py-2 text-sm">
+                        <span className="text-bone w-40 shrink-0 truncate">{e.display_name || 'Member'}</span>
+                        <span className="text-ash text-xs flex-1 truncate">
+                          {e.type === 'recurring' ? formatRecurringOccurrence(e)
+                            : e.type === 'range' ? `Away ${formatRangeLabel(e)}`
+                              : formatEventName(e)}
+                        </span>
+                        {can('loa.admin') && e.reason && (
+                          <span className="text-brass/70 text-xs truncate max-w-[220px]" title={e.reason}>{e.reason}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {Object.keys(calendarByDate).length === 0 && (
+                <p className="text-ash text-sm text-center py-6">Nobody is marked absent this month.</p>
               )}
             </div>
           )}
