@@ -254,9 +254,17 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     res.json({ awards });
   });
 
+  // Optional free-text note on a grant — "raid payout", "boonstone reimbursement",
+  // "correction for double-pay". Empty collapses to null so the ledger shows a
+  // dash rather than a blank that reads like a missing value.
+  const cleanReason = (v) => {
+    const s = String(v ?? '').trim();
+    return s ? s.slice(0, 300) : null;
+  };
+
   router.post('/currency-awards', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-    const { discord_id, display_name, currency, amount } = req.body || {};
+    const { discord_id, display_name, currency, amount, reason } = req.body || {};
     if (!discord_id) return res.status(400).json({ error: 'Member is required.' });
     if (!CURRENCIES.has(currency)) return res.status(400).json({ error: 'Unknown currency type.' });
     const amt = parseInt(amount, 10);
@@ -265,12 +273,37 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     const id = crypto.randomUUID();
     const { error } = await supabase.from('currency_awards').insert({
       id, discord_id: String(discord_id), display_name: display_name || null,
-      currency, amount: amt,
+      currency, amount: amt, reason: cleanReason(reason),
       awarded_by: req.user.username || req.user.id,
       awarded_at: new Date().toISOString(),
     });
     if (error) return res.status(500).json({ error: 'Failed to record grant.' });
     res.json({ id });
+  });
+
+  // Correct a grant in place — a typo'd amount, the wrong shard type, a missing
+  // note. The recipient deliberately isn't editable: silently repointing a past
+  // grant at a different member rewrites the ledger's history, so that case goes
+  // through revoke + re-give, which leaves both actions in the audit log.
+  router.patch('/currency-awards/:id', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const { currency, amount, reason } = req.body || {};
+    const update = {};
+    if (currency !== undefined) {
+      if (!CURRENCIES.has(currency)) return res.status(400).json({ error: 'Unknown currency type.' });
+      update.currency = currency;
+    }
+    if (amount !== undefined) {
+      const amt = parseInt(amount, 10);
+      if (!Number.isFinite(amt) || amt <= 0) return res.status(400).json({ error: 'Amount must be a positive number.' });
+      update.amount = amt;
+    }
+    if (reason !== undefined) update.reason = cleanReason(reason);
+    if (Object.keys(update).length === 0) return res.status(400).json({ error: 'Nothing to update.' });
+
+    const { error } = await supabase.from('currency_awards').update(update).eq('id', req.params.id);
+    if (error) return res.status(500).json({ error: 'Failed to update grant.' });
+    res.json({ ok: true });
   });
 
   router.delete('/currency-awards/:id', async (req, res) => {

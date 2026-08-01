@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../auth';
-import { X, Coins, UserPlus } from 'lucide-react';
+import { X, Coins, UserPlus, Pencil, Check } from 'lucide-react';
 import RestrictedGate from '../components/ui/RestrictedGate';
 import { PageShell } from '../components/ui/PageShell';
 import { useFlash } from '../components/ui/useFlash';
@@ -47,10 +47,10 @@ export default function LootCurrency() {
     return Object.values(m).sort((a, b) => (a.display_name || '').localeCompare(b.display_name || ''));
   }, [currencyAwards]);
 
-  const giveCurrency = (discordId, currency, amount) => {
+  const giveCurrency = (discordId, currency, amount, reason) => {
     const member = members.find((m) => m.id === discordId);
     setCurrencyBusy(true);
-    axios.post('/api/admin/currency-awards', { discord_id: discordId, display_name: member?.name, currency, amount })
+    axios.post('/api/admin/currency-awards', { discord_id: discordId, display_name: member?.name, currency, amount, reason })
       .then(() => { load(); flash(`Gave ${amount.toLocaleString()} ${currency} to ${member?.name || 'member'}.`); })
       .catch((err) => flash(err.response?.data?.error || 'Failed to record grant.', false))
       .finally(() => setCurrencyBusy(false));
@@ -58,6 +58,28 @@ export default function LootCurrency() {
 
   const revokeCurrency = (id) => {
     axios.delete(`/api/admin/currency-awards/${id}`).then(load).catch((err) => flash(err.response?.data?.error || 'Revoke failed.', false));
+  };
+
+  // Which grant is open for editing, and the in-progress values for it. Held
+  // here rather than per-row so only one row can be mid-edit at a time.
+  const [editingId, setEditingId] = useState(null);
+  const [edit, setEdit] = useState({ currency: 'lucent', amount: '', reason: '' });
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  const startEdit = (a) => {
+    setEditingId(a.id);
+    setEdit({ currency: a.currency, amount: String(a.amount), reason: a.reason || '' });
+  };
+  const cancelEdit = () => { setEditingId(null); setSavingEdit(false); };
+
+  const saveEdit = (id) => {
+    const amt = parseInt(edit.amount, 10);
+    if (!Number.isFinite(amt) || amt <= 0) return flash('Amount must be a positive number.', false);
+    setSavingEdit(true);
+    axios.patch(`/api/admin/currency-awards/${id}`, { currency: edit.currency, amount: amt, reason: edit.reason })
+      .then(() => { setEditingId(null); load(); flash('Grant updated.'); })
+      .catch((err) => flash(err.response?.data?.error || 'Update failed.', false))
+      .finally(() => setSavingEdit(false));
   };
 
   if (!user?.isAdmin) {
@@ -98,17 +120,47 @@ export default function LootCurrency() {
             <p className="text-ash text-sm">Nothing given yet.</p>
           ) : (
             <div className="space-y-1.5 max-h-72 overflow-auto pr-1">
-              {currencyAwards.map((a) => (
+              {currencyAwards.map((a) => (editingId === a.id ? (
+                <div key={a.id} className="flex flex-wrap items-center gap-2 bg-hall border border-brass/50 rounded-lg px-3 py-2 text-sm">
+                  {/* Recipient is shown but not editable — see the PATCH route. */}
+                  <span className="text-bone w-32 shrink-0 truncate" title="Recipient can't be changed — revoke and re-give instead">
+                    {a.display_name || a.discord_id}
+                  </span>
+                  <input type="number" min={1} value={edit.amount} autoFocus
+                    onChange={(e) => setEdit((p) => ({ ...p, amount: e.target.value }))}
+                    className="bg-panel border border-line rounded-lg px-2 py-1 text-sm text-bone focus:outline-none focus:border-brass w-24" />
+                  <select value={edit.currency} onChange={(e) => setEdit((p) => ({ ...p, currency: e.target.value }))}
+                    className="bg-panel border border-line rounded-lg px-2 py-1 text-sm text-bone focus:outline-none focus:border-brass">
+                    {CURRENCY_TYPES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
+                  </select>
+                  <input type="text" value={edit.reason} maxLength={300} placeholder="Reason (optional)"
+                    onChange={(e) => setEdit((p) => ({ ...p, reason: e.target.value }))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(a.id); if (e.key === 'Escape') cancelEdit(); }}
+                    className="bg-panel border border-line rounded-lg px-2 py-1 text-sm text-bone focus:outline-none focus:border-brass flex-1 min-w-[140px]" />
+                  <button onClick={() => saveEdit(a.id)} disabled={savingEdit} className="text-brass hover:text-brassbright shrink-0 disabled:opacity-40" title="Save">
+                    <Check className="w-4 h-4" />
+                  </button>
+                  <button onClick={cancelEdit} disabled={savingEdit} className="text-ash hover:text-bone shrink-0 disabled:opacity-40" title="Cancel">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
                 <div key={a.id} className="flex items-center gap-3 bg-hall border border-line rounded-lg px-3 py-2 text-sm">
-                  <span className="text-bone flex-1 truncate">{a.display_name || a.discord_id}</span>
+                  <span className="text-bone w-32 shrink-0 truncate">{a.display_name || a.discord_id}</span>
                   <span className="font-mono text-brassbright shrink-0">{a.amount.toLocaleString()}</span>
-                  <span className="text-ash text-xs w-32 shrink-0 truncate">{CURRENCY_LABEL[a.currency] || a.currency}</span>
+                  <span className="text-ash text-xs w-28 shrink-0 truncate">{CURRENCY_LABEL[a.currency] || a.currency}</span>
+                  <span className={`text-xs flex-1 truncate ${a.reason ? 'text-ash/80 italic' : 'text-ash/30'}`} title={a.reason || ''}>
+                    {a.reason || '—'}
+                  </span>
                   <span className="text-ash/60 text-[10px] w-28 text-right shrink-0">{fmtDatetime(a.awarded_at)}</span>
+                  <button onClick={() => startEdit(a)} className="text-ash hover:text-brass shrink-0" title="Edit">
+                    <Pencil className="w-3.5 h-3.5" />
+                  </button>
                   <button onClick={() => revokeCurrency(a.id)} className="text-ash hover:text-oxblood shrink-0" title="Revoke">
                     <X className="w-3.5 h-3.5" />
                   </button>
                 </div>
-              ))}
+              )))}
             </div>
           )}
         </div>
@@ -125,6 +177,7 @@ function CurrencyGiveForm({ members, busy, onGive }) {
   const [open, setOpen] = useState(false);
   const [currency, setCurrency] = useState('lucent');
   const [amount, setAmount] = useState('');
+  const [reason, setReason] = useState('');
 
   const suggestions = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -161,8 +214,10 @@ function CurrencyGiveForm({ members, busy, onGive }) {
   const submit = () => {
     const amt = parseInt(amount, 10);
     if (!memberId || !Number.isFinite(amt) || amt <= 0) return;
-    onGive(memberId, currency, amt);
-    setAmount('');
+    onGive(memberId, currency, amt, reason.trim());
+    // Member and currency stay put — grants tend to come in runs for the same
+    // person or the same payout, so only the per-grant fields reset.
+    setAmount(''); setReason('');
   };
 
   return (
@@ -200,6 +255,12 @@ function CurrencyGiveForm({ members, busy, onGive }) {
       <input
         type="number" min={1} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount"
         className="bg-hall border border-line rounded-lg px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass w-28"
+      />
+      <input
+        type="text" value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300}
+        placeholder="Reason (optional)" title="Why this was given — e.g. raid payout, reimbursement, correction"
+        onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
+        className="bg-hall border border-line rounded-lg px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass flex-1 min-w-[160px]"
       />
       <button type="button" onClick={submit} disabled={busy || !memberId || !amount}
         className="inline-flex items-center gap-1.5 px-4 py-2 text-sm bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40">
