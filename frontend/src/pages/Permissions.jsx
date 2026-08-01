@@ -196,16 +196,24 @@ export default function Permissions() {
             : 'Nothing matches that search.'}
         </div>
       ) : (
-        <div className="panel rounded-lg overflow-x-auto">
-          <table className="w-full text-sm border-collapse">
+        // Scrolls in both directions inside the panel so the capability labels
+        // and the name column stay put — a 13-column grid is unreadable once
+        // either one scrolls away. A sticky header needs the container to be
+        // what scrolls, hence the height cap rather than letting the page grow.
+        <div className="panel rounded-lg overflow-auto max-h-[70vh]">
+          {/* border-separate, not collapse: collapsed borders belong to the
+              table rather than the cell, so they don't travel with a sticky
+              header and vanish as soon as it lifts off the first row. */}
+          <table className="w-full text-sm border-separate border-spacing-0">
             <thead>
-              <tr className="border-b border-line">
-                <th className="text-left font-normal text-ash eyebrow text-[10px] px-4 py-3 sticky left-0 bg-panel">
+              <tr>
+                {/* Corner cell is stuck on both axes, so it outranks each. */}
+                <th className="text-left font-normal text-ash eyebrow text-[10px] px-4 py-3 sticky top-0 left-0 z-30 bg-panel border-b border-line">
                   {tab === 'role' ? 'Role' : 'Member'}
                 </th>
                 {catalog.map((c) => (
                   <th key={c.key} title={c.hint}
-                    className="font-normal text-ash text-[10px] px-2 py-3 whitespace-nowrap align-bottom">
+                    className="font-normal text-ash text-[10px] px-2 py-3 whitespace-nowrap align-bottom sticky top-0 z-20 bg-panel border-b border-line">
                     {c.label}
                   </th>
                 ))}
@@ -215,8 +223,8 @@ export default function Permissions() {
               {subjects.map((s) => {
                 const mine = held.get(`${tab}:${s.id}`) || new Set();
                 return (
-                  <tr key={s.id} className="border-b border-line/50 last:border-0 hover:bg-hall/40">
-                    <td className="px-4 py-2 text-bone truncate max-w-[220px] sticky left-0 bg-panel">
+                  <tr key={s.id} className="group">
+                    <td className="px-4 py-2 text-bone truncate max-w-[220px] sticky left-0 z-10 bg-panel border-b border-line/50 group-hover:bg-hall">
                       {s.label}
                       {mine.size > 0 && <span className="text-brass/60 text-[10px] ml-2">{mine.size}</span>}
                     </td>
@@ -224,7 +232,10 @@ export default function Permissions() {
                       const on = mine.has(c.key);
                       const key = `${tab}:${s.id}:${c.key}`;
                       return (
-                        <td key={c.key} className="px-2 py-2 text-center">
+                        // Same hover fill as the sticky name cell: that one has
+                        // to be opaque to hide rows sliding under it, so the
+                        // rest match it rather than tinting differently.
+                        <td key={c.key} className="px-2 py-2 text-center border-b border-line/50 group-hover:bg-hall">
                           <input
                             type="checkbox" checked={on} disabled={saving === key}
                             onChange={(e) => toggle(s, c.key, e.target.checked)}
