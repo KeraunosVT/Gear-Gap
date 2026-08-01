@@ -16,6 +16,7 @@ const FEATURE_PREFIXES = [
   { prefix: '/identities', label: 'Names' },
   { prefix: '/loot', label: 'Loot Council' },
   { prefix: '/currency-awards', label: 'Loot Council' },
+  { prefix: '/lucent-requests', label: 'Loot Council' },
   { prefix: '/voice-channels', label: 'Attendance' },
   { prefix: '/events', label: 'Attendance' },
   { prefix: '/attendance', label: 'Attendance' },

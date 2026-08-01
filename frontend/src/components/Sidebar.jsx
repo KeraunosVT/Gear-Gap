@@ -30,6 +30,7 @@ export const adminLinks = [
   { to: '/admin/loot', label: 'Loot Council', icon: Gavel, children: [
     { to: '/admin/loot/items', label: 'Manage Items' },
     { to: '/admin/loot/currency', label: 'Lucent & Shards' },
+    { to: '/admin/loot/requests', label: 'Lucent Requests' },
     { to: '/admin/loot/history', label: 'Loot History' },
   ] },
   { to: '/admin/attendance', label: 'Attendance', icon: ClipboardCheck },
