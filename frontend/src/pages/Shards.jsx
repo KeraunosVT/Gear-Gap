@@ -29,7 +29,7 @@ const normalizeShards = (s) => {
 const rowTotal = (s) => TYPES.reduce((a, t) => a + (Number(s[t.key]) || 0), 0);
 
 export default function Shards() {
-  const { user } = useAuth();
+  const { user, can } = useAuth();
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -38,7 +38,7 @@ export default function Shards() {
   const [dirty, setDirty] = useState({});   // memberId -> bool
   const [weaponModalId, setWeaponModalId] = useState(null);
 
-  const canEdit = (id) => user && (user.isAdmin || user.id === id);
+  const canEdit = (id) => user && (can('loot.awards') || user.id === id);
 
   const load = () => {
     setLoading(true); setError('');
@@ -105,7 +105,7 @@ export default function Shards() {
   return (
     <PageShell maxWidth="max-w-[1400px]">
       <p className="text-sm text-ash mb-5">
-        {user?.isAdmin
+        {can('loot.awards')
           ? 'Track every member’s shard requests. You can edit any row.'
           : 'Track your shard requests. You can edit your own row; others are read-only.'} Max {MAX} of each.
         <span className="block text-bone font-bold uppercase mt-1.5">Put how many you need, not how many you have AND keep it updated</span>

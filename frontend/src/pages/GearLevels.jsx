@@ -23,7 +23,7 @@ const COLUMNS = [
 ];
 
 export default function GearLevels() {
-  const { user } = useAuth();
+  const { user, can } = useAuth();
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -80,7 +80,7 @@ export default function GearLevels() {
       .finally(() => setHistoryLoading(false));
   };
 
-  if (!user?.isAdmin) {
+  if (!can('gear')) {
     return <RestrictedGate />;
   }
 

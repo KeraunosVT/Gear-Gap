@@ -27,8 +27,29 @@ export function AuthProvider({ children }) {
     setUser(null);
   };
 
+  // Does the signed-in member hold a capability? Hiding a control is a courtesy,
+  // not a security boundary — every one of these is enforced again server-side
+  // (see backend/permissions.js), so a wrong answer here shows or hides a button
+  // rather than granting anything.
+  //
+  // A session issued before capabilities existed has no permissions array; an
+  // old admin token counts as full access until it re-verifies, matching the
+  // backend's rule so the two can't disagree mid-session.
+  const can = useCallback((permission) => {
+    if (!user) return false;
+    if (Array.isArray(user.permissions)) return user.permissions.includes(permission);
+    return !!user.isAdmin;
+  }, [user]);
+
+  // For "does this person belong in the admin area at all" — the sidebar section
+  // and page gates. Anything finer must ask can() for a specific capability.
+  const canAny = useCallback(
+    (...permissions) => permissions.some((p) => can(p)),
+    [can],
+  );
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout, refresh }}>
+    <AuthContext.Provider value={{ user, loading, login, logout, refresh, can, canAny }}>
       {children}
     </AuthContext.Provider>
   );

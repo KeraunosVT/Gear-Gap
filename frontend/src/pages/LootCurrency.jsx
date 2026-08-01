@@ -16,7 +16,7 @@ import CurrencyIcon from '../components/ui/CurrencyIcon';
 // the loot catalog/tally data LootTally itself needs, so it's fully
 // self-contained.
 export default function LootCurrency() {
-  const { user } = useAuth();
+  const { user, can } = useAuth();
   const [members, setMembers] = useState([]);
   const [currencyAwards, setCurrencyAwards] = useState([]);
   const [currencyBusy, setCurrencyBusy] = useState(false);
@@ -78,7 +78,7 @@ export default function LootCurrency() {
       .finally(() => setSavingEdit(false));
   };
 
-  if (!user?.isAdmin) {
+  if (!can('loot.currency')) {
     return <RestrictedGate />;
   }
 

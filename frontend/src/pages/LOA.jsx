@@ -12,7 +12,7 @@ import Toast from '../components/ui/Toast';
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 export default function LOA() {
-  const { user } = useAuth();
+  const { user, can } = useAuth();
   const [schedule, setSchedule] = useState([]);
   const [myEntries, setMyEntries] = useState([]);
   const [allEntries, setAllEntries] = useState([]);
@@ -85,9 +85,9 @@ export default function LOA() {
   useEffect(() => { load(); }, []);
 
   useEffect(() => {
-    if (!user?.isAdmin) return;
+    if (!can('loa.admin')) return;
     axios.get('/api/admin/members').then((res) => setAdminMembers(res.data.members || [])).catch(() => {});
-  }, [user?.isAdmin]);
+  }, [can]);
 
   const scheduleById = useMemo(() => {
     const m = {};
@@ -420,7 +420,7 @@ export default function LOA() {
     <PageShell maxWidth="max-w-4xl">
       <div className="flex items-center justify-between gap-4 flex-wrap mb-6">
         <p className="text-sm text-ash">Let officers know when you'll be missing events.</p>
-        {user?.isAdmin && (
+        {can('schedule') && (
           <button
             onClick={() => setShowScheduleAdmin((v) => !v)}
             className="inline-flex items-center gap-2 text-sm text-brass hover:text-brassbright transition-colors shrink-0"
@@ -524,7 +524,7 @@ export default function LOA() {
           {/* Submit */}
           {tab === 'submit' && (
             <div className="panel rounded-lg p-6 space-y-5">
-              {user?.isAdmin && (
+              {can('loa.admin') && (
                 <div className="relative w-full md:w-64">
                   <label className="eyebrow text-[10px] text-ash block mb-2">Submit for</label>
                   <div className="relative">
@@ -720,7 +720,7 @@ export default function LOA() {
                   </div>
                   <div className="panel rounded-lg divide-y divide-line">
                     {recurringByMember.map((m) => {
-                      const canCancel = user?.isAdmin || m.discord_id === user?.id;
+                      const canCancel = can('loa.admin') || m.discord_id === user?.id;
                       const isOpen = expandedRecurring.has(m.discord_id);
                       const activeDays = DAYS.map((d, i) => ({ d, i, entry: m.byDay[i] })).filter((x) => x.entry);
                       return (
@@ -738,7 +738,7 @@ export default function LOA() {
                                 const entry = m.byDay[i];
                                 const active = !!entry;
                                 const title = active
-                                  ? `${d} — ${formatRecurringOccurrence(entry)}${user?.isAdmin && entry.reason ? ` · ${entry.reason}` : ''}${canCancel ? ' (click to cancel)' : ''}`
+                                  ? `${d} — ${formatRecurringOccurrence(entry)}${can('loa.admin') && entry.reason ? ` · ${entry.reason}` : ''}${canCancel ? ' (click to cancel)' : ''}`
                                   : d;
                                 return (
                                   <button
@@ -765,7 +765,7 @@ export default function LOA() {
                                 <div key={i} className="flex items-center gap-2 text-xs">
                                   <span className="text-brass w-24 shrink-0">{d}</span>
                                   <span className="text-ash truncate">{formatRecurringOccurrence(entry)}</span>
-                                  {user?.isAdmin && entry.reason && <span className="text-ash/60 truncate">· {entry.reason}</span>}
+                                  {can('loa.admin') && entry.reason && <span className="text-ash/60 truncate">· {entry.reason}</span>}
                                   {canCancel && (
                                     <button onClick={() => cancel(entry.id)} className="ml-auto text-ash hover:text-oxblood shrink-0" title="Cancel this day">
                                       <X className="w-3.5 h-3.5" />
@@ -809,10 +809,10 @@ export default function LOA() {
                                 {e.type === 'range' && formatRangeLabel(e)}
                                 {e.type === 'recurring' && formatRecurringOccurrence(e)}
                               </div>
-                              {user?.isAdmin && e.reason && <div className="text-xs text-brass/70 mt-0.5">{e.reason}</div>}
+                              {can('loa.admin') && e.reason && <div className="text-xs text-brass/70 mt-0.5">{e.reason}</div>}
                             </div>
                             <div className="text-xs text-ash/60 shrink-0 text-right" title="When this LOA was submitted">Filed {fmtDatetime(e.created_at)}</div>
-                            {(user?.isAdmin || e.discord_id === user?.id) && (
+                            {(can('loa.admin') || e.discord_id === user?.id) && (
                               <button onClick={() => cancel(e.id)} className="text-ash hover:text-oxblood shrink-0" title="Cancel LOA">
                                 <X className="w-4 h-4" />
                               </button>

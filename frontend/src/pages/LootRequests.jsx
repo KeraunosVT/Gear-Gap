@@ -24,7 +24,7 @@ const FILTER_LABEL = { open: 'Open', all: 'All', ...Object.fromEntries(Object.en
 const OTHER = '__other__';
 
 export default function LootRequests() {
-  const { user } = useAuth();
+  const { user, can } = useAuth();
   const [members, setMembers] = useState([]);
   const [catalog, setCatalog] = useState([]);
   const [requests, setRequests] = useState([]);
@@ -96,7 +96,7 @@ export default function LootRequests() {
 
   const startEdit = (r) => { setEditingId(r.id); setEdit({ amount: String(r.amount), note: r.note || '' }); };
 
-  if (!user?.isAdmin) return <RestrictedGate />;
+  if (!can('loot.requests')) return <RestrictedGate />;
 
   return (
     <PageShell>

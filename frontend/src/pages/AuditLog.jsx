@@ -19,7 +19,7 @@ const METHOD_STYLE = {
 };
 
 export default function AuditLog() {
-  const { user } = useAuth();
+  const { user, can } = useAuth();
   const [entries, setEntries] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -59,7 +59,7 @@ export default function AuditLog() {
 
   const resetToFirstPage = (setter) => (value) => { setPage(1); setter(value); };
 
-  if (!user?.isAdmin) {
+  if (!can('audit')) {
     return <RestrictedGate />;
   }
 

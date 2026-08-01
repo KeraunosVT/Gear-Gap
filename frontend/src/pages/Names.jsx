@@ -12,7 +12,7 @@ import Toast from '../components/ui/Toast';
 const NEW = '__new__';
 
 export default function Names() {
-  const { user } = useAuth();
+  const { user, can } = useAuth();
   const [unmapped, setUnmapped] = useState([]);
   const [identities, setIdentities] = useState([]);
   const [members, setMembers] = useState([]);
@@ -47,7 +47,7 @@ export default function Names() {
 
   useEffect(() => { load(); }, []);
 
-  if (!user?.isAdmin) {
+  if (!can('names')) {
     return <RestrictedGate />;
   }
 

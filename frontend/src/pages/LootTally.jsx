@@ -21,7 +21,7 @@ const PRIO_ON = {
 };
 
 export default function LootTally() {
-  const { user } = useAuth();
+  const { user, can } = useAuth();
   const [catalog, setCatalog] = useState(null);
   const [counts, setCounts] = useState({});
   const [tally, setTally] = useState({});
@@ -166,7 +166,7 @@ export default function LootTally() {
     saveMemberPicks(discordId, next).then((ok) => { if (ok) flash(`Removed "${item?.name}" from ${member?.name || "their"}'s wishlist.`); });
   };
 
-  if (!user?.isAdmin) {
+  if (!can('loot.awards')) {
     return <RestrictedGate />;
   }
 

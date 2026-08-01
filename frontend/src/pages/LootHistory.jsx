@@ -20,7 +20,7 @@ const PRIO_STYLE = {
 };
 
 export default function LootHistory() {
-  const { user } = useAuth();
+  const { user, canAny } = useAuth();
   const [catalog, setCatalog] = useState(null);
   const [awards, setAwards] = useState([]);
   const [currencyAwards, setCurrencyAwards] = useState([]);
@@ -96,7 +96,7 @@ export default function LootHistory() {
       .finally(() => setImporting(false));
   };
 
-  if (!user?.isAdmin) {
+  if (!canAny('loot.awards', 'loot.catalog', 'loot.currency', 'loot.requests')) {
     return <RestrictedGate />;
   }
 

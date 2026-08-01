@@ -245,7 +245,7 @@ function renderRosterImage(partyIds, items, partyNames, roles, byId, classMode, 
 }
 
 export default function Parties() {
-  const { user } = useAuth();
+  const { user, can } = useAuth();
 
   const [members, setMembers] = useState([]);
   const [extra, setExtra] = useState({});
@@ -458,7 +458,7 @@ export default function Parties() {
     });
   }, [classMode]);
 
-  if (!user?.isAdmin) {
+  if (!can('parties')) {
     return <RestrictedGate />;
   }
 

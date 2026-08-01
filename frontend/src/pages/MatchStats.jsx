@@ -23,7 +23,7 @@ function getClassName(weapon1, weapon2) {
 }
 
 export default function MatchStats() {
-  const { user } = useAuth();
+  const { user, can } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [matches, setMatches] = useState([]);
   const [selectedMatchId, setSelectedMatchId] = useState(null);
@@ -231,7 +231,7 @@ export default function MatchStats() {
             >
               <Share2 className="w-4 h-4" /> Share
             </button>
-            {user?.isAdmin && (
+            {can('match') && (
               <>
                 <Link
                   to={`/admin?edit=${selectedMatch.id}`}

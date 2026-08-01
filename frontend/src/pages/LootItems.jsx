@@ -12,7 +12,7 @@ import Toast from '../components/ui/Toast';
 // same-page toggle — this only ever touches the catalog, never the
 // tally/awards data LootTally itself needs, so it's fully self-contained.
 export default function LootItems() {
-  const { user } = useAuth();
+  const { user, can } = useAuth();
   const [catalog, setCatalog] = useState(null);
   const [error, setError] = useState('');
   const [msg, flash] = useFlash(3500);
@@ -37,7 +37,7 @@ export default function LootItems() {
   };
   useEffect(() => { load(); }, []);
 
-  if (!user?.isAdmin) {
+  if (!can('loot.catalog')) {
     return <RestrictedGate />;
   }
 

@@ -43,7 +43,7 @@ const emptyRow = () => ({
 });
 
 export default function Admin() {
-  const { user } = useAuth();
+  const { user, can } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
 
@@ -128,7 +128,7 @@ export default function Admin() {
     return n && !mappedNames.has(n);
   };
 
-  if (!user?.isAdmin) {
+  if (!can('match')) {
     return <RestrictedGate />;
   }
 

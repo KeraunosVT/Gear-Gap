@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Swords, Users, Gem, Package, CalendarOff, Layers, Gauge,
-  Upload, LayoutGrid, Tag, Gavel, ClipboardCheck, ScrollText, LogOut, Settings, ChevronDown,
+  Upload, LayoutGrid, Tag, Gavel, ClipboardCheck, ScrollText, ShieldCheck, LogOut, Settings, ChevronDown,
 } from 'lucide-react';
 import Sigil from './Sigil';
 import { GUILD } from '../guild';
@@ -23,20 +23,38 @@ export const memberLinks = [
   { to: '/gear', label: 'Gear Level', icon: Gauge },
 ];
 
+// `perm` is the capability each destination needs — the same one its page gate
+// and its API routes check. Links are filtered rather than merely disabled: a
+// visible link to a page that only ever shows "restricted" is worse than no
+// link. A parent with children keeps its own `perm` for the landing page and
+// disappears entirely once every child is filtered out too.
 export const adminLinks = [
-  { to: '/admin', label: 'Upload Match', end: true, icon: Upload },
-  { to: '/admin/parties', label: 'Parties', icon: LayoutGrid },
-  { to: '/admin/names', label: 'Names', icon: Tag },
-  { to: '/admin/loot', label: 'Loot Council', icon: Gavel, children: [
-    { to: '/admin/loot/items', label: 'Manage Items' },
-    { to: '/admin/loot/currency', label: 'Lucent & Shards' },
-    { to: '/admin/loot/requests', label: 'Lucent Requests' },
-    { to: '/admin/loot/history', label: 'Loot History' },
+  { to: '/admin', label: 'Upload Match', end: true, icon: Upload, perm: 'match' },
+  { to: '/admin/parties', label: 'Parties', icon: LayoutGrid, perm: 'parties' },
+  { to: '/admin/names', label: 'Names', icon: Tag, perm: 'names' },
+  { to: '/admin/loot', label: 'Loot Council', icon: Gavel, perm: 'loot.awards', children: [
+    { to: '/admin/loot/items', label: 'Manage Items', perm: 'loot.catalog' },
+    { to: '/admin/loot/currency', label: 'Lucent & Shards', perm: 'loot.currency' },
+    { to: '/admin/loot/requests', label: 'Lucent Requests', perm: 'loot.requests' },
+    { to: '/admin/loot/history', label: 'Loot History', perm: 'loot.history' },
   ] },
-  { to: '/admin/attendance', label: 'Attendance', icon: ClipboardCheck },
-  { to: '/admin/gear-levels', label: 'Gear Levels', icon: Gauge },
-  { to: '/admin/audit-log', label: 'Audit Log', icon: ScrollText },
+  { to: '/admin/attendance', label: 'Attendance', icon: ClipboardCheck, perm: 'attendance' },
+  { to: '/admin/gear-levels', label: 'Gear Levels', icon: Gauge, perm: 'gear' },
+  { to: '/admin/permissions', label: 'Permissions', icon: ShieldCheck, perm: 'permissions' },
+  { to: '/admin/audit-log', label: 'Audit Log', icon: ScrollText, perm: 'audit' },
 ];
+
+// Loot History reads gear awards and currency side by side, so any loot
+// capability opens it — a pseudo-permission rather than a real one, resolved
+// here so the link table stays a flat list of strings.
+const LOOT_ANY = ['loot.awards', 'loot.catalog', 'loot.currency', 'loot.requests'];
+
+export function visibleAdminLinks(can) {
+  const allowed = (perm) => (perm === 'loot.history' ? LOOT_ANY.some(can) : can(perm));
+  return adminLinks
+    .map((l) => ({ ...l, children: (l.children || []).filter((c) => allowed(c.perm)) }))
+    .filter((l) => allowed(l.perm) || l.children.length > 0);
+}
 
 export const SIDEBAR_COLLAPSE_KEY = 'sidebarCollapsed';
 
@@ -50,7 +68,9 @@ export function getInitialSidebarCollapsed() {
 }
 
 export default function Sidebar({ collapsed }) {
-  const { user, logout } = useAuth();
+  const { user, logout, can } = useAuth();
+  // Section disappears entirely when no capability opens anything in it.
+  const adminNav = visibleAdminLinks(can);
 
   const linkClass = ({ isActive }) =>
     `flex items-center gap-3 rounded-md font-medium tracking-wide transition-colors ${
@@ -72,7 +92,7 @@ export default function Sidebar({ collapsed }) {
       <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-4">
         <NavSection title="Guild" links={guildLinks} linkClass={linkClass} collapsed={collapsed} />
         {user && <NavSection title="Member" links={memberLinks} linkClass={linkClass} collapsed={collapsed} />}
-        {user?.isAdmin && <NavSection title="Admin" links={adminLinks} linkClass={linkClass} collapsed={collapsed} />}
+        {adminNav.length > 0 && <NavSection title="Admin" links={adminNav} linkClass={linkClass} collapsed={collapsed} />}
       </nav>
 
       {user && (

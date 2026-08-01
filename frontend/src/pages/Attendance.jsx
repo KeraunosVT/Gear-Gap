@@ -40,7 +40,7 @@ function NameChip({ children, className = '', title }) {
 }
 
 export default function Attendance() {
-  const { user } = useAuth();
+  const { user, can } = useAuth();
 
   const [channels, setChannels] = useState([]);
   const [selectedChannel, setSelectedChannel] = useState('');
@@ -94,7 +94,7 @@ export default function Attendance() {
 
   useEffect(() => { loadChannels(); loadEvents(); loadStats(); loadSchedule(); }, []);
 
-  if (!user?.isAdmin) {
+  if (!can('attendance')) {
     return <RestrictedGate />;
   }
 

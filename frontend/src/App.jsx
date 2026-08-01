@@ -18,6 +18,7 @@ import LootTally from './pages/LootTally';
 import LootItems from './pages/LootItems';
 import LootCurrency from './pages/LootCurrency';
 import LootRequests from './pages/LootRequests';
+import Permissions from './pages/Permissions';
 import LootHistory from './pages/LootHistory';
 import Attendance from './pages/Attendance';
 import PlayerProfile from './pages/PlayerProfile';
@@ -90,6 +91,7 @@ function Gate() {
           <Route path="/admin/loot/history" element={<LootHistory />} />
           <Route path="/admin/attendance" element={<Attendance />} />
           <Route path="/admin/gear-levels" element={<GearLevels />} />
+          <Route path="/admin/permissions" element={<Permissions />} />
           <Route path="/admin/audit-log" element={<AuditLog />} />
           {/* Legacy aliases kept so old links still resolve */}
           <Route path="/dashboard" element={<MatchStats />} />
