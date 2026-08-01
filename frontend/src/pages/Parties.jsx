@@ -898,7 +898,7 @@ export default function Parties() {
         onDragStart={({ active }) => setActiveId(active.id)} onDragOver={onDragOver} onDragEnd={onDragEnd}>
         <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
           {/* Role pools */}
-          <div className="flex flex-col gap-4 lg:sticky lg:top-20 lg:self-start">
+          <div className="flex flex-col gap-3 lg:sticky lg:top-20 lg:self-start lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto pr-0.5">
             <div className="panel rounded-lg p-3">
               <div className="flex items-center justify-between mb-2">
                 <div className="eyebrow text-[10px] text-brass flex items-center gap-2"><Users className="w-3.5 h-3.5" /> Pool</div>
@@ -921,7 +921,7 @@ export default function Parties() {
                     <div className="eyebrow text-[10px] text-ash flex items-center gap-2 mb-2">
                       <span className={`w-2 h-2 rounded-full ${dot}`} /> {label} ({items[key].length})
                     </div>
-                    <div className="space-y-2 max-h-[260px] overflow-auto pr-1 min-h-[50px]">
+                    <div className="space-y-1 max-h-[340px] overflow-auto pr-1 min-h-[50px]">
                       {poolViews[key].length === 0
                         ? <div className="text-ash/50 text-xs py-4 text-center">Empty</div>
                         : poolViews[key].map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} loa={loaById.get(id)} classMode={classMode} assignedClass={classAssignments[classMode][id]} onClassChange={(cls) => setMemberClass(classMode, id, cls)} />)}
@@ -1036,21 +1036,21 @@ const MemberCardBase = forwardRef(function MemberCardBase({ member, role, onRole
       ref={ref} style={style} {...handle}
       onPointerDown={onPointerDown} onPointerUp={onPointerUp}
       title={title}
-      className={`group relative flex items-center gap-1.5 bg-hall border border-line ${rs ? `border-l-2 ${rs.ring}` : ''} rounded px-2 py-1.5 cursor-grab active:cursor-grabbing select-none ${isDragging ? 'opacity-30' : ''} ${overlay ? 'shadow-xl ring-1 ring-brass/40' : ''} ${loa && !partial ? 'opacity-50' : ''} ${partial ? 'ring-1 ring-brass/40' : ''}`}
+      className={`group relative flex items-center gap-1 bg-hall border border-line ${rs ? `border-l-2 ${rs.ring}` : ''} rounded px-1.5 py-1 cursor-grab active:cursor-grabbing select-none ${isDragging ? 'opacity-30' : ''} ${overlay ? 'shadow-xl ring-1 ring-brass/40' : ''} ${loa && !partial ? 'opacity-50' : ''} ${partial ? 'ring-1 ring-brass/40' : ''}`}
     >
       {member.avatar
-        ? <img src={member.avatar} alt="" className="w-6 h-6 rounded-full border border-line shrink-0" />
-        : <span className="w-6 h-6 rounded-full bg-panelup border border-line shrink-0 flex items-center justify-center text-[10px] text-brass">{(member.name || '?').slice(0, 1).toUpperCase()}</span>}
+        ? <img src={member.avatar} alt="" className="w-5 h-5 rounded-full border border-line shrink-0" />
+        : <span className="w-5 h-5 rounded-full bg-panelup border border-line shrink-0 flex items-center justify-center text-[9px] text-brass">{(member.name || '?').slice(0, 1).toUpperCase()}</span>}
       <div className="min-w-0 flex-1">
-        <span className={`text-sm truncate block ${member.missing ? 'text-ash italic' : loa && !partial ? 'text-oxblood' : partial ? 'text-brass' : 'text-bone'}`}
+        <span className={`text-sm leading-tight truncate block ${member.missing ? 'text-ash italic' : loa && !partial ? 'text-oxblood' : partial ? 'text-brass' : 'text-bone'}`}
           title={loaTitle || (member.missing ? 'No longer in the server' : member.name)}>{member.name}</span>
         {loa?.start_time && (
-          <span className={`text-[10px] truncate block ${partial ? 'text-brass' : 'text-oxblood'}`}>
+          <span className={`text-[10px] leading-tight truncate block ${partial ? 'text-brass' : 'text-oxblood'}`}>
             {loa.end_time ? `out ${shortTime(loa.start_time)}–${shortTime(loa.end_time)}` : `out from ${shortTime(loa.start_time)}`}
           </span>
         )}
         {classes.length === 1 && (
-          <span className="text-[10px] text-brass truncate block">{classes[0]}</span>
+          <span className="text-[10px] leading-tight text-brass truncate block">{classes[0]}</span>
         )}
         {classes.length > 1 && onClassChange && (
           <select
