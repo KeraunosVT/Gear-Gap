@@ -22,8 +22,15 @@ const ICON_KEYS = [
 ];
 const ICONS = Object.fromEntries(ICON_KEYS.map((k) => [k, `${ICON_BASE}/${k}.webp`]));
 
-export const CURRENCY_TYPES = [{ key: 'lucent', label: 'Lucent' }, ...SHARDS.types]
-  .map((c) => ({ ...c, icon: ICONS[c.key] || null }));
+// `shard` separates the archboss drops from Lucent. They're all currencies for
+// ledger purposes, but only the shards are items in the game, so only they get
+// the epic grade backdrop that gear icons use — a purple frame behind Lucent's
+// gold coin would read as a mistake.
+export const CURRENCY_TYPES = [
+  { key: 'lucent', label: 'Lucent', shard: false },
+  ...SHARDS.types.map((t) => ({ ...t, shard: true })),
+].map((c) => ({ ...c, icon: ICONS[c.key] || null }));
 
 export const CURRENCY_LABEL = Object.fromEntries(CURRENCY_TYPES.map((c) => [c.key, c.label]));
 export const CURRENCY_ICON = Object.fromEntries(CURRENCY_TYPES.map((c) => [c.key, c.icon]));
+export const CURRENCY_IS_SHARD = Object.fromEntries(CURRENCY_TYPES.map((c) => [c.key, c.shard]));

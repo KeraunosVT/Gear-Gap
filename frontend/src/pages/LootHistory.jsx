@@ -164,7 +164,7 @@ export default function LootHistory() {
                   {a.kind === 'currency' ? (
                     <>
                       <span className="inline-flex items-center gap-1.5">
-                        <CurrencyIcon currency={a.currency} className="w-4 h-4" />
+                        <CurrencyIcon currency={a.currency} />
                         <span className="font-mono text-brassbright">{a.amount.toLocaleString()}</span>
                         <span className="text-bone">{CURRENCY_LABEL[a.currency] || a.currency}</span>
                       </span>

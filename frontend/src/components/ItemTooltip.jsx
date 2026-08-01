@@ -229,7 +229,9 @@ function ExtraStatBlock({ stats, minLvl, maxLvl }) {
   );
 }
 
-function GradeIcon({ src, grade, size = 36 }) {
+// Exported so currency icons can render identically — same grade backdrop,
+// border and box — rather than reimplementing the layering and drifting from it.
+export function GradeIcon({ src, grade, size = 36 }) {
   const g = GRADE[grade];
   const showBg = g?.iconBg;
   return (

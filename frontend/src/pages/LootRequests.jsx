@@ -161,8 +161,8 @@ export default function LootRequests() {
                     {r.item_name}
                     {!r.item_key && <span className="text-ash/40 text-[10px] ml-1" title="Not in the loot catalog">*</span>}
                   </span>
-                  <span className="shrink-0 w-28 inline-flex items-center justify-end gap-1.5">
-                    <CurrencyIcon currency="lucent" className="w-3.5 h-3.5" />
+                  <span className="shrink-0 w-32 inline-flex items-center justify-end gap-2">
+                    <CurrencyIcon currency="lucent" />
                     <span className="font-mono text-brassbright">{r.amount.toLocaleString()}</span>
                   </span>
                   <span className={`text-xs flex-1 truncate ${r.note ? 'text-ash/80 italic' : 'text-ash/30'}`} title={r.note || ''}>

@@ -99,8 +99,11 @@ export default function LootCurrency() {
                   <span className="text-bone w-36 shrink-0 truncate">{t.display_name || t.discord_id}</span>
                   <div className="flex flex-wrap gap-1.5">
                     {CURRENCY_TYPES.filter((c) => t.byType[c.key]).map((c) => (
-                      <span key={c.key} className="inline-flex items-center gap-1.5 text-xs bg-hall border border-line rounded-full px-2.5 py-0.5 text-ash">
-                        <CurrencyIcon currency={c.key} className="w-3.5 h-3.5" />
+                      // Summary chips, so the icon keeps the grade backdrop but
+                      // at pill scale — a full 36px box would be taller than
+                      // the chip that contains it.
+                      <span key={c.key} className="inline-flex items-center gap-1.5 text-xs bg-hall border border-line rounded-full pl-1 pr-2.5 py-0.5 text-ash">
+                        <CurrencyIcon currency={c.key} size={20} />
                         {c.label} <span className="font-mono text-brassbright">{t.byType[c.key].toLocaleString()}</span>
                       </span>
                     ))}
@@ -145,8 +148,8 @@ export default function LootCurrency() {
                 <div key={a.id} className="flex items-center gap-3 bg-hall border border-line rounded-lg px-3 py-2 text-sm">
                   <span className="text-bone w-32 shrink-0 truncate">{a.display_name || a.discord_id}</span>
                   <span className="font-mono text-brassbright shrink-0">{a.amount.toLocaleString()}</span>
-                  <span className="text-ash text-xs w-28 shrink-0 truncate inline-flex items-center gap-1.5">
-                    <CurrencyIcon currency={a.currency} className="w-3.5 h-3.5" />
+                  <span className="text-ash text-xs w-36 shrink-0 truncate inline-flex items-center gap-2">
+                    <CurrencyIcon currency={a.currency} />
                     {CURRENCY_LABEL[a.currency] || a.currency}
                   </span>
                   <span className={`text-xs flex-1 truncate ${a.reason ? 'text-ash/80 italic' : 'text-ash/30'}`} title={a.reason || ''}>
