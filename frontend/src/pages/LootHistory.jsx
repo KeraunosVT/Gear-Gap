@@ -1,12 +1,19 @@
 import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../auth';
-import { RefreshCw, Upload } from 'lucide-react';
+import { RefreshCw, Upload, Coins } from 'lucide-react';
 import { fmtDatetime } from '../timeUtils';
 import ItemTooltip, { gradeStyle } from '../components/ItemTooltip';
 import RestrictedGate from '../components/ui/RestrictedGate';
 import { PageShell } from '../components/ui/PageShell';
 import EmptyState from '../components/ui/EmptyState';
+import SHARDS from '../../../shared/shards.json';
+
+// Same list the Lucent & Shards page uses, so grants read identically here.
+const CURRENCY_LABEL = Object.fromEntries(
+  [{ key: 'lucent', label: 'Lucent' }, ...SHARDS.types].map((c) => [c.key, c.label]),
+);
+const KIND_FILTERS = [{ key: 'all', label: 'All' }, { key: 'item', label: 'Gear' }, { key: 'currency', label: 'Lucent & Shards' }];
 
 const PRIO_SHORT = { 'PvP': 'PvP', 'Second Build': '2nd', 'PvE': 'PvE' };
 const PRIO_STYLE = {
@@ -19,17 +26,27 @@ export default function LootHistory() {
   const { user } = useAuth();
   const [catalog, setCatalog] = useState(null);
   const [awards, setAwards] = useState([]);
+  const [currencyAwards, setCurrencyAwards] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [member, setMember] = useState('');
+  const [kind, setKind] = useState('all'); // all | item | currency
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
   const [savingBuild, setSavingBuild] = useState(null); // award id currently being updated
 
   const load = () => {
     setLoading(true); setError('');
-    Promise.all([axios.get('/api/loot/catalog'), axios.get('/api/admin/loot/awards')])
-      .then(([catRes, aw]) => { setCatalog(catRes.data); setAwards(aw.data.awards || []); })
+    Promise.all([
+      axios.get('/api/loot/catalog'),
+      axios.get('/api/admin/loot/awards'),
+      axios.get('/api/admin/currency-awards'),
+    ])
+      .then(([catRes, aw, cur]) => {
+        setCatalog(catRes.data);
+        setAwards(aw.data.awards || []);
+        setCurrencyAwards(cur.data.awards || []);
+      })
       .catch((err) => setError(err.response?.data?.error || 'Could not load loot history.'))
       .finally(() => setLoading(false));
   };
@@ -50,16 +67,24 @@ export default function LootHistory() {
     return Object.fromEntries(catalog.categories.flatMap((c) => c.items.map((i) => [i.key, { ...i, category: c.label }])));
   }, [catalog]);
 
+  // Items and currency are separate tables with different shapes, flattened
+  // into one chronological ledger — "who got what, when" is the question this
+  // page answers, and gear and Lucent are both answers to it.
+  const entries = useMemo(() => {
+    const items = awards.map((a) => ({ ...a, kind: 'item', at: a.awarded_at }));
+    const currency = currencyAwards.map((c) => ({ ...c, kind: 'currency', at: c.awarded_at }));
+    return [...items, ...currency].sort((a, b) => new Date(b.at) - new Date(a.at));
+  }, [awards, currencyAwards]);
+
   const members = useMemo(() => {
     const m = new Map();
-    awards.forEach((a) => { if (a.discord_id && !m.has(a.discord_id)) m.set(a.discord_id, a.display_name || a.discord_id); });
+    entries.forEach((e) => { if (e.discord_id && !m.has(e.discord_id)) m.set(e.discord_id, e.display_name || e.discord_id); });
     return [...m.entries()].sort((a, b) => (a[1] || '').localeCompare(b[1] || ''));
-  }, [awards]);
+  }, [entries]);
 
-  const filtered = useMemo(
-    () => (member ? awards.filter((a) => a.discord_id === member) : awards),
-    [awards, member]
-  );
+  const filtered = useMemo(() => entries.filter(
+    (e) => (!member || e.discord_id === member) && (kind === 'all' || e.kind === kind),
+  ), [entries, member, kind]);
 
   const handleImport = (e) => {
     const f = e.target.files[0];
@@ -109,7 +134,16 @@ export default function LootHistory() {
           <option value="">All members</option>
           {members.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
         </select>
-        <span className="text-ash text-sm">{filtered.length} award{filtered.length === 1 ? '' : 's'}</span>
+        <div className="flex items-center gap-1">
+          {KIND_FILTERS.map(({ key, label }) => (
+            <button key={key} onClick={() => setKind(key)}
+              className={`px-3 py-1 rounded-full text-xs font-semibold tracking-wide transition-colors border ${
+                kind === key ? 'bg-brass text-ink border-transparent' : 'border-line text-ash hover:text-bone'}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <span className="text-ash text-sm">{filtered.length} entr{filtered.length === 1 ? 'y' : 'ies'}</span>
         <div className="flex-1" />
         <button onClick={load} className="inline-flex items-center gap-2 text-sm text-ash hover:text-brass transition-colors"><RefreshCw className="w-4 h-4" /></button>
       </div>
@@ -117,15 +151,29 @@ export default function LootHistory() {
       {loading ? (
         <EmptyState>Reading the ledger…</EmptyState>
       ) : filtered.length === 0 ? (
-        <EmptyState>{member ? 'No awards for this member.' : 'Nothing has been awarded yet.'}</EmptyState>
+        <EmptyState>
+          {entries.length === 0 ? 'Nothing has been awarded yet.'
+            : member ? 'Nothing matching for this member.'
+              : 'Nothing in this view.'}
+        </EmptyState>
       ) : (
         <div className="panel rounded-lg divide-y divide-line">
           {filtered.map((a) => {
-            const item = itemByKey[a.item_key];
+            const item = a.kind === 'item' ? itemByKey[a.item_key] : null;
             return (
-              <div key={a.id} className="flex items-center gap-3 px-5 py-3">
+              // Ids come from two different tables, so the key needs the kind.
+              <div key={`${a.kind}-${a.id}`} className="flex items-center gap-3 px-5 py-3">
                 <div className="min-w-0 flex-1">
-                  {item ? (
+                  {a.kind === 'currency' ? (
+                    <>
+                      <span className="inline-flex items-center gap-1.5">
+                        <Coins className="w-3.5 h-3.5 text-brass shrink-0" />
+                        <span className="font-mono text-brassbright">{a.amount.toLocaleString()}</span>
+                        <span className="text-bone">{CURRENCY_LABEL[a.currency] || a.currency}</span>
+                      </span>
+                      {a.reason && <div className="text-ash/70 text-xs italic truncate" title={a.reason}>{a.reason}</div>}
+                    </>
+                  ) : item ? (
                     <ItemTooltip item={item}>
                       <span className={`truncate ${gradeStyle(item.grade)?.color || 'text-bone'}`}>{item.name}</span>
                     </ItemTooltip>
@@ -134,8 +182,10 @@ export default function LootHistory() {
                   )}
                 </div>
                 <div className="text-sm text-brass shrink-0 w-40 truncate">{a.display_name || 'Member'}</div>
-                <div className="flex gap-1 shrink-0" title="Build this was awarded for">
-                  {(catalog?.priorities || []).map((p) => {
+                {/* Build only means something for gear; currency keeps the
+                    column so rows stay aligned down the list. */}
+                <div className="flex gap-1 shrink-0" title={a.kind === 'item' ? 'Build this was awarded for' : undefined}>
+                  {a.kind === 'item' ? (catalog?.priorities || []).map((p) => {
                     const st = PRIO_STYLE[p];
                     const active = a.priority === p;
                     return (
@@ -147,10 +197,10 @@ export default function LootHistory() {
                         {PRIO_SHORT[p]}
                       </button>
                     );
-                  })}
+                  }) : <span className="text-ash/25 text-[10px]">—</span>}
                 </div>
                 <div className="text-xs text-ash shrink-0 text-right">
-                  {fmtDatetime(a.awarded_at)}
+                  {fmtDatetime(a.at)}
                   {a.awarded_by && <div className="text-ash/60">by {a.awarded_by}</div>}
                 </div>
               </div>
