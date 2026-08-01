@@ -7,7 +7,12 @@ import { PageShell } from '../components/ui/PageShell';
 import EmptyState from '../components/ui/EmptyState';
 import Button from '../components/ui/Button';
 
-const EXTRA_CLASSES = ['Oracle (DPS)'];
+// Build variants that share a weapon pair with an existing class, so they have
+// no entry of their own in weaponClasses.json — Wand/Orb and Wand/Longbow are
+// both healer-leaning by default, and a member running one as DPS needs to be
+// able to say so. Only the picker on this page offers these; Admin's class list
+// stays keyed to real weapon combos, since it labels scoreboard rows.
+const EXTRA_CLASSES = ['Oracle (DPS)', 'Seeker (DPS)'];
 const CLASS_LIST = [...new Set([...Object.values(weaponToClass), ...EXTRA_CLASSES])].sort();
 const RANK_LABELS = ['Primary', 'Secondary', 'Tertiary'];
 
