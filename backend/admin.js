@@ -313,6 +313,124 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     res.json({ ok: true });
   });
 
+  // ── Loot council: Lucent requests ───────────────────────────────────────────
+  // "Member asked for N Lucent to buy item X." Sits between the wishlist ("I
+  // want this if it drops") and currency_awards ("this member was given N
+  // Lucent") — a request is the thing that turns one into the other, and
+  // marking it paid writes the grant so the ledger isn't entered twice.
+  const REQUEST_STATUSES = new Set(['pending', 'approved', 'denied', 'paid']);
+
+  // An item is either a catalog key or free text, but the display name is
+  // always stored: Lucent buys from the auction house, so plenty of requests
+  // are for things the guild's drop catalog doesn't list, and snapshotting the
+  // name keeps old requests readable after the catalog is edited.
+  const resolveItem = async (itemKey, itemName) => {
+    const typed = String(itemName ?? '').trim();
+    if (itemKey) {
+      const { data } = await supabase.from('loot_items').select('key, name').eq('key', itemKey).maybeSingle();
+      if (!data) return { error: 'Unknown item.' };
+      return { item_key: data.key, item_name: data.name };
+    }
+    if (!typed) return { error: 'Pick an item or type a name.' };
+    return { item_key: null, item_name: typed.slice(0, 200) };
+  };
+
+  router.get('/lucent-requests', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const [{ data, error }, ids] = await Promise.all([
+      supabase.from('lucent_requests').select('*').order('requested_at', { ascending: false }),
+      identities.load(),
+    ]);
+    if (error) return res.status(500).json({ error: 'Failed to load Lucent requests.' });
+    res.json({
+      requests: (data || []).map((r) => ({
+        ...r,
+        display_name: ids.displayNameFor(r.discord_id, r.display_name),
+      })),
+    });
+  });
+
+  router.post('/lucent-requests', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const { discord_id, display_name, item_key, item_name, amount, note } = req.body || {};
+    if (!discord_id) return res.status(400).json({ error: 'Member is required.' });
+    const amt = parseInt(amount, 10);
+    if (!Number.isFinite(amt) || amt <= 0) return res.status(400).json({ error: 'Amount must be a positive number.' });
+    const item = await resolveItem(item_key, item_name);
+    if (item.error) return res.status(400).json({ error: item.error });
+
+    const id = crypto.randomUUID();
+    const { error } = await supabase.from('lucent_requests').insert({
+      id, discord_id: String(discord_id), display_name: display_name || null,
+      ...item, amount: amt, note: cleanReason(note), status: 'pending',
+      requested_by: req.user.username || req.user.id,
+      requested_at: new Date().toISOString(),
+    });
+    if (error) return res.status(500).json({ error: 'Failed to record request.' });
+    res.json({ id });
+  });
+
+  // Edits and status changes share a route. Moving to 'paid' also writes the
+  // Lucent grant, once: the currency_award_id guard means re-saving a paid
+  // request (to fix a note, say) can't double-pay.
+  router.patch('/lucent-requests/:id', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const { data: existing } = await supabase.from('lucent_requests').select('*').eq('id', req.params.id).maybeSingle();
+    if (!existing) return res.status(404).json({ error: 'Request not found.' });
+
+    const { status, amount, note, item_key, item_name } = req.body || {};
+    const update = {};
+
+    if (amount !== undefined) {
+      const amt = parseInt(amount, 10);
+      if (!Number.isFinite(amt) || amt <= 0) return res.status(400).json({ error: 'Amount must be a positive number.' });
+      update.amount = amt;
+    }
+    if (note !== undefined) update.note = cleanReason(note);
+    if (item_key !== undefined || item_name !== undefined) {
+      const item = await resolveItem(item_key, item_name);
+      if (item.error) return res.status(400).json({ error: item.error });
+      Object.assign(update, item);
+    }
+    if (status !== undefined) {
+      if (!REQUEST_STATUSES.has(status)) return res.status(400).json({ error: 'Unknown status.' });
+      update.status = status;
+      update.decided_by = req.user.username || req.user.id;
+      update.decided_at = new Date().toISOString();
+    }
+    if (Object.keys(update).length === 0) return res.status(400).json({ error: 'Nothing to update.' });
+
+    if (status === 'paid' && !existing.currency_award_id) {
+      const grantId = crypto.randomUUID();
+      const amt = update.amount ?? existing.amount;
+      const itemLabel = update.item_name ?? existing.item_name;
+      const { error: gErr } = await supabase.from('currency_awards').insert({
+        id: grantId, discord_id: existing.discord_id, display_name: existing.display_name,
+        currency: 'lucent', amount: amt,
+        reason: `Request: ${itemLabel}`.slice(0, 300),
+        awarded_by: req.user.username || req.user.id,
+        awarded_at: new Date().toISOString(),
+      });
+      // Without the grant the request isn't really paid, so don't say it is.
+      if (gErr) {
+        console.error('Lucent request grant error:', gErr.message);
+        return res.status(500).json({ error: 'Could not record the Lucent grant, so the request was left unpaid.' });
+      }
+      update.currency_award_id = grantId;
+    }
+
+    const { error } = await supabase.from('lucent_requests').update(update).eq('id', req.params.id);
+    if (error) return res.status(500).json({ error: 'Failed to update request.' });
+    res.json({ ok: true, currency_award_id: update.currency_award_id || existing.currency_award_id || null });
+  });
+
+  router.delete('/lucent-requests/:id', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const { error } = await supabase.from('lucent_requests').delete().eq('id', req.params.id);
+    if (error) return res.status(500).json({ error: 'Failed to delete request.' });
+    res.json({ ok: true });
+  });
+
   // Recognized spellings for the optional CSV "build" column, keyed by
   // lowercased input. Falls through to an exact (case-insensitive) match
   // against the live priority list below for anything not listed here.
