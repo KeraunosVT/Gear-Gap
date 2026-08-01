@@ -7,6 +7,7 @@ import { PageShell } from '../components/ui/PageShell';
 import { useFlash } from '../components/ui/useFlash';
 import Toast from '../components/ui/Toast';
 import { fmtDatetime } from '../timeUtils';
+import CurrencyIcon from '../components/ui/CurrencyIcon';
 
 // Requests move pending -> approved -> paid, with denied as a dead end that can
 // be reopened. Only 'paid' has a side effect (it writes the Lucent grant), which
@@ -160,7 +161,10 @@ export default function LootRequests() {
                     {r.item_name}
                     {!r.item_key && <span className="text-ash/40 text-[10px] ml-1" title="Not in the loot catalog">*</span>}
                   </span>
-                  <span className="font-mono text-brassbright shrink-0 w-20 text-right">{r.amount.toLocaleString()}</span>
+                  <span className="shrink-0 w-28 inline-flex items-center justify-end gap-1.5">
+                    <CurrencyIcon currency="lucent" className="w-3.5 h-3.5" />
+                    <span className="font-mono text-brassbright">{r.amount.toLocaleString()}</span>
+                  </span>
                   <span className={`text-xs flex-1 truncate ${r.note ? 'text-ash/80 italic' : 'text-ash/30'}`} title={r.note || ''}>
                     {r.note || '—'}
                   </span>

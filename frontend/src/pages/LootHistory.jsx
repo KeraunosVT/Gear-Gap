@@ -1,18 +1,15 @@
 import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../auth';
-import { RefreshCw, Upload, Coins } from 'lucide-react';
+import { RefreshCw, Upload } from 'lucide-react';
 import { fmtDatetime } from '../timeUtils';
 import ItemTooltip, { gradeStyle } from '../components/ItemTooltip';
 import RestrictedGate from '../components/ui/RestrictedGate';
 import { PageShell } from '../components/ui/PageShell';
 import EmptyState from '../components/ui/EmptyState';
-import SHARDS from '../../../shared/shards.json';
+import { CURRENCY_LABEL } from '../currencies';
+import CurrencyIcon from '../components/ui/CurrencyIcon';
 
-// Same list the Lucent & Shards page uses, so grants read identically here.
-const CURRENCY_LABEL = Object.fromEntries(
-  [{ key: 'lucent', label: 'Lucent' }, ...SHARDS.types].map((c) => [c.key, c.label]),
-);
 const KIND_FILTERS = [{ key: 'all', label: 'All' }, { key: 'item', label: 'Gear' }, { key: 'currency', label: 'Lucent & Shards' }];
 
 const PRIO_SHORT = { 'PvP': 'PvP', 'Second Build': '2nd', 'PvE': 'PvE' };
@@ -167,7 +164,7 @@ export default function LootHistory() {
                   {a.kind === 'currency' ? (
                     <>
                       <span className="inline-flex items-center gap-1.5">
-                        <Coins className="w-3.5 h-3.5 text-brass shrink-0" />
+                        <CurrencyIcon currency={a.currency} className="w-4 h-4" />
                         <span className="font-mono text-brassbright">{a.amount.toLocaleString()}</span>
                         <span className="text-bone">{CURRENCY_LABEL[a.currency] || a.currency}</span>
                       </span>

@@ -7,12 +7,8 @@ import { PageShell } from '../components/ui/PageShell';
 import { useFlash } from '../components/ui/useFlash';
 import Toast from '../components/ui/Toast';
 import { fmtDatetime } from '../timeUtils';
-import SHARDS from '../../../shared/shards.json';
-
-// Same list the "Archboss Shards" wishlist page uses, so grants here line up
-// with the same 4 shard types under the same keys.
-const CURRENCY_TYPES = [{ key: 'lucent', label: 'Lucent' }, ...SHARDS.types];
-const CURRENCY_LABEL = Object.fromEntries(CURRENCY_TYPES.map((c) => [c.key, c.label]));
+import { CURRENCY_TYPES, CURRENCY_LABEL } from '../currencies';
+import CurrencyIcon from '../components/ui/CurrencyIcon';
 
 // Split out of LootTally.jsx's "Lucent & Shards" toggle panel so it's a real,
 // linkable page under the Loot Council sidebar dropdown instead of a
@@ -103,7 +99,8 @@ export default function LootCurrency() {
                   <span className="text-bone w-36 shrink-0 truncate">{t.display_name || t.discord_id}</span>
                   <div className="flex flex-wrap gap-1.5">
                     {CURRENCY_TYPES.filter((c) => t.byType[c.key]).map((c) => (
-                      <span key={c.key} className="inline-flex items-center gap-1 text-xs bg-hall border border-line rounded-full px-2.5 py-0.5 text-ash">
+                      <span key={c.key} className="inline-flex items-center gap-1.5 text-xs bg-hall border border-line rounded-full px-2.5 py-0.5 text-ash">
+                        <CurrencyIcon currency={c.key} className="w-3.5 h-3.5" />
                         {c.label} <span className="font-mono text-brassbright">{t.byType[c.key].toLocaleString()}</span>
                       </span>
                     ))}
@@ -148,7 +145,10 @@ export default function LootCurrency() {
                 <div key={a.id} className="flex items-center gap-3 bg-hall border border-line rounded-lg px-3 py-2 text-sm">
                   <span className="text-bone w-32 shrink-0 truncate">{a.display_name || a.discord_id}</span>
                   <span className="font-mono text-brassbright shrink-0">{a.amount.toLocaleString()}</span>
-                  <span className="text-ash text-xs w-28 shrink-0 truncate">{CURRENCY_LABEL[a.currency] || a.currency}</span>
+                  <span className="text-ash text-xs w-28 shrink-0 truncate inline-flex items-center gap-1.5">
+                    <CurrencyIcon currency={a.currency} className="w-3.5 h-3.5" />
+                    {CURRENCY_LABEL[a.currency] || a.currency}
+                  </span>
                   <span className={`text-xs flex-1 truncate ${a.reason ? 'text-ash/80 italic' : 'text-ash/30'}`} title={a.reason || ''}>
                     {a.reason || '—'}
                   </span>
