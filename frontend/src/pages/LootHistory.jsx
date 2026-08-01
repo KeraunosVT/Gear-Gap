@@ -162,14 +162,19 @@ export default function LootHistory() {
               <div key={`${a.kind}-${a.id}`} className="flex items-center gap-3 px-5 py-3">
                 <div className="min-w-0 flex-1">
                   {a.kind === 'currency' ? (
-                    <>
-                      <span className="inline-flex items-center gap-1.5">
-                        <CurrencyIcon currency={a.currency} />
-                        <span className="font-mono text-brassbright">{a.amount.toLocaleString()}</span>
-                        <span className="text-bone">{CURRENCY_LABEL[a.currency] || a.currency}</span>
-                      </span>
-                      {a.reason && <div className="text-ash/70 text-xs italic truncate" title={a.reason}>{a.reason}</div>}
-                    </>
+                    // Icon beside the text block rather than above the reason,
+                    // so the reason indents under the amount instead of under
+                    // the icon. Mirrors how ItemTooltip lays out gear rows.
+                    <div className="flex items-center gap-2 min-w-0">
+                      <CurrencyIcon currency={a.currency} />
+                      <div className="min-w-0">
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="font-mono text-brassbright">{a.amount.toLocaleString()}</span>
+                          <span className="text-bone">{CURRENCY_LABEL[a.currency] || a.currency}</span>
+                        </div>
+                        {a.reason && <div className="text-ash/70 text-xs italic truncate" title={a.reason}>{a.reason}</div>}
+                      </div>
+                    </div>
                   ) : item ? (
                     <ItemTooltip item={item}>
                       <span className={`truncate ${gradeStyle(item.grade)?.color || 'text-bone'}`}>{item.name}</span>
@@ -179,9 +184,12 @@ export default function LootHistory() {
                   )}
                 </div>
                 <div className="text-sm text-brass shrink-0 w-40 truncate">{a.display_name || 'Member'}</div>
-                {/* Build only means something for gear; currency keeps the
-                    column so rows stay aligned down the list. */}
-                <div className="flex gap-1 shrink-0" title={a.kind === 'item' ? 'Build this was awarded for' : undefined}>
+                {/* Build only means something for gear, but the column keeps a
+                    fixed width on every row: sized to content it collapses to
+                    the width of a dash on currency rows, and flex-1 above hands
+                    that slack to the first column, so the member name lands in
+                    a different place depending on the row type. */}
+                <div className="flex gap-1 shrink-0 w-32 justify-end" title={a.kind === 'item' ? 'Build this was awarded for' : undefined}>
                   {a.kind === 'item' ? (catalog?.priorities || []).map((p) => {
                     const st = PRIO_STYLE[p];
                     const active = a.priority === p;
@@ -196,7 +204,9 @@ export default function LootHistory() {
                     );
                   }) : <span className="text-ash/25 text-[10px]">—</span>}
                 </div>
-                <div className="text-xs text-ash shrink-0 text-right">
+                {/* Fixed width for the same reason as the build column — the
+                    timestamp is wider for two-digit dates ("Jul 31") than one. */}
+                <div className="text-xs text-ash shrink-0 w-32 text-right">
                   {fmtDatetime(a.at)}
                   {a.awarded_by && <div className="text-ash/60">by {a.awarded_by}</div>}
                 </div>
