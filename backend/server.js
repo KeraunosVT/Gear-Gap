@@ -10,7 +10,9 @@ const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const multer = require('multer');
 const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
-const { router: authRouter, requireAuth, requireAdmin } = require('./auth');
+const {
+  router: authRouter, requireAuth, requireAdminArea, requirePermission, userHas,
+} = require('./auth');
 const { listMembers } = require('./discord');
 const SHARDS = require('../shared/shards.json');
 const BOSS_WEAPONS = require('../shared/archbossWeapons.json');
@@ -112,16 +114,21 @@ app.use('/api', (req, res, next) => {
   return requireAuth(req, res, next);
 });
 
-// ── ADMIN AREA (requires admin role) ─────────────────────────────────────────
+// ── ADMIN AREA (requires a capability) ───────────────────────────────────────
+// requireAdminArea resolves which capability the requested path needs and checks
+// it — see backend/permissions.js for the route table. A path with no rule is
+// denied rather than admitted, so a new admin route can't ship as public.
+//
 // Audit log's viewer is mounted separately, before the general /api/admin
-// router, so its isAdmin-only gate stays structurally independent of
-// whatever admin.js's own route-level access control becomes later.
-app.use('/api/admin/audit-log', requireAdmin, auditLog
+// router, so its gate stays structurally independent of admin.js's routing. It
+// takes the 'audit' capability directly since its own paths ('/', '/filters')
+// don't carry the /audit-log prefix once Express has stripped the mount point.
+app.use('/api/admin/audit-log', requirePermission('audit'), auditLog
   ? auditLog.router
   : (req, res) => res.status(503).json({ error: 'Database not configured.' }));
 
 const createAdminRouter = require('./admin');
-app.use('/api/admin', requireAdmin, auditLog ? auditLog.log : (req, res, next) => next(), createAdminRouter(supabase, gateway, lootCatalog, identities));
+app.use('/api/admin', requireAdminArea, auditLog ? auditLog.log : (req, res, next) => next(), createAdminRouter(supabase, gateway, lootCatalog, identities));
 
 // ── MEMBERS AREA: Class builds ───────────────────────────────────────────────
 app.get('/api/my-classes', async (req, res) => {
@@ -199,7 +206,7 @@ app.get('/api/members', async (req, res) => {
 
 app.put('/api/shards/:discordId', async (req, res) => {
   const target = req.params.discordId;
-  if (req.user.id !== target && !req.user.isAdmin) {
+  if (req.user.id !== target && !userHas(req.user, 'loot.awards')) {
     return res.status(403).json({ error: 'You can only edit your own shards.' });
   }
   if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
@@ -258,7 +265,7 @@ app.get('/api/loot', async (req, res) => {
         if (!priority) return;
         if (r.discord_id === req.user.id) mine[k] = priority;
         counts[k] = (counts[k] || 0) + 1;
-        if (req.user.isAdmin) (tally[k] = tally[k] || []).push({ name: memberName, priority, discord_id: r.discord_id, added_at: addedAt });
+        if (userHas(req.user, 'loot.awards')) (tally[k] = tally[k] || []).push({ name: memberName, priority, discord_id: r.discord_id, added_at: addedAt });
       });
     });
     // Builds of each item already awarded to the current member, so the UI can
@@ -270,7 +277,7 @@ app.get('/api/loot', async (req, res) => {
       if (!a.priority) return;
       (awardedBuilds[a.item_key] = awardedBuilds[a.item_key] || []).push(a.priority);
     });
-    res.json({ mine, counts, awardedBuilds, tally: req.user.isAdmin ? tally : undefined });
+    res.json({ mine, counts, awardedBuilds, tally: userHas(req.user, 'loot.awards') ? tally : undefined });
   } catch (err) {
     console.error('Loot load error:', err.message);
     res.status(500).json({ error: 'Failed to load loot wishlist.' });
@@ -279,7 +286,7 @@ app.get('/api/loot', async (req, res) => {
 
 app.put('/api/loot/:discordId', async (req, res) => {
   const target = req.params.discordId;
-  if (req.user.id !== target && !req.user.isAdmin) {
+  if (req.user.id !== target && !userHas(req.user, 'loot.awards')) {
     return res.status(403).json({ error: 'You can only edit your own wishlist.' });
   }
   if (!supabase || !lootCatalog) return res.status(503).json({ error: 'Database not configured.' });
@@ -365,7 +372,7 @@ app.get('/api/loa', async (req, res) => {
 app.get('/api/loa/all', async (req, res) => {
   if (!loa) return res.status(503).json({ error: 'Database not configured.' });
   try {
-    res.json({ entries: await loa.all(req.user.isAdmin) });
+    res.json({ entries: await loa.all(userHas(req.user, 'loa.admin')) });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }
@@ -378,7 +385,7 @@ app.post('/api/loa', async (req, res) => {
   // Admins can submit on a member's behalf by passing discord_id/display_name;
   // anyone else's request is always attributed to themselves regardless of
   // what the body says.
-  const onBehalf = req.user.isAdmin && discord_id;
+  const onBehalf = userHas(req.user, 'loa.admin') && discord_id;
   const targetId = onBehalf ? discord_id : req.user.id;
   const targetName = onBehalf ? (display_name || 'Member') : req.user.username;
   try {
@@ -401,7 +408,7 @@ app.post('/api/loa', async (req, res) => {
 app.delete('/api/loa/:id', async (req, res) => {
   if (!loa) return res.status(503).json({ error: 'Database not configured.' });
   try {
-    const { messageId } = await loa.cancel(req.params.id, req.user.id, req.user.isAdmin);
+    const { messageId } = await loa.cancel(req.params.id, req.user.id, userHas(req.user, 'loa.admin'));
     res.json({ ok: true });
     gateway.deleteLoaMessage(messageId);
   } catch (err) {

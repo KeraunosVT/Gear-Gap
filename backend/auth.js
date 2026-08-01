@@ -6,6 +6,7 @@ const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const axios = require('axios');
 const { fetchMember, botConfigured } = require('./discord');
+const perms = require('./permissions');
 
 const router = express.Router();
 
@@ -118,7 +119,7 @@ router.get('/discord/callback', async (req, res) => {
     const member = memberRes.data;
 
     // 3+4. Role check, then issue a signed session cookie
-    const sessionUser = evaluateMember(member);
+    const sessionUser = await evaluateMember(member);
     if (!sessionUser) {
       return res.redirect(`${APP_URL}?auth=forbidden`);
     }
@@ -137,7 +138,20 @@ router.get('/me', (req, res) => {
   if (!authConfigured || !token) return res.status(401).json({ authenticated: false });
   try {
     const user = jwt.verify(token, JWT_SECRET);
-    res.json({ authenticated: true, user: { id: user.id, username: user.username, avatar: user.avatar, isAdmin: !!user.isAdmin } });
+    res.json({
+      authenticated: true,
+      user: {
+        id: user.id,
+        username: user.username,
+        avatar: user.avatar,
+        isAdmin: !!user.isAdmin,
+        // Sessions issued before capabilities existed have no permissions array;
+        // treat an old admin token as full access until it re-verifies, rather
+        // than stripping a working session's access mid-flight.
+        permissions: user.permissions || (user.isAdmin ? perms.ALL_PERMISSIONS.map((p) => p.key) : []),
+        fullAccess: user.fullAccess ?? !!user.isAdmin,
+      },
+    });
   } catch {
     res.status(401).json({ authenticated: false });
   }
@@ -152,16 +166,36 @@ router.post('/logout', (req, res) => {
 // ── Session helpers ─────────────────────────────────────────────────────────
 // Turn a Discord guild-member object into a session payload, or null if their
 // roles no longer grant access (empty allow-list = any member passes).
-function evaluateMember(member) {
+//
+// Capabilities are resolved here because this is the one place Discord roles
+// become session claims, and it runs on both login and the hourly re-verify —
+// so a changed grant reaches an existing session without any extra machinery.
+//
+// A role in ADMIN_ROLES is absolute: it holds every capability, including ones
+// added in later releases, and can't be narrowed from the permissions page.
+// That's the deliberate escape hatch — a mistaken grant can't lock everyone out
+// of the site, because whoever holds the env-configured admin role still gets in.
+async function evaluateMember(member) {
   const roles = member?.roles || [];
   const allowed = ALLOWED_ROLES.length === 0 || roles.some((r) => ALLOWED_ROLES.includes(r));
   if (!allowed) return null;
   const u = member.user || {};
+
+  const fullAccess = ADMIN_ROLES.length > 0 && roles.some((r) => ADMIN_ROLES.includes(r));
+  const granted = fullAccess
+    ? perms.ALL_PERMISSIONS.map((p) => p.key)
+    : await perms.resolveFor({ roleIds: roles, userId: u.id });
+
   return {
     id: u.id,
     username: u.global_name || u.username || 'Member',
     avatar: u.avatar ? `https://cdn.discordapp.com/avatars/${u.id}/${u.avatar}.png` : null,
-    isAdmin: ADMIN_ROLES.length > 0 && roles.some((r) => ADMIN_ROLES.includes(r)),
+    permissions: granted,
+    fullAccess,
+    // Kept as "has any admin-area access at all" — it's what the sidebar's Admin
+    // section and the admin-area gate key off. It is NOT a capability check:
+    // anything finer must test permissions, or a loot officer passes as an admin.
+    isAdmin: granted.length > 0,
     verified_at: Date.now(),
   };
 }
@@ -207,7 +241,7 @@ async function requireAuth(req, res, next) {
         return res.status(401).json({ error: 'You are no longer a member of the guild.' });
       }
       if (status === 200) {
-        const refreshed = evaluateMember(member);
+        const refreshed = await evaluateMember(member);
         if (!refreshed) {
           res.clearCookie(COOKIE_NAME, baseCookie);
           return res.status(401).json({ error: 'Your guild roles no longer grant access.' });
@@ -228,7 +262,46 @@ async function requireAuth(req, res, next) {
   next();
 }
 
-// Stricter gate for the admin area: a valid session AND the admin flag.
+// Re-exported from permissions.js so routes can check a capability without
+// importing both modules; one implementation, including the legacy-session rule.
+const { userHas } = perms;
+
+// Gate for the admin area. Resolves the capability the requested path needs and
+// checks it, rather than admitting anyone with the old blanket admin flag.
+//
+// A path no rule matches fails closed with 403: a new admin route is unreachable
+// until it's added to ROUTE_PERMISSIONS, which is the safe direction to be wrong
+// in — the alternative is a route that silently defaults to public.
+function requireAdminArea(req, res, next) {
+  requireAuth(req, res, () => {
+    const held = Array.isArray(req.user?.permissions)
+      ? req.user.permissions
+      : (req.user?.isAdmin ? perms.ALL_PERMISSIONS.map((p) => p.key) : []);
+    if (held.length === 0) return res.status(403).json({ error: 'Admin access required' });
+
+    const needed = perms.permissionForPath(req.path);
+    if (needed === perms.ANY) return next(); // shared reads: any capability will do
+    if (needed && held.includes(needed)) return next();
+
+    if (!needed) {
+      console.warn(`No permission rule for admin path ${req.path} — denying.`);
+      return res.status(403).json({ error: 'This action has no permission rule configured.' });
+    }
+    return res.status(403).json({ error: `You don't have the "${needed}" permission.` });
+  });
+}
+
+// Require one specific capability, for routes outside the /api/admin mount —
+// the LOA routes live under plain requireAuth but still have officer-only parts.
+function requirePermission(permission) {
+  return (req, res, next) => requireAuth(req, res, () => {
+    if (userHas(req.user, permission)) return next();
+    return res.status(403).json({ error: `You don't have the "${permission}" permission.` });
+  });
+}
+
+// Kept for compatibility: "any admin-area access at all". Prefer requireAdminArea
+// on the admin mount and requirePermission elsewhere.
 function requireAdmin(req, res, next) {
   requireAuth(req, res, () => {
     if (req.user?.isAdmin) return next();
@@ -236,4 +309,4 @@ function requireAdmin(req, res, next) {
   });
 }
 
-module.exports = { router, requireAuth, requireAdmin };
+module.exports = { router, requireAuth, requireAdmin, requireAdminArea, requirePermission, userHas };

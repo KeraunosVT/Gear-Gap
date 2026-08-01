@@ -4,7 +4,8 @@ const crypto = require('crypto');
 const multer = require('multer');
 const Papa = require('papaparse');
 const { parseScreenshot, parseCsv, WEAPONS } = require('./ingest');
-const { listMembers, postEmbed, postImage } = require('./discord');
+const { listMembers, listRoles, postEmbed, postImage } = require('./discord');
+const perms = require('./permissions');
 const createLoa = require('./loa');
 const { todayInGuildTz } = createLoa;
 const createAttendance = require('./attendance');
@@ -399,6 +400,16 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
       update.decided_at = new Date().toISOString();
     }
     if (Object.keys(update).length === 0) return res.status(400).json({ error: 'Nothing to update.' });
+
+    // Approving or denying needs only loot.requests, but marking paid writes a
+    // row into the Lucent ledger — so it needs the capability that governs the
+    // ledger too. Without this, loot.requests would be a back door to minting
+    // currency for someone deliberately not given loot.currency.
+    if (status === 'paid' && !perms.userHas(req.user, 'loot.currency')) {
+      return res.status(403).json({
+        error: 'Marking a request paid records a Lucent grant, which needs the "loot.currency" permission.',
+      });
+    }
 
     if (status === 'paid' && !existing.currency_award_id) {
       const grantId = crypto.randomUUID();
@@ -1267,6 +1278,63 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
     const { error } = await supabase.from('wargame_maps').delete().eq('id', req.params.id);
     if (error) return res.status(500).json({ error: 'Failed to delete map.' });
+    res.json({ ok: true });
+  });
+
+  // ── Permissions: capabilities granted to Discord roles and to individuals ───
+  // Gated on the 'permissions' capability itself. There's no lockout risk: a role
+  // in DISCORD_ADMIN_ROLE_IDS always holds every capability and can't be edited
+  // from here, so someone can always get back in even if every grant is deleted.
+  router.get('/permissions', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    // Roles and members come from Discord so the grid can show live names, but a
+    // grant whose subject has since been deleted or has left still has to be
+    // visible to be removable — hence the stored label as a fallback.
+    const [grants, roles, members] = await Promise.all([
+      supabase.from('permission_grants').select('*').order('granted_at', { ascending: false })
+        .then((r) => r.data || []),
+      listRoles().catch((err) => { console.error('listRoles failed:', err.message); return []; }),
+      listMembers().catch(() => []),
+    ]);
+    const roleIds = new Set(roles.map((r) => r.id));
+    const memberIds = new Set(members.map((m) => m.id));
+    res.json({
+      catalog: perms.ALL_PERMISSIONS,
+      roles,
+      grants: grants.map((g) => ({
+        ...g,
+        stale: g.subject_type === 'role' ? !roleIds.has(g.subject_id) : !memberIds.has(g.subject_id),
+      })),
+    });
+  });
+
+  router.post('/permissions', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const { subject_type, subject_id, subject_label, permission } = req.body || {};
+    if (subject_type !== 'role' && subject_type !== 'user') return res.status(400).json({ error: 'Subject must be a role or a member.' });
+    if (!subject_id) return res.status(400).json({ error: 'Subject is required.' });
+    if (!perms.PERMISSION_KEYS.has(permission)) return res.status(400).json({ error: 'Unknown permission.' });
+
+    const { error } = await supabase.from('permission_grants').upsert({
+      subject_type, subject_id: String(subject_id),
+      subject_label: (subject_label || '').slice(0, 120) || null,
+      permission,
+      granted_by: req.user.username || req.user.id,
+      granted_at: new Date().toISOString(),
+    }, { onConflict: 'subject_type,subject_id,permission' });
+    if (error) return res.status(500).json({ error: 'Failed to grant permission.' });
+    perms.invalidate();
+    res.json({ ok: true });
+  });
+
+  router.delete('/permissions', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const { subject_type, subject_id, permission } = req.body || {};
+    if (!subject_type || !subject_id || !permission) return res.status(400).json({ error: 'Subject and permission are required.' });
+    const { error } = await supabase.from('permission_grants').delete()
+      .eq('subject_type', subject_type).eq('subject_id', String(subject_id)).eq('permission', permission);
+    if (error) return res.status(500).json({ error: 'Failed to revoke permission.' });
+    perms.invalidate();
     res.json({ ok: true });
   });
 

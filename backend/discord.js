@@ -122,4 +122,35 @@ async function postImage(buffer, filename, content) {
   );
 }
 
-module.exports = { listMembers, fetchMember, postEmbed, postImage, botConfigured };
+// Every role in the guild, for the permissions page to grant against. Cached on
+// the same short TTL as listMembers for the same reason — roles change rarely
+// and the page re-fetches on every visit.
+//
+// @everyone is dropped: it's a real role that every member holds, so granting
+// against it would hand a capability to the entire guild, which is never what
+// someone clicking a row in a permissions grid means to do.
+let rolesCache = null;
+let rolesCacheAt = 0;
+
+async function listRoles() {
+  if (!botConfigured) return [];
+  if (rolesCache && Date.now() - rolesCacheAt < CACHE_TTL_MS) return rolesCache;
+  try {
+    const { data } = await axios.get(`${API}/guilds/${GUILD_ID}/roles`, { headers: authHeaders() });
+    const roles = (data || [])
+      .filter((r) => r.id !== GUILD_ID && !r.managed)
+      .map((r) => ({ id: r.id, name: r.name, color: r.color, position: r.position }))
+      .sort((a, b) => b.position - a.position);
+    rolesCache = roles;
+    rolesCacheAt = Date.now();
+    return roles;
+  } catch (err) {
+    if (rolesCache) {
+      console.warn('listRoles refresh failed — serving stale cache:', err.message);
+      return rolesCache;
+    }
+    throw err;
+  }
+}
+
+module.exports = { listMembers, listRoles, fetchMember, postEmbed, postImage, botConfigured };
