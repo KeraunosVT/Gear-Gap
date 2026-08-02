@@ -11,7 +11,10 @@ import CurrencyIcon from '../components/ui/CurrencyIcon';
 
 // Requests move pending -> approved -> paid, with denied as a dead end that can
 // be reopened. Only 'paid' has a side effect (it writes the Lucent grant), which
-// is why it's reachable from 'approved' rather than straight from 'pending'.
+// is why it's reachable from 'approved' rather than straight from 'pending' —
+// and why every step except that one is freely reversible. Undoing a payment
+// isn't offered here: the grant already exists, so it has to be revoked on the
+// Lucent & Shards ledger first or the two would disagree.
 const STATUS_META = {
   pending: { label: 'Pending', cls: 'text-brass border-brass/40' },
   approved: { label: 'Approved', cls: 'text-sky-400 border-sky-400/40' },
@@ -124,7 +127,11 @@ export default function LootRequests() {
       `Mark paid and record a grant of ${r.amount.toLocaleString()} Lucent to ${r.display_name || r.discord_id}?\n\n`
       + 'This adds a row to the Lucent & Shards ledger.',
     )) return;
-    patch(r.id, { status }, status === 'paid' ? 'Marked paid — Lucent grant recorded.' : `Marked ${status}.`);
+    const msg = status === 'paid' ? 'Marked paid — Lucent grant recorded.'
+      : status === 'pending' && r.status === 'approved' ? 'Approval undone — back to pending.'
+        : status === 'pending' ? 'Reopened.'
+          : `Marked ${status}.`;
+    patch(r.id, { status }, msg);
   };
 
   const remove = (r) => {
@@ -253,6 +260,14 @@ export default function LootRequests() {
                     {r.status === 'approved' && (
                       <button onClick={() => setStatus(r, 'paid')} className="text-ash hover:text-emerald-400" title="Mark paid — records the Lucent grant">
                         <Coins className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {/* Same destination as reopening a denial, so the same icon —
+                        both mean "put this back to pending". Safe to offer here
+                        because approving has no side effect; only paying does. */}
+                    {r.status === 'approved' && (
+                      <button onClick={() => setStatus(r, 'pending')} className="text-ash hover:text-brass" title="Unapprove — back to pending">
+                        <RotateCcw className="w-3.5 h-3.5" />
                       </button>
                     )}
                     {(r.status === 'pending' || r.status === 'approved') && (
