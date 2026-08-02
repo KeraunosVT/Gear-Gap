@@ -24,6 +24,17 @@ const STATUS_META = {
 const FILTERS = ['open', 'pending', 'approved', 'paid', 'denied', 'all'];
 const FILTER_LABEL = { open: 'Open', all: 'All', ...Object.fromEntries(Object.entries(STATUS_META).map(([k, v]) => [k, v.label])) };
 
+// The two request types the guild actually runs. request_type stays free text in
+// the database — these are the named ones, always offered and always filterable
+// even before anything has been logged under them, which a datalist built from
+// existing rows can't do on its own.
+const TYPES = ['Partial Refund', 'Partial Fund'];
+// Matched case-insensitively so "partial fund" typed by hand still lands in the
+// right bucket rather than falling through to Other.
+const normType = (t) => TYPES.find((k) => k.toLowerCase() === String(t || '').trim().toLowerCase()) || null;
+const TYPE_FILTERS = ['all', ...TYPES, 'other'];
+const TYPE_FILTER_LABEL = { all: 'All types', other: 'Other' };
+
 const OTHER = '__other__';
 
 export default function LootRequests() {
@@ -34,6 +45,7 @@ export default function LootRequests() {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState('open');
+  const [typeFilter, setTypeFilter] = useState('all');
   const [msg, flash] = useFlash(3500);
 
   const [editingId, setEditingId] = useState(null);
@@ -81,9 +93,14 @@ export default function LootRequests() {
   ));
 
   const shown = useMemo(() => {
-    const base = filter === 'all' ? requests
+    const byStatus = filter === 'all' ? requests
       : filter === 'open' ? requests.filter((r) => r.status === 'pending' || r.status === 'approved')
         : requests.filter((r) => r.status === filter);
+    // 'other' is anything that isn't one of the two named types, including
+    // untyped rows — so the three type filters partition the list exactly.
+    const base = typeFilter === 'all' ? byStatus
+      : typeFilter === 'other' ? byStatus.filter((r) => !normType(r.request_type))
+        : byStatus.filter((r) => normType(r.request_type) === typeFilter);
     const cmp = COMPARE[sort.key] || COMPARE.date;
     // Ties fall back to newest-first so the order is stable and predictable
     // rather than however the rows happened to arrive.
@@ -91,7 +108,22 @@ export default function LootRequests() {
       const primary = cmp(a, b) * (sort.dir === 'asc' ? 1 : -1);
       return primary || -COMPARE.date(a, b);
     });
-  }, [requests, filter, sort]);
+  }, [requests, filter, typeFilter, sort]);
+
+  // Lucent in the rows currently on screen, split by type. Deliberately computed
+  // over `shown` rather than all requests: the number has to answer "what am I
+  // looking at", so it moves with both filters. Denied rows are included when
+  // they're displayed — a total that quietly disagreed with the list above it
+  // would be worse than one that follows it.
+  const totals = useMemo(() => {
+    const out = { total: 0, byType: Object.fromEntries(TYPES.map((t) => [t, 0])), other: 0 };
+    shown.forEach((r) => {
+      out.total += r.amount;
+      const t = normType(r.request_type);
+      if (t) out.byType[t] += r.amount; else out.other += r.amount;
+    });
+    return out;
+  }, [shown]);
 
   // Lucent already committed but not yet handed over — the number an officer
   // needs before promising anything else.
@@ -101,12 +133,15 @@ export default function LootRequests() {
   );
   const pendingCount = requests.filter((r) => r.status === 'pending').length;
 
-  // Types already in use, offered as suggestions. The field stays free text —
-  // this only keeps 'Enchant' and 'enchant' from fragmenting one category.
-  const knownTypes = useMemo(
-    () => [...new Set(requests.map((r) => r.request_type).filter(Boolean))].sort(),
-    [requests],
-  );
+  // The two named types first, then anything else already in use. Seeding them
+  // means they're suggested from day one rather than only after someone has
+  // typed one by hand; the field stays free text either way, and this keeps
+  // 'Partial Fund' and 'partial fund' from fragmenting one category.
+  const knownTypes = useMemo(() => {
+    const used = requests.map((r) => r.request_type).filter(Boolean);
+    const extra = [...new Set(used.filter((t) => !normType(t)))].sort();
+    return [...TYPES, ...extra];
+  }, [requests]);
 
   const create = (body) => {
     setBusy(true);
@@ -182,6 +217,24 @@ export default function LootRequests() {
               Approved, not yet paid: <span className="font-mono text-brassbright">{owed.toLocaleString()}</span> Lucent
             </span>
           )}
+        </div>
+
+        {/* Type filter — a second axis, so it stacks with the status row above
+            rather than replacing it (e.g. pending + Partial Refund). */}
+        <div className="flex items-center gap-1 flex-wrap -mt-3">
+          {TYPE_FILTERS.map((t) => {
+            const count = requests.filter((r) => (
+              t === 'all' ? true : t === 'other' ? !normType(r.request_type) : normType(r.request_type) === t
+            )).length;
+            return (
+              <button key={t} onClick={() => setTypeFilter(t)}
+                className={`px-3 py-1 rounded-full text-xs font-medium tracking-wide transition-colors border ${
+                  typeFilter === t ? 'bg-panelup text-brassbright border-brass/50' : 'text-ash hover:text-bone border-line'}`}>
+                {TYPE_FILTER_LABEL[t] || t}
+                {t !== 'all' && count > 0 ? ` (${count})` : ''}
+              </button>
+            );
+          })}
         </div>
 
         {shown.length === 0 ? (
@@ -292,6 +345,31 @@ export default function LootRequests() {
                 </div>
               );
             })}
+
+            {/* Totals for exactly what's listed above. Column widths mirror the
+                header and rows so the figure sits under the Lucent column. */}
+            <div className="flex items-center gap-3 px-3 pt-2 mt-1 border-t border-line text-sm">
+              <span className="w-44 shrink-0 eyebrow text-[10px] text-ash">
+                Total · {shown.length} shown
+              </span>
+              <span className="w-32 shrink-0" />
+              <span className="w-64 shrink-0" />
+              <span className="shrink-0 w-32 inline-flex items-center justify-end gap-2">
+                <CurrencyIcon currency="lucent" />
+                <span className="font-mono text-brassbright">{totals.total.toLocaleString()}</span>
+              </span>
+              {/* Per-type split only when the view actually mixes types —
+                  repeating one number twice would just be noise. */}
+              <span className="text-xs flex-1 text-ash/70 truncate">
+                {typeFilter === 'all' && [
+                  ...TYPES.filter((t) => totals.byType[t] > 0).map((t) => `${t} ${totals.byType[t].toLocaleString()}`),
+                  ...(totals.other > 0 ? [`Other ${totals.other.toLocaleString()}`] : []),
+                ].join('  ·  ')}
+              </span>
+              <span className="w-20 shrink-0" />
+              <span className="w-28 shrink-0" />
+              <span className="w-24 shrink-0" />
+            </div>
           </div>
         )}
       </div>
