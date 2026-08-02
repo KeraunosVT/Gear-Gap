@@ -525,6 +525,77 @@ app.get('/api/players', async (req, res) => {
   }
 });
 
+// How many logged events this member turned up to, and out of how many they
+// could have. "Could have" counts only events from their first recorded
+// attendance onward — measuring a new member against events that happened
+// before they joined would show a rate that says nothing about them.
+async function playerAttendance(discordId) {
+  const [{ data: mine }, { data: allEvents }] = await Promise.all([
+    supabase.from('event_attendance').select('event_id').eq('discord_id', discordId),
+    supabase.from('events').select('id, title, event_date').order('event_date', { ascending: false }),
+  ]);
+  const attendedIds = new Set((mine || []).map((a) => a.event_id));
+  const events = allEvents || [];
+  if (events.length === 0) return { attended: 0, eligible: 0, rate: null, since: null, recent: [] };
+
+  const attendedEvents = events.filter((e) => attendedIds.has(e.id));
+  const since = attendedEvents.length
+    ? attendedEvents[attendedEvents.length - 1].event_date
+    : null;
+  const eligible = since ? events.filter((e) => (e.event_date || '') >= since) : [];
+
+  // The last 10 eligible events, newest first, each flagged attended or missed —
+  // a rate alone hides whether someone is trending away.
+  const recent = eligible.slice(0, 10).map((e) => ({
+    id: e.id, title: e.title, event_date: e.event_date, attended: attendedIds.has(e.id),
+  }));
+
+  return {
+    attended: attendedEvents.length,
+    eligible: eligible.length,
+    rate: eligible.length ? attendedEvents.length / eligible.length : null,
+    since,
+    recent,
+  };
+}
+
+// Gear and currency a member has been given. Visible on your own profile
+// unconditionally; on someone else's it takes the capability that governs that
+// ledger, since who-got-what is otherwise officer-only (see the loot tally).
+// The two halves are gated separately — currency is the more sensitive one.
+async function playerLoot(discordId, viewer) {
+  const isSelf = viewer?.id === discordId;
+  const canItems = isSelf || userHas(viewer, 'loot.awards');
+  const canCurrency = isSelf || userHas(viewer, 'loot.currency');
+
+  const [awards, currency, catalogItems] = await Promise.all([
+    canItems
+      ? supabase.from('loot_awards').select('id, item_key, priority, awarded_at')
+        .eq('discord_id', discordId).order('awarded_at', { ascending: false }).then((r) => r.data || [])
+      : Promise.resolve(null),
+    canCurrency
+      ? supabase.from('currency_awards').select('id, currency, amount, reason, awarded_at')
+        .eq('discord_id', discordId).order('awarded_at', { ascending: false }).then((r) => r.data || [])
+      : Promise.resolve(null),
+    // Names resolved here rather than making the profile page fetch the whole
+    // catalog just to label a handful of rows.
+    canItems ? supabase.from('loot_items').select('key, name, grade, image_url').then((r) => r.data || []) : Promise.resolve([]),
+  ]);
+
+  const byKey = Object.fromEntries((catalogItems || []).map((i) => [i.key, i]));
+  return {
+    canSeeItems: canItems,
+    canSeeCurrency: canCurrency,
+    items: awards && awards.map((a) => ({
+      ...a,
+      name: byKey[a.item_key]?.name || a.item_key,
+      grade: byKey[a.item_key]?.grade || null,
+      image_url: byKey[a.item_key]?.image_url || null,
+    })),
+    currency: currency,
+  };
+}
+
 // ── PLAYER PROFILE ──────────────────────────────────────────────────────────
 app.get('/api/player/:name', async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
@@ -596,9 +667,18 @@ app.get('/api/player/:name', async (req, res) => {
       .map(([name, count]) => ({ name, count }))
       .sort((a, b) => b.count - a.count);
 
+    // ── Attendance and loot ─────────────────────────────────────────────────
+    // Both hang off the Discord id, so an unmapped player has neither — a name
+    // on a scoreboard with nobody linked to it can't be tied to a member.
+    const [attendance, loot] = discordId
+      ? await Promise.all([playerAttendance(discordId), playerLoot(discordId, req.user)])
+      : [null, null];
+
     res.json({
       name: displayName,
       aliases: names.length > 1 ? names.filter((n) => n.toLowerCase() !== displayName.toLowerCase()) : [],
+      attendance,
+      loot,
       matches: total,
       kills, assists, damage_dealt, damage_taken, healing,
       avg_kills: total ? kills / total : 0,

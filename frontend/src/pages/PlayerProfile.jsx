@@ -2,10 +2,13 @@ import { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import axios from 'axios';
 import weaponToClass from '../../../shared/weaponClasses.json';
-import { ArrowLeft, Sword, Target, Heart, ShieldAlert, Trophy, TrendingUp, Shield, Gem, BarChart3 } from 'lucide-react';
+import { ArrowLeft, Sword, Target, Heart, ShieldAlert, Trophy, TrendingUp, Shield, Gem, BarChart3, ClipboardCheck, Package } from 'lucide-react';
 import { PageShell } from '../components/ui/PageShell';
 import EmptyState from '../components/ui/EmptyState';
 import StatTile from '../components/ui/StatTile';
+import { ItemIcon, gradeStyle } from '../components/ItemTooltip';
+import CurrencyIcon from '../components/ui/CurrencyIcon';
+import { CURRENCY_LABEL } from '../currencies';
 
 const fmt = (n) => (Number(n) || 0).toLocaleString();
 const fmtM = (n) => ((Number(n) || 0) / 1e6).toFixed(1) + 'M';
@@ -50,7 +53,6 @@ export default function PlayerProfile() {
   if (!player) return null;
 
   const p = player;
-  const m = p.matches || 1;
 
   const ka = (Number(p.kills) || 0) + (Number(p.assists) || 0);
 
@@ -150,6 +152,9 @@ export default function PlayerProfile() {
         </div>
       )}
 
+      {p.attendance && <AttendanceSection a={p.attendance} />}
+      {p.loot && <LootSection loot={p.loot} />}
+
       {/* Performance Trends */}
       {p.matchHistory.length >= 3 && <TrendSection history={p.matchHistory} />}
 
@@ -209,6 +214,139 @@ function rollingAvg(values, window = 3) {
     const slice = values.slice(start, i + 1);
     return slice.reduce((a, b) => a + b, 0) / slice.length;
   });
+}
+
+const fmtDay = (d) => (d ? new Date(`${d}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '—');
+
+function AttendanceSection({ a }) {
+  if (!a.eligible) {
+    return (
+      <div className="mb-14">
+        <h3 className="font-display text-xl text-bone tracking-[0.08em] mb-5 flex items-center gap-3">
+          <ClipboardCheck className="w-5 h-5 text-brass" /> Attendance
+        </h3>
+        <div className="panel rounded-lg p-6 text-ash text-sm">No logged events for this player yet.</div>
+      </div>
+    );
+  }
+  const pct = Math.round(a.rate * 100);
+  // Bands are deliberately generous — these are voluntary guild events, and a
+  // number that reads as failing at 80% would misrepresent a good attendee.
+  const tone = pct >= 80 ? 'text-emerald-400' : pct >= 50 ? 'text-brass' : 'text-oxblood';
+
+  return (
+    <div className="mb-14">
+      <h3 className="font-display text-xl text-bone tracking-[0.08em] mb-5 flex items-center gap-3">
+        <ClipboardCheck className="w-5 h-5 text-brass" /> Attendance
+      </h3>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="panel rounded-lg p-6">
+          <div className="flex items-baseline gap-3 mb-1">
+            <span className={`font-mono text-3xl ${tone}`}>{pct}%</span>
+            <span className="text-ash text-sm">{a.attended} of {a.eligible} events</span>
+          </div>
+          {/* Says what the denominator is — counting events from before someone
+              joined would make every new member look absent. */}
+          <p className="text-ash/60 text-xs mb-4">Since their first logged event, {fmtDay(a.since)}.</p>
+          <div className="h-1.5 bg-hall rounded-full overflow-hidden">
+            <div className={`h-full rounded-full ${pct >= 80 ? 'bg-emerald-400' : pct >= 50 ? 'bg-brass' : 'bg-oxblood'}`}
+              style={{ width: `${pct}%` }} />
+          </div>
+        </div>
+
+        <div className="panel rounded-lg p-6">
+          <h4 className="eyebrow text-[10px] text-brass mb-4">Recent events</h4>
+          <div className="space-y-1.5 max-h-56 overflow-auto pr-1">
+            {a.recent.map((e) => (
+              <div key={e.id} className="flex items-center gap-3 text-sm">
+                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${e.attended ? 'bg-emerald-400' : 'bg-oxblood/60'}`} />
+                <span className={`flex-1 truncate ${e.attended ? 'text-bone' : 'text-ash/60'}`}>{e.title}</span>
+                <span className="text-ash/60 text-xs shrink-0">{fmtDay(e.event_date)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LootSection({ loot }) {
+  const items = loot.items || [];
+  const currency = loot.currency || [];
+  if (!loot.canSeeItems && !loot.canSeeCurrency) return null;
+  if (items.length === 0 && currency.length === 0) {
+    return (
+      <div className="mb-14">
+        <h3 className="font-display text-xl text-bone tracking-[0.08em] mb-5 flex items-center gap-3">
+          <Package className="w-5 h-5 text-brass" /> Loot Received
+        </h3>
+        <div className="panel rounded-lg p-6 text-ash text-sm">Nothing awarded yet.</div>
+      </div>
+    );
+  }
+
+  // Totals per currency, so the headline is "how much Lucent" rather than a
+  // list the reader has to add up.
+  const currencyTotals = currency.reduce((acc, c) => {
+    acc[c.currency] = (acc[c.currency] || 0) + c.amount;
+    return acc;
+  }, {});
+
+  return (
+    <div className="mb-14">
+      <h3 className="font-display text-xl text-bone tracking-[0.08em] mb-5 flex items-center gap-3">
+        <Package className="w-5 h-5 text-brass" /> Loot Received
+      </h3>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {loot.canSeeItems && (
+          <div className="panel rounded-lg p-6">
+            <h4 className="eyebrow text-[10px] text-brass mb-4">Gear ({items.length})</h4>
+            {items.length === 0 ? <p className="text-ash text-sm">No items awarded.</p> : (
+              <div className="space-y-1.5 max-h-72 overflow-auto pr-1">
+                {items.map((i) => (
+                  <div key={i.id} className="flex items-center gap-2.5 text-sm">
+                    {i.image_url && <ItemIcon item={i} size={28} />}
+                    <span className={`flex-1 truncate ${gradeStyle(i.grade)?.color || 'text-bone'}`} title={i.name}>{i.name}</span>
+                    {i.priority && <span className="text-ash/60 text-[10px] shrink-0">{i.priority}</span>}
+                    <span className="text-ash/60 text-xs shrink-0">{fmtDay((i.awarded_at || '').slice(0, 10))}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {loot.canSeeCurrency && (
+          <div className="panel rounded-lg p-6">
+            <h4 className="eyebrow text-[10px] text-brass mb-4">Lucent &amp; Shards</h4>
+            {currency.length === 0 ? <p className="text-ash text-sm">None granted.</p> : (
+              <>
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {Object.entries(currencyTotals).map(([key, amount]) => (
+                    <span key={key} className="inline-flex items-center gap-1.5 text-xs bg-hall border border-line rounded-full pl-1 pr-2.5 py-0.5 text-ash">
+                      <CurrencyIcon currency={key} size={20} />
+                      {CURRENCY_LABEL[key] || key} <span className="font-mono text-brassbright">{amount.toLocaleString()}</span>
+                    </span>
+                  ))}
+                </div>
+                <div className="space-y-1.5 max-h-56 overflow-auto pr-1">
+                  {currency.map((c) => (
+                    <div key={c.id} className="flex items-center gap-2.5 text-sm">
+                      <span className="font-mono text-brassbright w-20 text-right shrink-0">{c.amount.toLocaleString()}</span>
+                      <span className="text-ash text-xs w-28 shrink-0 truncate">{CURRENCY_LABEL[c.currency] || c.currency}</span>
+                      <span className="text-ash/60 text-xs flex-1 truncate italic" title={c.reason || ''}>{c.reason || ''}</span>
+                      <span className="text-ash/60 text-xs shrink-0">{fmtDay((c.awarded_at || '').slice(0, 10))}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function TrendSection({ history }) {
