@@ -92,15 +92,25 @@ export default function LootRequests() {
       : { key, dir: key === 'date' || key === 'amount' ? 'desc' : 'asc' }
   ));
 
-  const shown = useMemo(() => {
-    const byStatus = filter === 'all' ? requests
+  // Split out so the type chips can count against it. Counting them against
+  // every request instead made a chip read "(9)" while its list showed nothing,
+  // because the status filter had already excluded all nine.
+  const byStatus = useMemo(() => (
+    filter === 'all' ? requests
       : filter === 'open' ? requests.filter((r) => r.status === 'pending' || r.status === 'approved')
-        : requests.filter((r) => r.status === filter);
-    // 'other' is anything that isn't one of the two named types, including
-    // untyped rows — so the three type filters partition the list exactly.
-    const base = typeFilter === 'all' ? byStatus
-      : typeFilter === 'other' ? byStatus.filter((r) => !normType(r.request_type))
-        : byStatus.filter((r) => normType(r.request_type) === typeFilter);
+        : requests.filter((r) => r.status === filter)
+  ), [requests, filter]);
+
+  // 'other' is anything that isn't one of the two named types, including
+  // untyped rows — so the three type filters partition the list exactly.
+  const ofType = (rows, t) => (
+    t === 'all' ? rows
+      : t === 'other' ? rows.filter((r) => !normType(r.request_type))
+        : rows.filter((r) => normType(r.request_type) === t)
+  );
+
+  const shown = useMemo(() => {
+    const base = ofType(byStatus, typeFilter);
     const cmp = COMPARE[sort.key] || COMPARE.date;
     // Ties fall back to newest-first so the order is stable and predictable
     // rather than however the rows happened to arrive.
@@ -108,7 +118,7 @@ export default function LootRequests() {
       const primary = cmp(a, b) * (sort.dir === 'asc' ? 1 : -1);
       return primary || -COMPARE.date(a, b);
     });
-  }, [requests, filter, typeFilter, sort]);
+  }, [byStatus, typeFilter, sort]);
 
   // Lucent in the rows currently on screen, split by type. Deliberately computed
   // over `shown` rather than all requests: the number has to answer "what am I
@@ -223,22 +233,29 @@ export default function LootRequests() {
             rather than replacing it (e.g. pending + Partial Refund). */}
         <div className="flex items-center gap-1 flex-wrap -mt-3">
           {TYPE_FILTERS.map((t) => {
-            const count = requests.filter((r) => (
-              t === 'all' ? true : t === 'other' ? !normType(r.request_type) : normType(r.request_type) === t
-            )).length;
+            // Counted within the current status filter, so the badge always
+            // matches what clicking it will actually show.
+            const count = ofType(byStatus, t).length;
+            const total = ofType(requests, t).length;
+            const hidden = total - count;
             return (
               <button key={t} onClick={() => setTypeFilter(t)}
+                title={hidden > 0 ? `${hidden} more hidden by the ${FILTER_LABEL[filter]} filter` : undefined}
                 className={`px-3 py-1 rounded-full text-xs font-medium tracking-wide transition-colors border ${
-                  typeFilter === t ? 'bg-panelup text-brassbright border-brass/50' : 'text-ash hover:text-bone border-line'}`}>
+                  typeFilter === t ? 'bg-panelup text-brassbright border-brass/50'
+                    : count === 0 ? 'text-ash/40 border-line/60 hover:text-ash'
+                      : 'text-ash hover:text-bone border-line'}`}>
                 {TYPE_FILTER_LABEL[t] || t}
-                {t !== 'all' && count > 0 ? ` (${count})` : ''}
+                {t !== 'all' ? ` (${count})` : ''}
               </button>
             );
           })}
         </div>
 
         {shown.length === 0 ? (
-          <p className="text-ash text-sm">{requests.length === 0 ? 'No requests logged yet.' : 'Nothing in this view.'}</p>
+          <EmptyView requests={requests} filter={filter} typeFilter={typeFilter}
+            hiddenByStatus={ofType(requests, typeFilter).length}
+            onShowAll={() => setFilter('all')} />
         ) : (
           <div className="space-y-1.5">
             {/* Widths mirror the row below exactly — the rows are flex divs
@@ -375,6 +392,29 @@ export default function LootRequests() {
       </div>
     </PageShell>
   );
+}
+
+// An empty list has three quite different causes, and saying "nothing here" for
+// all of them sent someone hunting for a bug that was really the status filter:
+// every Partial Refund request happened to be paid or denied, so picking that
+// type under the default Open view correctly showed nothing.
+function EmptyView({ requests, filter, typeFilter, hiddenByStatus, onShowAll }) {
+  if (requests.length === 0) return <p className="text-ash text-sm">No requests logged yet.</p>;
+
+  const typeLabel = TYPE_FILTER_LABEL[typeFilter] || typeFilter;
+  if (typeFilter !== 'all' && hiddenByStatus > 0) {
+    return (
+      <p className="text-ash text-sm">
+        No <span className="text-bone">{typeLabel}</span> requests are{' '}
+        <span className="text-bone">{(FILTER_LABEL[filter] || filter).toLowerCase()}</span> —
+        but there {hiddenByStatus === 1 ? 'is 1' : `are ${hiddenByStatus}`} in other states.{' '}
+        <button onClick={onShowAll} className="text-brass hover:text-brassbright transition-colors">
+          Show all statuses
+        </button>
+      </p>
+    );
+  }
+  return <p className="text-ash text-sm">Nothing in this view.</p>;
 }
 
 // A clickable column label. The arrow only renders on the active column, so the
