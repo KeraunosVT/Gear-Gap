@@ -4,14 +4,30 @@ import { Moon, Sun, Check, PanelLeft, ChevronRight } from 'lucide-react';
 import { guildLinks, memberLinks, adminLinks } from './Sidebar';
 import { applyTheme } from '../theme';
 import { applyPalette, PALETTES } from '../palette';
+import { GUILD } from '../guild';
 
 const ALL_LINKS = [...guildLinks, ...memberLinks, ...adminLinks];
 
-function crumbFor(pathname) {
-  const exact = ALL_LINKS.find((l) => l.to === pathname);
-  if (exact) return exact.label;
-  if (pathname.startsWith('/roster/')) return 'Roster';
-  return 'House Regard';
+// The trail after "Dashboard", as [{ label, to? }] — the last entry is the
+// current page and isn't linked.
+//
+// Nav groups keep their pages in `children` (Loot Council's four), which a flat
+// scan of ALL_LINKS never sees: every one of them missed and fell through to the
+// fallback, so they all read the same. Matching children as well both fixes that
+// and gives them the group as a parent crumb.
+function trailFor(pathname) {
+  for (const link of ALL_LINKS) {
+    if (link.to === pathname) return [{ label: link.label }];
+    const child = (link.children || []).find((c) => c.to === pathname);
+    if (child) return [{ label: link.label, to: link.to }, { label: child.label }];
+  }
+  // Routed pages with no nav entry of their own.
+  if (pathname.startsWith('/roster/')) {
+    return [{ label: 'Roster', to: '/roster' }, { label: decodeURIComponent(pathname.slice('/roster/'.length)) }];
+  }
+  // Legacy aliases kept in App.jsx so old links still resolve.
+  if (pathname === '/dashboard' || pathname === '/match-stats') return [{ label: 'War Record', to: '/war-record' }];
+  return [{ label: GUILD.house }];
 }
 
 const PALETTE_META = {
@@ -62,12 +78,19 @@ export default function Topbar({ collapsed, onToggleSidebar }) {
           <NavLink to="/" className={`shrink-0 transition-colors ${isHome ? 'text-bone font-semibold' : 'text-ash hover:text-bone'}`}>
             Dashboard
           </NavLink>
-          {!isHome && (
-            <>
+          {!isHome && trailFor(pathname).map((crumb, i, all) => (
+            <span key={crumb.label} className="flex items-center gap-1.5 min-w-0">
               <ChevronRight className="w-3.5 h-3.5 text-ash/50 shrink-0" />
-              <span className="text-bone font-semibold truncate">{crumbFor(pathname)}</span>
-            </>
-          )}
+              {/* Only the last crumb is the current page; the rest navigate. */}
+              {i === all.length - 1 ? (
+                <span className="text-bone font-semibold truncate">{crumb.label}</span>
+              ) : (
+                <NavLink to={crumb.to} className="text-ash hover:text-bone transition-colors truncate shrink-0">
+                  {crumb.label}
+                </NavLink>
+              )}
+            </span>
+          ))}
         </nav>
       </div>
 

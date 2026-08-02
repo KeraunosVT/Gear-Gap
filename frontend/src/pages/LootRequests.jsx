@@ -142,7 +142,7 @@ export default function LootRequests() {
   if (!can('loot.requests')) return <RestrictedGate />;
 
   return (
-    <PageShell>
+    <PageShell maxWidth="max-w-none" paddingX="px-2">
       {error && <div className="mb-6 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
       <Toast msg={msg} />
 
@@ -184,9 +184,9 @@ export default function LootRequests() {
             {/* Widths mirror the row below exactly — the rows are flex divs
                 rather than a table, so nothing keeps these in step automatically. */}
             <div className="flex items-center gap-3 px-3 pb-0.5 text-ash">
-              <SortHeader col="member" sort={sort} onSort={toggleSort} className="w-32 shrink-0">Member</SortHeader>
-              <SortHeader col="type" sort={sort} onSort={toggleSort} className="w-28 shrink-0">Type</SortHeader>
-              <SortHeader col="item" sort={sort} onSort={toggleSort} className="w-40 shrink-0">Item</SortHeader>
+              <SortHeader col="member" sort={sort} onSort={toggleSort} className="w-44 shrink-0">Member</SortHeader>
+              <SortHeader col="type" sort={sort} onSort={toggleSort} className="w-32 shrink-0">Type</SortHeader>
+              <SortHeader col="item" sort={sort} onSort={toggleSort} className="w-64 shrink-0">Item</SortHeader>
               <SortHeader col="amount" sort={sort} onSort={toggleSort} className="w-32 shrink-0 justify-end">Lucent</SortHeader>
               <span className="eyebrow text-[10px] flex-1">Note</span>
               <SortHeader col="status" sort={sort} onSort={toggleSort} className="w-20 shrink-0 justify-center">Status</SortHeader>
@@ -197,11 +197,11 @@ export default function LootRequests() {
               const meta = STATUS_META[r.status] || STATUS_META.pending;
               return editingId === r.id ? (
                 <div key={r.id} className="flex flex-wrap items-center gap-2 bg-hall border border-brass/50 rounded-lg px-3 py-2 text-sm">
-                  <span className="text-bone w-32 shrink-0 truncate">{r.display_name || r.discord_id}</span>
+                  <span className="text-bone w-44 shrink-0 truncate">{r.display_name || r.discord_id}</span>
                   <input type="text" value={edit.request_type} maxLength={60} placeholder="Type" list="lucent-request-types"
                     onChange={(e) => setEdit((p) => ({ ...p, request_type: e.target.value }))}
-                    className="bg-panel border border-line rounded-lg px-2 py-1 text-sm text-bone focus:outline-none focus:border-brass w-28" />
-                  <span className="text-ash w-40 shrink-0 truncate" title={r.item_name}>{r.item_name}</span>
+                    className="bg-panel border border-line rounded-lg px-2 py-1 text-sm text-bone focus:outline-none focus:border-brass w-32" />
+                  <span className="text-ash w-64 shrink-0 truncate" title={r.item_name}>{r.item_name}</span>
                   <input type="number" min={1} value={edit.amount} autoFocus
                     onChange={(e) => setEdit((p) => ({ ...p, amount: e.target.value }))}
                     className="bg-panel border border-line rounded-lg px-2 py-1 text-sm text-bone focus:outline-none focus:border-brass w-28" />
@@ -218,11 +218,11 @@ export default function LootRequests() {
                 </div>
               ) : (
                 <div key={r.id} className="flex items-center gap-3 bg-hall border border-line rounded-lg px-3 py-2 text-sm">
-                  <span className="text-bone w-32 shrink-0 truncate">{r.display_name || r.discord_id}</span>
-                  <span className={`w-28 shrink-0 truncate text-xs ${r.request_type ? 'text-brass' : 'text-ash/30'}`} title={r.request_type || ''}>
+                  <span className="text-bone w-44 shrink-0 truncate">{r.display_name || r.discord_id}</span>
+                  <span className={`w-32 shrink-0 truncate text-xs ${r.request_type ? 'text-brass' : 'text-ash/30'}`} title={r.request_type || ''}>
                     {r.request_type || '—'}
                   </span>
-                  <span className="text-bone w-40 shrink-0 truncate" title={r.item_name}>
+                  <span className="text-bone w-64 shrink-0 truncate" title={r.item_name}>
                     {r.item_name}
                     {!r.item_key && <span className="text-ash/40 text-[10px] ml-1" title="Not in the loot catalog">*</span>}
                   </span>
