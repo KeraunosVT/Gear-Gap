@@ -19,6 +19,7 @@ import LootItems from './pages/LootItems';
 import LootCurrency from './pages/LootCurrency';
 import LootRequests from './pages/LootRequests';
 import Permissions from './pages/Permissions';
+import MyProfile from './pages/MyProfile';
 import LootHistory from './pages/LootHistory';
 import Attendance from './pages/Attendance';
 import PlayerProfile from './pages/PlayerProfile';
@@ -76,6 +77,7 @@ function Gate() {
           <Route path="/war-record" element={<MatchStats />} />
           <Route path="/roster" element={<Roster />} />
           <Route path="/roster/:name" element={<PlayerProfile />} />
+          <Route path="/me" element={<MyProfile />} />
           <Route path="/shards" element={<Shards />} />
           <Route path="/loot" element={<Loot />} />
           <Route path="/loa" element={<LOA />} />

@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Swords, Users, Gem, Package, CalendarOff, Layers, Gauge,
-  Upload, LayoutGrid, Tag, Gavel, ClipboardCheck, ScrollText, ShieldCheck, LogOut, Settings, ChevronDown,
+  Upload, LayoutGrid, Tag, Gavel, ClipboardCheck, ScrollText, ShieldCheck, UserRound, LogOut, Settings, ChevronDown,
 } from 'lucide-react';
 import Sigil from './Sigil';
 import { GUILD } from '../guild';
@@ -16,6 +16,7 @@ export const guildLinks = [
 ];
 
 export const memberLinks = [
+  { to: '/me', label: 'My Profile', icon: UserRound },
   { to: '/shards', label: 'Shards', icon: Gem },
   { to: '/loot', label: 'Loot', icon: Package },
   { to: '/loa', label: 'LOA', icon: CalendarOff },

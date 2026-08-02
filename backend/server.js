@@ -155,6 +155,37 @@ app.put('/api/my-classes', async (req, res) => {
   res.json({ ok: true });
 });
 
+// ── MEMBERS AREA: my own player profile ──────────────────────────────────────
+// Profiles are addressed by in-game name (/roster/:name), but a session only
+// knows a Discord id — so "my profile" needs the identity mapping to bridge the
+// two. Reports why there's no profile rather than just failing, since both
+// causes are things a member can act on: nobody has mapped their Discord
+// account to an in-game name yet, or they have no logged matches.
+app.get('/api/my-profile', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    const ids = await identities.load();
+    const name = ids.displayNameFor(req.user.id, null);
+    if (!name) return res.json({ name: null, mapped: false, hasRecord: false });
+
+    // Every alias counts towards "do they have a record" — a player who only
+    // ever appeared under an old in-game name still has one.
+    const identity = ids.identityForName(name);
+    const names = identity
+      ? [identity.display_name, ...(Array.isArray(identity.ingame_names) ? identity.ingame_names : [])].filter(Boolean)
+      : [name];
+    const { count } = await supabase.from('player_match_stats')
+      .select('*', { count: 'exact', head: true })
+      .in('player_name', names)
+      .in('guild_name', Object.keys(GUILD_ALIASES));
+
+    res.json({ name, mapped: true, hasRecord: (count || 0) > 0 });
+  } catch (err) {
+    console.error('my-profile error:', err.message);
+    res.status(500).json({ error: 'Could not resolve your profile.' });
+  }
+});
+
 // ── MEMBERS AREA: Gear item level ────────────────────────────────────────────
 // Any member can submit a screenshot of their own gear; a new submission
 // replaces whatever they had on file before. The full comparison table is
