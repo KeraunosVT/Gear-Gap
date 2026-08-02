@@ -25,6 +25,9 @@ function trailFor(pathname) {
   if (pathname.startsWith('/roster/')) {
     return [{ label: 'Roster', to: '/roster' }, { label: decodeURIComponent(pathname.slice('/roster/'.length)) }];
   }
+  // Resolver route: redirects to /roster/<name>, but is the active path for
+  // an instant before that lands.
+  if (pathname === '/me') return [{ label: 'My Profile' }];
   // Legacy aliases kept in App.jsx so old links still resolve.
   if (pathname === '/dashboard' || pathname === '/match-stats') return [{ label: 'War Record', to: '/war-record' }];
   return [{ label: GUILD.house }];

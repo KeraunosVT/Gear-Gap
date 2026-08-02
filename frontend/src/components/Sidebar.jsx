@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Swords, Users, Gem, Package, CalendarOff, Layers, Gauge,
-  Upload, LayoutGrid, Tag, Gavel, ClipboardCheck, ScrollText, ShieldCheck, UserRound, LogOut, Settings, ChevronDown,
+  Upload, LayoutGrid, Tag, Gavel, ClipboardCheck, ScrollText, ShieldCheck, LogOut, Settings, ChevronDown,
 } from 'lucide-react';
 import Sigil from './Sigil';
 import { GUILD } from '../guild';
@@ -16,7 +16,6 @@ export const guildLinks = [
 ];
 
 export const memberLinks = [
-  { to: '/me', label: 'My Profile', icon: UserRound },
   { to: '/shards', label: 'Shards', icon: Gem },
   { to: '/loot', label: 'Loot', icon: Package },
   { to: '/loa', label: 'LOA', icon: CalendarOff },
@@ -98,12 +97,19 @@ export default function Sidebar({ collapsed }) {
 
       {user && (
         <div className="border-t border-line p-3 flex items-center gap-2.5">
-          {user.avatar
-            ? <img src={user.avatar} alt="" className="w-7 h-7 rounded-full border border-line object-cover shrink-0" />
-            : <div className="w-7 h-7 rounded-full bg-panelup border border-line flex items-center justify-center text-[11px] text-brass shrink-0">{(user.username || '?').slice(0, 1).toUpperCase()}</div>}
+          {/* Avatar and name are one link to your own profile. Collapsed, the
+              avatar is the only affordance left, so it carries the link. */}
+          <Link
+            to="/me" title="My profile"
+            className={`flex items-center gap-2.5 min-w-0 text-bone hover:text-brassbright transition-colors ${collapsed ? '' : 'flex-1'}`}
+          >
+            {user.avatar
+              ? <img src={user.avatar} alt="" className="w-7 h-7 rounded-full border border-line object-cover shrink-0" />
+              : <div className="w-7 h-7 rounded-full bg-panelup border border-line flex items-center justify-center text-[11px] text-brass shrink-0">{(user.username || '?').slice(0, 1).toUpperCase()}</div>}
+            {!collapsed && <span className="text-sm truncate">{user.username}</span>}
+          </Link>
           {!collapsed && (
             <>
-              <span className="text-sm text-bone truncate flex-1 min-w-0">{user.username}</span>
               <SettingsMenu />
               <button onClick={logout} title="Sign out" aria-label="Sign out" className="p-1.5 rounded-md text-ash hover:text-oxblood hover:bg-panel transition-colors shrink-0">
                 <LogOut className="w-4 h-4" />
