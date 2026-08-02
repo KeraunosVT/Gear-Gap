@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../auth';
-import { X, Check, Ban, Coins, Plus, Pencil, Trash2, RotateCcw } from 'lucide-react';
+import { X, Check, Ban, Coins, Plus, Pencil, Trash2, RotateCcw, ChevronDown } from 'lucide-react';
 import RestrictedGate from '../components/ui/RestrictedGate';
 import { PageShell } from '../components/ui/PageShell';
 import { useFlash } from '../components/ui/useFlash';
@@ -34,7 +34,7 @@ export default function LootRequests() {
   const [msg, flash] = useFlash(3500);
 
   const [editingId, setEditingId] = useState(null);
-  const [edit, setEdit] = useState({ amount: '', note: '' });
+  const [edit, setEdit] = useState({ amount: '', note: '', request_type: '' });
 
   const load = () => {
     Promise.all([
@@ -51,11 +51,44 @@ export default function LootRequests() {
   };
   useEffect(() => { load(); }, []);
 
+  // Status sorts by where it sits in the workflow, not alphabetically —
+  // "approved, denied, paid, pending" tells you nothing, whereas grouping the
+  // ones still needing action ahead of the settled ones is the point of sorting
+  // by it at all.
+  const STATUS_ORDER = { pending: 0, approved: 1, paid: 2, denied: 3 };
+  const COMPARE = {
+    member: (a, b) => (a.display_name || '').localeCompare(b.display_name || ''),
+    item: (a, b) => (a.item_name || '').localeCompare(b.item_name || ''),
+    // Untyped rows sort last either way rather than clumping under '' at the top.
+    type: (a, b) => (a.request_type || '￿').localeCompare(b.request_type || '￿'),
+    amount: (a, b) => a.amount - b.amount,
+    status: (a, b) => (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9),
+    date: (a, b) => String(a.requested_at).localeCompare(String(b.requested_at)),
+  };
+
+  const [sort, setSort] = useState({ key: 'date', dir: 'desc' });
+
+  // First click on a column picks the direction that's useful for its type:
+  // newest and largest first for dates and amounts, A–Z for names. Clicking the
+  // same column again flips it.
+  const toggleSort = (key) => setSort((s) => (
+    s.key === key
+      ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' }
+      : { key, dir: key === 'date' || key === 'amount' ? 'desc' : 'asc' }
+  ));
+
   const shown = useMemo(() => {
-    if (filter === 'all') return requests;
-    if (filter === 'open') return requests.filter((r) => r.status === 'pending' || r.status === 'approved');
-    return requests.filter((r) => r.status === filter);
-  }, [requests, filter]);
+    const base = filter === 'all' ? requests
+      : filter === 'open' ? requests.filter((r) => r.status === 'pending' || r.status === 'approved')
+        : requests.filter((r) => r.status === filter);
+    const cmp = COMPARE[sort.key] || COMPARE.date;
+    // Ties fall back to newest-first so the order is stable and predictable
+    // rather than however the rows happened to arrive.
+    return [...base].sort((a, b) => {
+      const primary = cmp(a, b) * (sort.dir === 'asc' ? 1 : -1);
+      return primary || -COMPARE.date(a, b);
+    });
+  }, [requests, filter, sort]);
 
   // Lucent already committed but not yet handed over — the number an officer
   // needs before promising anything else.
@@ -64,6 +97,13 @@ export default function LootRequests() {
     [requests],
   );
   const pendingCount = requests.filter((r) => r.status === 'pending').length;
+
+  // Types already in use, offered as suggestions. The field stays free text —
+  // this only keeps 'Enchant' and 'enchant' from fragmenting one category.
+  const knownTypes = useMemo(
+    () => [...new Set(requests.map((r) => r.request_type).filter(Boolean))].sort(),
+    [requests],
+  );
 
   const create = (body) => {
     setBusy(true);
@@ -94,7 +134,10 @@ export default function LootRequests() {
       .catch((err) => flash(err.response?.data?.error || 'Delete failed.', false));
   };
 
-  const startEdit = (r) => { setEditingId(r.id); setEdit({ amount: String(r.amount), note: r.note || '' }); };
+  const startEdit = (r) => {
+    setEditingId(r.id);
+    setEdit({ amount: String(r.amount), note: r.note || '', request_type: r.request_type || '' });
+  };
 
   if (!can('loot.requests')) return <RestrictedGate />;
 
@@ -107,6 +150,10 @@ export default function LootRequests() {
         Log what members have asked for so requests don&apos;t live only in Discord. Marking one paid records the
         Lucent grant on the <span className="text-bone">Lucent &amp; Shards</span> ledger, so it&apos;s only entered once.
       </p>
+
+      <datalist id="lucent-request-types">
+        {knownTypes.map((t) => <option key={t} value={t} />)}
+      </datalist>
 
       <div className="panel rounded-lg p-6 space-y-6">
         <RequestForm members={members} catalog={catalog} busy={busy} onCreate={create} />
@@ -134,12 +181,27 @@ export default function LootRequests() {
           <p className="text-ash text-sm">{requests.length === 0 ? 'No requests logged yet.' : 'Nothing in this view.'}</p>
         ) : (
           <div className="space-y-1.5">
+            {/* Widths mirror the row below exactly — the rows are flex divs
+                rather than a table, so nothing keeps these in step automatically. */}
+            <div className="flex items-center gap-3 px-3 pb-0.5 text-ash">
+              <SortHeader col="member" sort={sort} onSort={toggleSort} className="w-32 shrink-0">Member</SortHeader>
+              <SortHeader col="type" sort={sort} onSort={toggleSort} className="w-28 shrink-0">Type</SortHeader>
+              <SortHeader col="item" sort={sort} onSort={toggleSort} className="w-40 shrink-0">Item</SortHeader>
+              <SortHeader col="amount" sort={sort} onSort={toggleSort} className="w-32 shrink-0 justify-end">Lucent</SortHeader>
+              <span className="eyebrow text-[10px] flex-1">Note</span>
+              <SortHeader col="status" sort={sort} onSort={toggleSort} className="w-20 shrink-0 justify-center">Status</SortHeader>
+              <SortHeader col="date" sort={sort} onSort={toggleSort} className="w-28 shrink-0 justify-end">Requested</SortHeader>
+              <span className="w-24 shrink-0" />
+            </div>
             {shown.map((r) => {
               const meta = STATUS_META[r.status] || STATUS_META.pending;
               return editingId === r.id ? (
                 <div key={r.id} className="flex flex-wrap items-center gap-2 bg-hall border border-brass/50 rounded-lg px-3 py-2 text-sm">
                   <span className="text-bone w-32 shrink-0 truncate">{r.display_name || r.discord_id}</span>
-                  <span className="text-ash w-44 shrink-0 truncate" title={r.item_name}>{r.item_name}</span>
+                  <input type="text" value={edit.request_type} maxLength={60} placeholder="Type" list="lucent-request-types"
+                    onChange={(e) => setEdit((p) => ({ ...p, request_type: e.target.value }))}
+                    className="bg-panel border border-line rounded-lg px-2 py-1 text-sm text-bone focus:outline-none focus:border-brass w-28" />
+                  <span className="text-ash w-40 shrink-0 truncate" title={r.item_name}>{r.item_name}</span>
                   <input type="number" min={1} value={edit.amount} autoFocus
                     onChange={(e) => setEdit((p) => ({ ...p, amount: e.target.value }))}
                     className="bg-panel border border-line rounded-lg px-2 py-1 text-sm text-bone focus:outline-none focus:border-brass w-28" />
@@ -157,7 +219,10 @@ export default function LootRequests() {
               ) : (
                 <div key={r.id} className="flex items-center gap-3 bg-hall border border-line rounded-lg px-3 py-2 text-sm">
                   <span className="text-bone w-32 shrink-0 truncate">{r.display_name || r.discord_id}</span>
-                  <span className="text-bone w-44 shrink-0 truncate" title={r.item_name}>
+                  <span className={`w-28 shrink-0 truncate text-xs ${r.request_type ? 'text-brass' : 'text-ash/30'}`} title={r.request_type || ''}>
+                    {r.request_type || '—'}
+                  </span>
+                  <span className="text-bone w-40 shrink-0 truncate" title={r.item_name}>
                     {r.item_name}
                     {!r.item_key && <span className="text-ash/40 text-[10px] ml-1" title="Not in the loot catalog">*</span>}
                   </span>
@@ -168,12 +233,18 @@ export default function LootRequests() {
                   <span className={`text-xs flex-1 truncate ${r.note ? 'text-ash/80 italic' : 'text-ash/30'}`} title={r.note || ''}>
                     {r.note || '—'}
                   </span>
-                  <span className={`text-[10px] font-semibold tracking-wide px-2 py-0.5 rounded-full border shrink-0 ${meta.cls}`}>
-                    {meta.label}
+                  {/* Fixed-width wrapper: the labels differ in length, so a
+                      content-sized pill shifts the date column row to row. */}
+                  <span className="w-20 shrink-0 flex justify-center">
+                    <span className={`text-[10px] font-semibold tracking-wide px-2 py-0.5 rounded-full border ${meta.cls}`}>
+                      {meta.label}
+                    </span>
                   </span>
                   <span className="text-ash/60 text-[10px] w-28 text-right shrink-0">{fmtDatetime(r.requested_at)}</span>
 
-                  <div className="flex items-center gap-1 shrink-0">
+                  {/* Also fixed: the button count varies by status, which would
+                      otherwise leave every row a different length. */}
+                  <div className="flex items-center justify-end gap-1 shrink-0 w-24">
                     {r.status === 'pending' && (
                       <button onClick={() => setStatus(r, 'approved')} className="text-ash hover:text-sky-400" title="Approve">
                         <Check className="w-3.5 h-3.5" />
@@ -213,6 +284,23 @@ export default function LootRequests() {
   );
 }
 
+// A clickable column label. The arrow only renders on the active column, so the
+// header doesn't read as though everything is sorted at once.
+function SortHeader({ col, sort, onSort, className = '', children }) {
+  const active = sort.key === col;
+  return (
+    <button
+      type="button" onClick={() => onSort(col)}
+      title={`Sort by ${String(children).toLowerCase()}`}
+      className={`eyebrow text-[10px] inline-flex items-center gap-1 transition-colors ${
+        active ? 'text-brass' : 'text-ash hover:text-bone'} ${className}`}
+    >
+      {children}
+      {active && <ChevronDown className={`w-3 h-3 shrink-0 ${sort.dir === 'asc' ? 'rotate-180' : ''}`} />}
+    </button>
+  );
+}
+
 // Log a request on a member's behalf. Its own component so the in-progress
 // selection resets after each submit without touching page state — same reason
 // LootCurrency's give form is split out.
@@ -224,6 +312,7 @@ function RequestForm({ members, catalog, busy, onCreate }) {
   const [otherName, setOtherName] = useState('');
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
+  const [requestType, setRequestType] = useState('');
 
   const suggestions = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -265,8 +354,10 @@ function RequestForm({ members, catalog, busy, onCreate }) {
       item_name: usingOther ? otherName.trim() : undefined,
       amount: amt,
       note: note.trim(),
+      request_type: requestType.trim(),
     });
     // Member stays — a member often asks for more than one thing at a time.
+    // Type persists with the member — a run of grants is usually all one kind.
     setItemKey(''); setOtherName(''); setAmount(''); setNote('');
   };
 
@@ -304,6 +395,10 @@ function RequestForm({ members, catalog, busy, onCreate }) {
       {/* Catalog first, free text as the fallback — Lucent buys from the auction
           house, so plenty of requests are for gear the guild's drop table
           doesn't cover. */}
+      <input type="text" value={requestType} onChange={(e) => setRequestType(e.target.value)} maxLength={60}
+        placeholder="Type" list="lucent-request-types"
+        title="What kind of request this is — e.g. Enchant, Trait, Archboss. Free text; past entries are suggested."
+        className="bg-hall border border-line rounded-lg px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass w-32" />
       <select value={itemKey} onChange={(e) => setItemKey(e.target.value)}
         className="bg-hall border border-line rounded-lg px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass max-w-[220px]">
         <option value="">Item…</option>

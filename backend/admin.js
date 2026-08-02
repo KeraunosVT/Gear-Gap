@@ -263,6 +263,13 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     return s ? s.slice(0, 300) : null;
   };
 
+  // Same treatment for short free-text labels (a request's type), just a
+  // tighter cap — it's a category, not a sentence.
+  const cleanShort = (v) => {
+    const s = String(v ?? '').trim();
+    return s ? s.slice(0, 60) : null;
+  };
+
   router.post('/currency-awards', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
     const { discord_id, display_name, currency, amount, reason } = req.body || {};
@@ -353,7 +360,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
 
   router.post('/lucent-requests', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-    const { discord_id, display_name, item_key, item_name, amount, note } = req.body || {};
+    const { discord_id, display_name, item_key, item_name, amount, note, request_type } = req.body || {};
     if (!discord_id) return res.status(400).json({ error: 'Member is required.' });
     const amt = parseInt(amount, 10);
     if (!Number.isFinite(amt) || amt <= 0) return res.status(400).json({ error: 'Amount must be a positive number.' });
@@ -363,7 +370,8 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     const id = crypto.randomUUID();
     const { error } = await supabase.from('lucent_requests').insert({
       id, discord_id: String(discord_id), display_name: display_name || null,
-      ...item, amount: amt, note: cleanReason(note), status: 'pending',
+      ...item, amount: amt, note: cleanReason(note),
+      request_type: cleanShort(request_type), status: 'pending',
       requested_by: req.user.username || req.user.id,
       requested_at: new Date().toISOString(),
     });
@@ -379,7 +387,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     const { data: existing } = await supabase.from('lucent_requests').select('*').eq('id', req.params.id).maybeSingle();
     if (!existing) return res.status(404).json({ error: 'Request not found.' });
 
-    const { status, amount, note, item_key, item_name } = req.body || {};
+    const { status, amount, note, item_key, item_name, request_type } = req.body || {};
     const update = {};
 
     if (amount !== undefined) {
@@ -388,6 +396,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
       update.amount = amt;
     }
     if (note !== undefined) update.note = cleanReason(note);
+    if (request_type !== undefined) update.request_type = cleanShort(request_type);
     if (item_key !== undefined || item_name !== undefined) {
       const item = await resolveItem(item_key, item_name);
       if (item.error) return res.status(400).json({ error: item.error });
