@@ -1,4 +1,4 @@
-# House Regard — Guild Hall
+# Gear Gap — Guild Hall
 
 A guild-management web app for a *Throne & Liberty* guild, built around Discord: members log in with Discord OAuth, officers run the "war table" (attendance, loot council, rosters), and a companion Discord bot handles slash commands, timers, and announcements. Branding (house name, tag, motto) lives in one file and is meant to be re-themed per guild — see [Configuration](#configuration).
 
@@ -78,7 +78,7 @@ All configuration is environment variables, read from `backend/.env` (see `requi
 | `CORS_ORIGINS` | Optional, comma-separated trusted origins (local dev only — production is same-origin) |
 | `APP_URL`, `NODE_ENV`, `SESSION_REVERIFY_MINUTES`, `GEAR_SUBMIT_LIMIT_PER_HOUR`, `IDENTITY_CACHE_SECONDS`, `MEMBER_CACHE_SECONDS`, `WEAPON_LEGEND_PATH` | Secondary tuning, all have sensible defaults |
 
-Guild branding (house name, tag, motto, creed) is edited directly in [`frontend/src/guild.js`](frontend/src/guild.js).
+Guild branding is edited in two files: the name and past-name aliases in [`shared/guild.json`](shared/guild.json) (shared with the backend, which uses the aliases to keep a renamed guild's war record together), and the motto and creed in [`frontend/src/guild.js`](frontend/src/guild.js).
 
 ### Guild nights run past midnight
 

@@ -90,15 +90,19 @@ gateway.start(supabase);
 
 // ── GUILD ALIASES ────────────────────────────────────────────────────────────
 // Our guild has changed names over time. Collapse all past names to the current
-// one ("FTP") so stats aren't split across what looks like four separate guilds.
-// Any name NOT in this map is treated as an enemy guild and kept as-is.
-const MY_GUILD = 'FTP';
-const GUILD_ALIASES = {
-  'FTP': MY_GUILD,
-  'PUSH': MY_GUILD,
-  'House Regard': MY_GUILD,
-  'Best Regards': MY_GUILD,
-};
+// one so stats aren't split across what looks like several separate guilds. Any
+// name NOT in this list is treated as an enemy guild and kept as-is.
+//
+// Read from shared/guild.json, the same file the frontend brands itself from —
+// these used to be two hand-maintained lists, and a rename that updated only one
+// would silently orphan match rows into an enemy guild rather than error.
+//
+// Renaming is ADDITIVE: a scoreboard records whatever the guild was called the
+// day it was uploaded, so every past name has to stay listed forever. And note
+// "Highly Regarded" is a *different* guild — it must not be added.
+const GUILD_IDENTITY = require('../shared/guild.json');
+const MY_GUILD = GUILD_IDENTITY.tag;
+const GUILD_ALIASES = Object.fromEntries(GUILD_IDENTITY.aliases.map((n) => [n, MY_GUILD]));
 const canonicalGuild = (name) => GUILD_ALIASES[(name || '').trim()] || (name || '').trim() || 'Unknown';
 
 // Health check (public)

@@ -10,6 +10,7 @@ const createLoa = require('./loa');
 const { todayInGuildTz } = createLoa;
 const createAttendance = require('./attendance');
 const SHARDS = require('../shared/shards.json');
+const GUILD_IDENTITY = require('../shared/guild.json');
 
 const ROLE_EMOJI = { Tank: '🛡️', DPS: '⚔️', Healer: '💚' };
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -75,7 +76,7 @@ function rosterEmbed(name, parties) {
     title: (name || 'Roster').slice(0, 256),
     color: 0xc9973a,
     fields: fields.length ? fields : [{ name: 'Empty', value: 'No members assigned.' }],
-    footer: { text: 'House Regard' },
+    footer: { text: GUILD_IDENTITY.house },
     timestamp: new Date().toISOString(),
   };
 }

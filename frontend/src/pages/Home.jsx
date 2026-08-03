@@ -313,7 +313,9 @@ export default function Home() {
 
 function EngagementRow({ match }) {
   const result = match.result;
-  const held = result ? result === 'Win' : (match.winningGuild === GUILD.tag || match.winningGuild === 'FTP');
+  // Older rows carry whatever name we fought under at the time, so match
+  // against every alias rather than just the current tag.
+  const held = result ? result === 'Win' : GUILD.aliases.includes(match.winningGuild);
   const decided = result ? result !== 'Draw' : match.killDifference > 0;
 
   const date = match.match_date
