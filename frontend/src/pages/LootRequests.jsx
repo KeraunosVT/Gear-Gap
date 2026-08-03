@@ -36,12 +36,15 @@ const TYPE_FILTERS = ['all', ...TYPES, 'other'];
 const TYPE_FILTER_LABEL = { all: 'All types', other: 'Other' };
 
 const OTHER = '__other__';
+const POTENTIAL = '__potential__';
 
 export default function LootRequests() {
   const { user, can } = useAuth();
   const [members, setMembers] = useState([]);
   const [catalog, setCatalog] = useState([]);
   const [requests, setRequests] = useState([]);
+  // Auction-house floors for potentials, refreshed by the standalone scraper.
+  const [market, setMarket] = useState({ items: [], fetched_at: null });
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState('open');
@@ -56,11 +59,16 @@ export default function LootRequests() {
       axios.get('/api/admin/members'),
       axios.get('/api/loot/catalog'),
       axios.get('/api/admin/lucent-requests'),
+      // Prices are a nice-to-have: a scraper that's off or mid-refresh must not
+      // stop requests being logged, so this resolves to empty rather than
+      // rejecting the whole Promise.all.
+      axios.get('/api/admin/market-potentials').catch(() => ({ data: { items: [], fetched_at: null } })),
     ])
-      .then(([mem, cat, reqs]) => {
+      .then(([mem, cat, reqs, mkt]) => {
         setMembers(mem.data.members || []);
         setCatalog(cat.data.categories || []);
         setRequests(reqs.data.requests || []);
+        setMarket({ items: mkt.data.items || [], fetched_at: mkt.data.fetched_at || null });
       })
       .catch((err) => setError(err.response?.data?.error || 'Could not load Lucent requests.'));
   };
@@ -143,6 +151,37 @@ export default function LootRequests() {
   );
   const pendingCount = requests.filter((r) => r.status === 'pending').length;
 
+  // Priced by potentialId — the stable integer tl-tracker keys off, so a
+  // retitled potential still resolves. The label map is a fallback for requests
+  // logged as free text before potentials could be picked, which gets those a
+  // price too wherever the name happens to line up.
+  const priceById = useMemo(
+    () => new Map(market.items.filter((i) => i.floor != null).map((i) => [i.potentialId, i])),
+    [market],
+  );
+  const priceByLabel = useMemo(
+    () => new Map(market.items.filter((i) => i.floor != null)
+      .map((i) => [String(i.label).trim().toLowerCase(), i])),
+    [market],
+  );
+  const priceFor = (r) => priceById.get(r.potential_id)
+    || priceByLabel.get(String(r.item_name || '').trim().toLowerCase())
+    || null;
+
+  // Only potentials that are actually on the market are offerable — picking one
+  // with no floor would promise a price the next screen can't show.
+  const pickablePotentials = useMemo(
+    () => market.items.filter((i) => i.floor != null)
+      .sort((a, b) => String(a.label).localeCompare(String(b.label))),
+    [market],
+  );
+
+  const marketAge = useMemo(() => {
+    if (!market.fetched_at) return null;
+    const mins = Math.round((Date.now() - Date.parse(market.fetched_at)) / 60000);
+    return mins < 60 ? `${mins}m ago` : `${Math.round(mins / 60)}h ago`;
+  }, [market]);
+
   // The two named types first, then anything else already in use. Seeding them
   // means they're suggested from day one rather than only after someone has
   // typed one by hand; the field stays free text either way, and this keeps
@@ -208,7 +247,8 @@ export default function LootRequests() {
       </datalist>
 
       <div className="panel rounded-lg p-6 space-y-6">
-        <RequestForm members={members} catalog={catalog} busy={busy} onCreate={create} />
+        <RequestForm members={members} catalog={catalog} busy={busy} onCreate={create}
+          potentials={pickablePotentials} marketAge={marketAge} />
 
         <div className="flex items-center gap-3 flex-wrap">
           <div className="flex items-center gap-1">
@@ -265,6 +305,9 @@ export default function LootRequests() {
               <SortHeader col="type" sort={sort} onSort={toggleSort} className="w-32 shrink-0">Type</SortHeader>
               <SortHeader col="item" sort={sort} onSort={toggleSort} className="w-64 shrink-0">Item</SortHeader>
               <SortHeader col="amount" sort={sort} onSort={toggleSort} className="w-32 shrink-0 justify-end">Lucent</SortHeader>
+              <span className="eyebrow text-[10px] w-28 shrink-0 text-right" title={marketAge ? `Auction-house floor, updated ${marketAge}` : 'Auction-house floor'}>
+                AH Price
+              </span>
               <span className="eyebrow text-[10px] flex-1">Note</span>
               <SortHeader col="status" sort={sort} onSort={toggleSort} className="w-20 shrink-0 justify-center">Status</SortHeader>
               <SortHeader col="date" sort={sort} onSort={toggleSort} className="w-28 shrink-0 justify-end">Requested</SortHeader>
@@ -282,6 +325,7 @@ export default function LootRequests() {
                   <input type="number" min={1} value={edit.amount} autoFocus
                     onChange={(e) => setEdit((p) => ({ ...p, amount: e.target.value }))}
                     className="bg-panel border border-line rounded-lg px-2 py-1 text-sm text-bone focus:outline-none focus:border-brass w-28" />
+                  <span className="w-28 shrink-0" />
                   <input type="text" value={edit.note} maxLength={300} placeholder="Note (optional)"
                     onChange={(e) => setEdit((p) => ({ ...p, note: e.target.value }))}
                     onKeyDown={(e) => { if (e.key === 'Enter') patch(r.id, edit, 'Request updated.'); if (e.key === 'Escape') setEditingId(null); }}
@@ -307,6 +351,22 @@ export default function LootRequests() {
                     <CurrencyIcon currency="lucent" />
                     <span className="font-mono text-brassbright">{r.amount.toLocaleString()}</span>
                   </span>
+                  {/* Floor, not a valuation — it's the cheapest listing right
+                      now, which is what the requester would actually pay. */}
+                  {(() => {
+                    const m = priceFor(r);
+                    return (
+                      <span className="w-28 shrink-0 text-right text-xs"
+                        title={m ? `Cheapest of ${m.listings} listing${m.listings === 1 ? '' : 's'}${m.sell?.gapHours ? ` · typically clears in ~${m.sell.gapHours}h` : ''}` : 'No auction-house price for this item'}>
+                        {m ? (
+                          <>
+                            <span className="font-mono text-brass">{m.floor.toLocaleString()}</span>
+                            <span className="text-ash/40 ml-1">×{m.listings}</span>
+                          </>
+                        ) : <span className="text-ash/25">—</span>}
+                      </span>
+                    );
+                  })()}
                   <span className={`text-xs flex-1 truncate ${r.note ? 'text-ash/80 italic' : 'text-ash/30'}`} title={r.note || ''}>
                     {r.note || '—'}
                   </span>
@@ -375,6 +435,7 @@ export default function LootRequests() {
                 <CurrencyIcon currency="lucent" />
                 <span className="font-mono text-brassbright">{totals.total.toLocaleString()}</span>
               </span>
+              <span className="w-28 shrink-0" />
               {/* Per-type split only when the view actually mixes types —
                   repeating one number twice would just be noise. */}
               <span className="text-xs flex-1 text-ash/70 truncate">
@@ -437,12 +498,13 @@ function SortHeader({ col, sort, onSort, className = '', children }) {
 // Log a request on a member's behalf. Its own component so the in-progress
 // selection resets after each submit without touching page state — same reason
 // LootCurrency's give form is split out.
-function RequestForm({ members, catalog, busy, onCreate }) {
+function RequestForm({ members, catalog, busy, onCreate, potentials, marketAge }) {
   const [memberId, setMemberId] = useState('');
   const [query, setQuery] = useState('');
   const [open, setOpen] = useState(false);
   const [itemKey, setItemKey] = useState('');
   const [otherName, setOtherName] = useState('');
+  const [potentialName, setPotentialName] = useState('');
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [requestType, setRequestType] = useState('');
@@ -475,7 +537,18 @@ function RequestForm({ members, catalog, busy, onCreate }) {
   };
 
   const usingOther = itemKey === OTHER;
-  const hasItem = usingOther ? otherName.trim() !== '' : itemKey !== '';
+  const usingPotential = itemKey === POTENTIAL;
+
+  // The datalist lets anything be typed, so a free-text near-miss resolves to
+  // nothing rather than silently pricing the wrong potential.
+  const pickedPotential = useMemo(() => {
+    const q = potentialName.trim().toLowerCase();
+    return potentials.find((p) => String(p.label).toLowerCase() === q) || null;
+  }, [potentialName, potentials]);
+
+  const hasItem = usingOther ? otherName.trim() !== ''
+    : usingPotential ? Boolean(pickedPotential)
+      : itemKey !== '';
 
   const submit = () => {
     const amt = parseInt(amount, 10);
@@ -483,15 +556,18 @@ function RequestForm({ members, catalog, busy, onCreate }) {
     onCreate({
       discord_id: memberId,
       display_name: members.find((m) => m.id === memberId)?.name,
-      item_key: usingOther ? null : itemKey,
-      item_name: usingOther ? otherName.trim() : undefined,
+      // A potential isn't a catalog row, so it goes in as its label plus the
+      // stable id that makes its price an exact lookup later.
+      item_key: (usingOther || usingPotential) ? null : itemKey,
+      item_name: usingOther ? otherName.trim() : usingPotential ? pickedPotential.label : undefined,
+      potential_id: usingPotential ? pickedPotential.potentialId : null,
       amount: amt,
       note: note.trim(),
       request_type: requestType.trim(),
     });
     // Member stays — a member often asks for more than one thing at a time.
     // Type persists with the member — a run of grants is usually all one kind.
-    setItemKey(''); setOtherName(''); setAmount(''); setNote('');
+    setItemKey(''); setOtherName(''); setPotentialName(''); setAmount(''); setNote('');
   };
 
   return (
@@ -536,6 +612,7 @@ function RequestForm({ members, catalog, busy, onCreate }) {
         className="bg-hall border border-line rounded-lg px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass max-w-[220px]">
         <option value="">Item…</option>
         <option value={OTHER}>— Other (type a name) —</option>
+        {potentials.length > 0 && <option value={POTENTIAL}>— Potential (market priced) —</option>}
         {catalog.map((c) => (
           <optgroup key={c.key} label={c.label}>
             {c.items.map((i) => <option key={i.key} value={i.key}>{i.name}</option>)}
@@ -547,6 +624,18 @@ function RequestForm({ members, catalog, busy, onCreate }) {
           placeholder="Item name" autoFocus
           className="bg-hall border border-line rounded-lg px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass w-48" />
       )}
+      {usingPotential && (
+        <>
+          {/* A datalist rather than a 190-option select: typing narrows it, and
+              the exact-match rule above means a half-typed name won't submit. */}
+          <input type="text" value={potentialName} onChange={(e) => setPotentialName(e.target.value)}
+            placeholder="Potential…" list="market-potentials" autoFocus autoComplete="off"
+            className="bg-hall border border-line rounded-lg px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass w-56" />
+          <datalist id="market-potentials">
+            {potentials.map((p) => <option key={p.potentialId} value={p.label} />)}
+          </datalist>
+        </>
+      )}
 
       <input type="number" min={1} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Lucent"
         className="bg-hall border border-line rounded-lg px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass w-28" />
@@ -554,6 +643,19 @@ function RequestForm({ members, catalog, busy, onCreate }) {
         placeholder="Note (optional)" onKeyDown={(e) => { if (e.key === 'Enter') submit(); }}
         className="bg-hall border border-line rounded-lg px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass flex-1 min-w-[140px]" />
 
+      {pickedPotential && (
+        <span className="inline-flex items-center gap-2 text-xs text-ash shrink-0"
+          title={`Cheapest of ${pickedPotential.listings} listing${pickedPotential.listings === 1 ? '' : 's'}`
+            + (pickedPotential.sell?.gapHours ? ` · typically clears in ~${pickedPotential.sell.gapHours}h` : '')
+            + (marketAge ? ` · updated ${marketAge}` : '')}>
+          <span className="font-mono text-brass">{pickedPotential.floor.toLocaleString()}</span>
+          <span className="text-ash/60">floor</span>
+          <button type="button" onClick={() => setAmount(String(pickedPotential.floor))}
+            className="px-2 py-0.5 rounded border border-line hover:border-brass/60 hover:text-bone transition-colors">
+            use
+          </button>
+        </span>
+      )}
       <button type="button" onClick={submit} disabled={busy || !memberId || !hasItem || !amount}
         className="inline-flex items-center gap-1.5 px-4 py-2 text-sm bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40">
         <Plus className="w-4 h-4" /> Log request

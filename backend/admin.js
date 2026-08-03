@@ -361,7 +361,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
 
   router.post('/lucent-requests', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-    const { discord_id, display_name, item_key, item_name, amount, note, request_type } = req.body || {};
+    const { discord_id, display_name, item_key, item_name, amount, note, request_type, potential_id } = req.body || {};
     if (!discord_id) return res.status(400).json({ error: 'Member is required.' });
     const amt = parseInt(amount, 10);
     if (!Number.isFinite(amt) || amt <= 0) return res.status(400).json({ error: 'Amount must be a positive number.' });
@@ -373,6 +373,9 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
       id, discord_id: String(discord_id), display_name: display_name || null,
       ...item, amount: amt, note: cleanReason(note),
       request_type: cleanShort(request_type), status: 'pending',
+      // Set only when the picked item is a market-priced potential; the label
+      // still lands in item_name so the row reads without a join.
+      potential_id: Number.isInteger(potential_id) ? potential_id : null,
       requested_by: req.user.username || req.user.id,
       requested_at: new Date().toISOString(),
     });
@@ -388,7 +391,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     const { data: existing } = await supabase.from('lucent_requests').select('*').eq('id', req.params.id).maybeSingle();
     if (!existing) return res.status(404).json({ error: 'Request not found.' });
 
-    const { status, amount, note, item_key, item_name, request_type } = req.body || {};
+    const { status, amount, note, item_key, item_name, request_type, potential_id } = req.body || {};
     const update = {};
 
     if (amount !== undefined) {
@@ -398,6 +401,8 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     }
     if (note !== undefined) update.note = cleanReason(note);
     if (request_type !== undefined) update.request_type = cleanShort(request_type);
+    // Explicit null clears the link when an edit swaps a potential for gear.
+    if (potential_id !== undefined) update.potential_id = Number.isInteger(potential_id) ? potential_id : null;
     if (item_key !== undefined || item_name !== undefined) {
       const item = await resolveItem(item_key, item_name);
       if (item.error) return res.status(400).json({ error: item.error });
@@ -1346,6 +1351,28 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     if (error) return res.status(500).json({ error: 'Failed to revoke permission.' });
     perms.invalidate();
     res.json({ ok: true });
+  });
+
+  // ── Market potentials (auction-house floors, from the scraper) ───────────────
+  // Published by scrappers/index.js, not by this app — tl-tracker's API is 403
+  // without a browser session, so a separate process drives a logged-in
+  // Playwright profile and upserts here. We only ever read.
+  //
+  // Returned whole (192 rows, ~40 KB) rather than per-item: the requests page
+  // needs to price every row it lists plus offer the full pick-list, so one
+  // request beats one-per-row. fetched_at goes back so the UI can show its age —
+  // if the scraper machine is off, the data ages rather than disappearing.
+  router.get('/market-potentials', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const { data, error } = await supabase.from('market_potentials')
+      .select('region, items, item_count, fetched_at')
+      .order('fetched_at', { ascending: false }).limit(1).maybeSingle();
+    if (error) {
+      console.error('market-potentials load error:', error.message);
+      return res.status(500).json({ error: 'Failed to load market prices.' });
+    }
+    if (!data) return res.json({ region: null, items: [], fetched_at: null });
+    res.json(data);
   });
 
   // ── LOA: who's out on a given date/event (for the party builder) ────────────

@@ -72,7 +72,10 @@ const ROUTE_PERMISSIONS = [
 // Parties, LOA, Lucent & Shards and Lucent Requests. Gating these on one
 // capability would stop a loot officer loading the list they need, so they take
 // any capability at all instead.
-const ANY_PERMISSION_PATHS = ['/whoami', '/members'];
+// '/market-potentials' is third-party auction-house data, not guild data — it
+// prices requests but reveals nothing about the guild, so any officer can read
+// it whichever loot capability they hold.
+const ANY_PERMISSION_PATHS = ['/whoami', '/members', '/market-potentials'];
 
 const matches = (path, prefix) => path === prefix || path.startsWith(`${prefix}/`);
 
