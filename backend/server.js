@@ -500,7 +500,11 @@ app.get('/api/players', async (req, res) => {
     // the stats above. Paginated via .range() since player_match_stats can
     // exceed PostgREST's 1,000-row default cap for a guild with real history.
     const guildNames = Object.keys(GUILD_ALIASES);
-    const weaponRows = await fetchAllRows(supabase, 'player_match_stats', 'player_name, weapon_1, weapon_2', guildNames, matchIds);
+    // Only the unscoped all-time scan is worth caching — a "last N" query is
+    // already bounded by its match set and changes with the parameter.
+    const weaponRows = matchIds
+      ? await fetchAllRows(supabase, 'player_match_stats', 'player_name, weapon_1, weapon_2', guildNames, matchIds)
+      : await allTimeWeaponRows(supabase, guildNames);
     const classCounts = {}; // resolved player_name -> { className: count }
     weaponRows.forEach((r) => {
       const resolved = ids.resolveName(r.player_name);
@@ -937,6 +941,34 @@ app.get('/api/match/:id', async (req, res) => {
 // default cap via .range() instead of trusting a single .select() to return
 // everything. `matchIds` is optional — pass null to skip that filter entirely
 // (an all-time query) rather than scoping to a specific set of matches.
+// The all-time weapon scan pages the whole of player_match_stats on every
+// /api/players request, and that table only grows. Cached with the same
+// stale-serve + in-flight-dedupe shape as the members and identities caches.
+//
+// Deliberately caches the RAW rows, not the finished class breakdown: name
+// resolution still runs per request, so remapping an identity on the Names page
+// shows up immediately instead of waiting out the TTL. Only the expensive part
+// is cached.
+const WEAPON_CACHE_TTL_MS = (parseInt(process.env.WEAPON_CACHE_SECONDS, 10) || 300) * 1000;
+let weaponCache = null;
+let weaponCacheAt = 0;
+let weaponInFlight = null;
+
+async function allTimeWeaponRows(supabase, guildNames) {
+  if (weaponCache && Date.now() - weaponCacheAt < WEAPON_CACHE_TTL_MS) return weaponCache;
+  // Concurrent callers share one scan rather than each starting their own.
+  if (weaponInFlight) return weaponInFlight;
+  weaponInFlight = fetchAllRows(supabase, 'player_match_stats', 'player_name, weapon_1, weapon_2', guildNames, null)
+    .then((rows) => { weaponCache = rows; weaponCacheAt = Date.now(); return rows; })
+    .catch((err) => {
+      // A stale breakdown beats an error page; a cold cache still surfaces it.
+      if (weaponCache) { console.warn('Weapon scan failed — serving stale cache:', err.message); return weaponCache; }
+      throw err;
+    })
+    .finally(() => { weaponInFlight = null; });
+  return weaponInFlight;
+}
+
 async function fetchAllRows(supabase, table, columns, guildNames, matchIds) {
   const PAGE_SIZE = 1000;
   const all = [];
