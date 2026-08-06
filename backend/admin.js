@@ -430,6 +430,26 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
       const grantId = crypto.randomUUID();
       const amt = update.amount ?? existing.amount;
       const itemLabel = update.item_name ?? existing.item_name;
+
+      // Claim the row BEFORE writing the grant, with the null check in the
+      // UPDATE itself so Postgres arbitrates. Reading currency_award_id and
+      // then inserting only rules out the sequential case: two officers
+      // clicking "mark paid" together both read null and both mint a grant, and
+      // the member is paid twice. A conditional update can only succeed once.
+      const { data: claimed, error: claimErr } = await supabase
+        .from('lucent_requests')
+        .update({ currency_award_id: grantId })
+        .eq('id', req.params.id)
+        .is('currency_award_id', null)
+        .select('id');
+      if (claimErr) {
+        console.error('Lucent request claim error:', claimErr.message);
+        return res.status(500).json({ error: 'Could not mark this request paid.' });
+      }
+      if (!claimed || claimed.length === 0) {
+        return res.status(409).json({ error: 'This request was just marked paid by someone else.' });
+      }
+
       const { error: gErr } = await supabase.from('currency_awards').insert({
         id: grantId, discord_id: existing.discord_id, display_name: existing.display_name,
         currency: 'lucent', amount: amt,
@@ -437,12 +457,15 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
         awarded_by: req.user.username || req.user.id,
         awarded_at: new Date().toISOString(),
       });
-      // Without the grant the request isn't really paid, so don't say it is.
+      // Without the grant the request isn't really paid, so release the claim
+      // rather than leaving a row pointing at a grant that was never written.
       if (gErr) {
         console.error('Lucent request grant error:', gErr.message);
+        await supabase.from('lucent_requests')
+          .update({ currency_award_id: null }).eq('id', req.params.id);
         return res.status(500).json({ error: 'Could not record the Lucent grant, so the request was left unpaid.' });
       }
-      update.currency_award_id = grantId;
+      // Already written by the claim above; don't rewrite it in the final update.
     }
 
     const { error } = await supabase.from('lucent_requests').update(update).eq('id', req.params.id);

@@ -59,5 +59,3 @@ backend/logs
 *.tmp
 *.temp
 
-# Git
-.gitignore

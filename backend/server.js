@@ -43,13 +43,14 @@ app.set('trust proxy', 1);
 // Per-member throttle for endpoints that call Gemini (each request costs real
 // API money). Keyed on the session user id; IP is only a fallback in case this
 // is ever mounted before auth.
+const GEAR_LIMIT_PER_HOUR = parseInt(process.env.GEAR_SUBMIT_LIMIT_PER_HOUR, 10) || 5;
 const gearSubmitLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
-  limit: parseInt(process.env.GEAR_SUBMIT_LIMIT_PER_HOUR, 10) || 5,
+  limit: GEAR_LIMIT_PER_HOUR,
   keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip),
   standardHeaders: true,
   legacyHeaders: false,
-  message: { error: 'Too many gear submissions — the limit is 5 per hour. Try again later.' },
+  message: { error: `Too many gear submissions — the limit is ${GEAR_LIMIT_PER_HOUR} per hour. Try again later.` },
 });
 
 // CORS allowlist. The frontend is served same-origin by this server, so no
@@ -985,6 +986,24 @@ app.get('*', (req, res) => {
 
 // ── START SERVER ─────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
+// ── Error handler ────────────────────────────────────────────────────────────
+// Must be last, and must take four arguments — that arity is how Express
+// recognises it. Without one, a Multer failure (an over-size upload, say) fell
+// through to Express's default handler and returned an HTML stack page, while
+// every fetch in the frontend does `err.response?.data?.error` and would show
+// "undefined" instead of the real reason.
+app.use((err, req, res, next) => {
+  if (res.headersSent) return next(err);
+  if (err && err.name === 'MulterError') {
+    const tooBig = err.code === 'LIMIT_FILE_SIZE';
+    return res.status(tooBig ? 413 : 400).json({
+      error: tooBig ? 'That file is too large — the limit is 15 MB.' : `Upload failed: ${err.message}`,
+    });
+  }
+  console.error('Unhandled error:', err?.stack || err);
+  res.status(500).json({ error: 'Something went wrong on the server.' });
+});
+
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
 });
