@@ -52,10 +52,10 @@ npm install        # installs backend + frontend deps, builds the frontend once
 
 # then, for active development with hot reload:
 cd backend && npm start      # API on :3000
-cd frontend && npm run dev   # Vite dev server on :5173 (set CORS_ORIGINS below)
+cd frontend && npm run dev   # Vite dev server on :5173
 ```
 
-For local dev with two separate dev servers, set `CORS_ORIGINS=http://localhost:5173` in `backend/.env` so the Vite dev server can call the API.
+The Vite dev server proxies `/api` to the backend on `:3000` (see `frontend/vite.config.js`), so no CORS configuration is needed for local development — the browser only ever talks to `:5173`. `CORS_ORIGINS` exists only for the unusual case of a trusted separate origin calling the API directly.
 
 ## Configuration
 
@@ -78,13 +78,15 @@ All configuration is environment variables, read from `backend/.env` (see `requi
 | `CORS_ORIGINS` | Optional, comma-separated trusted origins (local dev only — production is same-origin) |
 | `APP_URL`, `NODE_ENV`, `SESSION_REVERIFY_MINUTES`, `GEAR_SUBMIT_LIMIT_PER_HOUR`, `IDENTITY_CACHE_SECONDS`, `MEMBER_CACHE_SECONDS`, `WEAPON_LEGEND_PATH` | Secondary tuning, all have sensible defaults |
 
-Guild branding is edited in two files: the name and past-name aliases in [`shared/guild.json`](shared/guild.json) (shared with the backend, which uses the aliases to keep a renamed guild's war record together), and the motto and creed in [`frontend/src/guild.js`](frontend/src/guild.js).
+Guild branding is edited in two files: the name, past-name aliases, timezone, and guild-night rollover in [`shared/guild.json`](shared/guild.json) (shared with the backend, which uses the aliases to keep a renamed guild's war record together), and the motto and creed in [`frontend/src/guild.js`](frontend/src/guild.js).
+
+**Setting this up for your own guild?** Follow [`SETUP.md`](SETUP.md) — it walks through the Discord application, Supabase project, migrations, and every environment variable from zero to a working deployment.
 
 ### Guild nights run past midnight
 
 A guild night doesn't end at midnight. The 12:30 AM Guild Field Boss is the tail of the previous evening's block, not the start of a new day — so "Saturday's events" means Saturday 8 PM through Sunday 12:30 AM, and a member who files *"out from 9 PM Saturday"* is out for that 12:30 AM boss too.
 
-The schedule stores each event on the calendar day it **actually occurs** (the 12:30 AM boss is stored under Sunday). The code maps that back to the night it belongs to: anything before `GUILD_DAY_START` (01:00 ET) counts as the night before. That constant lives in [`backend/loa.js`](backend/loa.js), mirrored in [`frontend/src/timeUtils.js`](frontend/src/timeUtils.js) — change both together. It must sit after the guild's latest event and before the earliest of the next evening.
+The schedule stores each event on the calendar day it **actually occurs** (the 12:30 AM boss is stored under Sunday). The code maps that back to the night it belongs to: anything before the `dayStart` rollover (default 01:00 in the guild's timezone) counts as the night before. Both the timezone and the rollover are set in [`shared/guild.json`](shared/guild.json) (`timezone`, `dayStart`) and read by backend and frontend alike, so they can't drift apart. `dayStart` must sit after the guild's latest event and before the earliest of the next evening.
 
 Two consequences worth knowing:
 
@@ -95,8 +97,12 @@ To check which day each event is filed under: `node scripts/dumpEventSchedule.js
 
 ### Weapon legend (optional, improves screenshot accuracy)
 
-Place a reference image at `backend/assets/weapon-legend.png` (or override the path with `WEAPON_LEGEND_PATH`) showing each Throne & Liberty weapon icon next to its name. When present, it's sent to Gemini as the first image on every screenshot parse so the model can compare each scoreboard icon against a labeled reference — the single biggest accuracy win for weapon detection. Without it, screenshot reading still works from the text descriptions in the prompt, just a bit less reliably.
+Place a reference image at `backend/assets/weapon_legend.png` (or override the path with `WEAPON_LEGEND_PATH`) showing each Throne & Liberty weapon icon next to its name. When present, it's sent to Gemini as the first image on every screenshot parse so the model can compare each scoreboard icon against a labeled reference — the single biggest accuracy win for weapon detection. Without it, screenshot reading still works from the text descriptions in the prompt, just a bit less reliably.
 
 ## Deployment
 
 This runs as a single Node process (Render, Railway, Fly, or similar all work with zero code changes) — the root `postinstall` script installs both `backend/` and `frontend/` and builds the frontend; `npm start` runs `backend/server.js`, which serves everything. Make sure `DISCORD_REDIRECT_URI` matches both your deployed URL and the redirect registered in the Discord Developer Portal.
+
+## License
+
+[AGPL-3.0](LICENSE). Self-host it, re-theme it, run it for your guild freely. If you modify it and run it as a service, the license requires making your modified source available to your users — a link to your fork covers it.
