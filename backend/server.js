@@ -425,16 +425,29 @@ app.post('/api/loa', async (req, res) => {
   const targetId = onBehalf ? discord_id : req.user.id;
   const targetName = onBehalf ? (display_name || 'Member') : req.user.username;
   try {
+    let saved;
+    let announce;
     if (type === 'event') {
-      await loa.submitEvent({ discordId: targetId, displayName: targetName, eventDate: event_date, eventScheduleId: event_schedule_id, startTime: start_time, endTime: end_time, reason });
+      saved = await loa.submitEvent({ discordId: targetId, displayName: targetName, eventDate: event_date, eventScheduleId: event_schedule_id, startTime: start_time, endTime: end_time, reason });
+      announce = { type: 'event', displayName: targetName, eventName: saved.eventName, eventDate: event_date, startTime: saved.startTime, endTime: saved.endTime };
     } else if (type === 'range') {
-      await loa.submitRange({ discordId: targetId, displayName: targetName, startDate: start_date, endDate: end_date, reason });
+      saved = await loa.submitRange({ discordId: targetId, displayName: targetName, startDate: start_date, endDate: end_date, reason });
+      announce = { type: 'range', displayName: targetName, startDate: start_date, endDate: end_date };
     } else if (type === 'recurring') {
-      await loa.submitRecurring({ discordId: targetId, displayName: targetName, dayOfWeek: parseInt(day_of_week, 10), eventScheduleId: event_schedule_id, startTime: start_time, endTime: end_time, reason });
+      const dow = parseInt(day_of_week, 10);
+      saved = await loa.submitRecurring({ discordId: targetId, displayName: targetName, dayOfWeek: dow, eventScheduleId: event_schedule_id, startTime: start_time, endTime: end_time, reason });
+      announce = { type: 'recurring', displayName: targetName, eventName: saved.eventName, dayOfWeek: dow, startTime: saved.startTime, endTime: saved.endTime };
     } else {
       return res.status(400).json({ error: 'Type must be "event", "range", or "recurring".' });
     }
     res.json({ ok: true });
+    // Announced after the response and never awaited: the LOA is already saved
+    // by this point, so a slow or unreachable Discord shouldn't hold up the
+    // submitter or make a successful save look like it failed. Recording the
+    // message id lets DELETE below remove the announcement on cancellation.
+    gateway.announceLoaEntry(announce)
+      .then((messageId) => messageId && loa.setMessageId(saved.id, messageId))
+      .catch((err) => console.error('LOA announce error:', err.message));
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }

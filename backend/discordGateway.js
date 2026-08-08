@@ -330,6 +330,30 @@ async function announceLoa(text) {
   }
 }
 
+// Renders the announcement line for an LOA entry. Kept in one place so an LOA
+// filed on the website reads exactly like one filed with /loa — the two paths
+// used to build this text separately, which is how they drift apart.
+function loaAnnouncement({ type, displayName, eventName, eventDate, startDate, endDate, dayOfWeek, startTime, endTime }) {
+  const scope = eventName ? ` for **${eventName}**` : '';
+  const timeRange = startTime
+    ? (endTime ? ` from **${fmt12h(startTime)}** to **${fmt12h(endTime)}**` : ` from **${fmt12h(startTime)}**`)
+    : '';
+  if (type === 'range') {
+    return `📋 **${displayName}** is on LOA — ${discordDate(startDate)} to ${discordDate(endDate)}`;
+  }
+  if (type === 'recurring') {
+    return `📋 **${displayName}** is always on LOA every **${DAY_NAMES[dayOfWeek]}**${timeRange}${scope}`;
+  }
+  return `📋 **${displayName}** is on LOA${scope} — ${discordDate(eventDate)}${timeRange}`;
+}
+
+// Announces an LOA entry. Returns the message id so the caller can record it on
+// the row — recording is left to the caller because each one holds its own loa
+// instance (the gateway's is null until start() runs).
+async function announceLoaEntry(entry) {
+  return announceLoa(loaAnnouncement(entry));
+}
+
 // Deletes a previously-announced LOA message when its entry is cancelled.
 // Best-effort: an already-deleted message (e.g. an officer removed it by hand)
 // or a missing channel/permission just gets logged, not surfaced to the caller
@@ -392,7 +416,9 @@ async function handleLoaEvent(interaction) {
     await interaction.editReply(target.onBehalf
       ? `Recorded ✅ — LOA submitted for **${target.displayName}** on ${date}${timeRange}${scope}.`
       : `Recorded ✅ — LOA submitted for ${date}${timeRange}${scope}.`);
-    const messageId = await announceLoa(`📋 **${target.displayName}** is on LOA${scope} — ${discordDate(date)}${timeRange}`);
+    const messageId = await announceLoaEntry({
+      type: 'event', displayName: target.displayName, eventName, eventDate: date, startTime, endTime,
+    });
     if (messageId) await loa.setMessageId(id, messageId);
   } catch (err) {
     await interaction.editReply(err.message || 'Something went wrong submitting that LOA.');
@@ -419,7 +445,9 @@ async function handleLoaRange(interaction) {
     await interaction.editReply(target.onBehalf
       ? `Recorded ✅ — LOA submitted for **${target.displayName}**, ${startDate} to ${endDate}.`
       : `Recorded ✅ — LOA submitted for ${startDate} to ${endDate}.`);
-    const messageId = await announceLoa(`📋 **${target.displayName}** is on LOA — ${discordDate(startDate)} to ${discordDate(endDate)}`);
+    const messageId = await announceLoaEntry({
+      type: 'range', displayName: target.displayName, startDate, endDate,
+    });
     if (messageId) await loa.setMessageId(id, messageId);
   } catch (err) {
     await interaction.editReply(err.message || 'Something went wrong submitting that LOA.');
@@ -463,7 +491,9 @@ async function handleLoaRecurring(interaction) {
     await interaction.editReply(target.onBehalf
       ? `Recorded ✅ — **${target.displayName}** is now always out on **${DAY_NAMES[dow]}**${timeRange}${scope}.`
       : `Recorded ✅ — you're now always out on **${DAY_NAMES[dow]}**${timeRange}${scope}.`);
-    const messageId = await announceLoa(`📋 **${target.displayName}** is always on LOA every **${DAY_NAMES[dow]}**${timeRange}${scope}`);
+    const messageId = await announceLoaEntry({
+      type: 'recurring', displayName: target.displayName, eventName, dayOfWeek: dow, startTime, endTime,
+    });
     if (messageId) await loa.setMessageId(id, messageId);
   } catch (err) {
     await interaction.editReply(err.message || 'Something went wrong submitting that LOA.');
@@ -699,4 +729,4 @@ function getVoiceMembers(channelId) {
   }));
 }
 
-module.exports = { start, listVoiceChannels, getVoiceMembers, deleteLoaMessage, notifyAttendance };
+module.exports = { start, listVoiceChannels, getVoiceMembers, announceLoaEntry, deleteLoaMessage, notifyAttendance };

@@ -261,7 +261,9 @@ module.exports = function createLoa(supabase) {
         reason: cleanReason.slice(0, 500),
       }).select('id').single();
       if (error) { console.error('loa.submitEvent error:', error.message); throw httpError(500, 'Failed to submit LOA.'); }
-      return { id: row.id, eventName };
+      // Cleaned times come back out so callers announce what was stored rather
+      // than the raw input — "9pm" is accepted here but isn't displayable.
+      return { id: row.id, eventName, startTime: cleanStart, endTime: cleanEnd };
     },
 
     async submitRange({ discordId, displayName, startDate, endDate, reason }) {
@@ -320,7 +322,7 @@ module.exports = function createLoa(supabase) {
         reason: cleanReason.slice(0, 500),
       }).select('id').single();
       if (error) { console.error('loa.submitRecurring error:', error.message); throw httpError(500, 'Failed to submit LOA.'); }
-      return { id: row.id, eventName };
+      return { id: row.id, eventName, startTime: cleanStart, endTime: cleanEnd };
     },
 
     // Best-effort — called after announceLoa() posts to Discord, to remember
