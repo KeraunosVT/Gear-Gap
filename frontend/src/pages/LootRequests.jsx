@@ -52,7 +52,7 @@ export default function LootRequests() {
   const [msg, flash] = useFlash(3500);
 
   const [editingId, setEditingId] = useState(null);
-  const [edit, setEdit] = useState({ amount: '', note: '', request_type: '' });
+  const [edit, setEdit] = useState({ amount: '', note: '', request_type: '', item_name: '' });
 
   const load = () => {
     Promise.all([
@@ -176,6 +176,22 @@ export default function LootRequests() {
     [market],
   );
 
+  // Name → catalog row and name → potential, for the edit row's item field.
+  // Editing is by name because that's what's on screen, so a typed name has to
+  // find its way back to the key or potential id the create form would have set.
+  const catalogByName = useMemo(() => new Map(
+    catalog.flatMap((c) => c.items).map((i) => [i.name.trim().toLowerCase(), i]),
+  ), [catalog]);
+  const potentialByLabel = useMemo(() => new Map(
+    pickablePotentials.map((p) => [String(p.label).trim().toLowerCase(), p]),
+  ), [pickablePotentials]);
+  // Deduped because a potential and a catalog row can share a name; the
+  // suggestion list only needs the text, and the maps above settle which wins.
+  const itemNameOptions = useMemo(() => [...new Set([
+    ...catalog.flatMap((c) => c.items).map((i) => i.name),
+    ...pickablePotentials.map((p) => p.label),
+  ])].sort((a, b) => a.localeCompare(b)), [catalog, pickablePotentials]);
+
   const marketAge = useMemo(() => {
     if (!market.fetched_at) return null;
     const mins = Math.round((Date.now() - Date.parse(market.fetched_at)) / 60000);
@@ -227,7 +243,31 @@ export default function LootRequests() {
 
   const startEdit = (r) => {
     setEditingId(r.id);
-    setEdit({ amount: String(r.amount), note: r.note || '', request_type: r.request_type || '' });
+    setEdit({
+      amount: String(r.amount), note: r.note || '',
+      request_type: r.request_type || '', item_name: r.item_name || '',
+    });
+  };
+
+  // Item fields ride along only when the name actually changed. Sending it on
+  // every save would re-resolve it against the live catalog, so a catalog item
+  // renamed since the request was logged would quietly lose its item_key —
+  // and its stored name would jump to the new one — on an unrelated note fix.
+  const saveEdit = (r) => {
+    const body = { amount: edit.amount, note: edit.note, request_type: edit.request_type };
+    const typed = edit.item_name.trim();
+    if (typed !== (r.item_name || '')) {
+      if (!typed) return flash('An item name is required.', false);
+      const hit = catalogByName.get(typed.toLowerCase());
+      const pot = potentialByLabel.get(typed.toLowerCase());
+      // Re-linking to the catalog or to a priced potential matters more than
+      // the literal text: it's what restores the AH price and the catalog star.
+      // Anything unrecognised stays free text, same as the create form allows.
+      if (hit) Object.assign(body, { item_key: hit.key, potential_id: null });
+      else if (pot) Object.assign(body, { item_key: null, item_name: pot.label, potential_id: pot.potentialId });
+      else Object.assign(body, { item_key: null, item_name: typed, potential_id: null });
+    }
+    patch(r.id, body, 'Request updated.');
   };
 
   if (!can('loot.requests')) return <RestrictedGate />;
@@ -244,6 +284,11 @@ export default function LootRequests() {
 
       <datalist id="lucent-request-types">
         {knownTypes.map((t) => <option key={t} value={t} />)}
+      </datalist>
+      {/* Suggestions for the edit row's item field. Catalog names and priced
+          potentials together, since either one re-links the row when matched. */}
+      <datalist id="lucent-item-names">
+        {itemNameOptions.map((n) => <option key={n} value={n} />)}
       </datalist>
 
       <div className="panel rounded-lg p-6 space-y-6">
@@ -321,16 +366,21 @@ export default function LootRequests() {
                   <input type="text" value={edit.request_type} maxLength={60} placeholder="Type" list="lucent-request-types"
                     onChange={(e) => setEdit((p) => ({ ...p, request_type: e.target.value }))}
                     className="bg-panel border border-line rounded-lg px-2 py-1 text-sm text-bone focus:outline-none focus:border-brass w-32" />
-                  <span className="text-ash w-64 shrink-0 truncate" title={r.item_name}>{r.item_name}</span>
+                  <input type="text" value={edit.item_name} maxLength={200} placeholder="Item name"
+                    list="lucent-item-names" autoComplete="off"
+                    title="Typing a catalog item or a market-priced potential re-links it; anything else is kept as free text."
+                    onChange={(e) => setEdit((p) => ({ ...p, item_name: e.target.value }))}
+                    onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(r); if (e.key === 'Escape') setEditingId(null); }}
+                    className="bg-panel border border-line rounded-lg px-2 py-1 text-sm text-bone focus:outline-none focus:border-brass w-64 shrink-0" />
                   <input type="number" min={1} value={edit.amount} autoFocus
                     onChange={(e) => setEdit((p) => ({ ...p, amount: e.target.value }))}
                     className="bg-panel border border-line rounded-lg px-2 py-1 text-sm text-bone focus:outline-none focus:border-brass w-28" />
                   <span className="w-28 shrink-0" />
                   <input type="text" value={edit.note} maxLength={300} placeholder="Note (optional)"
                     onChange={(e) => setEdit((p) => ({ ...p, note: e.target.value }))}
-                    onKeyDown={(e) => { if (e.key === 'Enter') patch(r.id, edit, 'Request updated.'); if (e.key === 'Escape') setEditingId(null); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') saveEdit(r); if (e.key === 'Escape') setEditingId(null); }}
                     className="bg-panel border border-line rounded-lg px-2 py-1 text-sm text-bone focus:outline-none focus:border-brass flex-1 min-w-[140px]" />
-                  <button onClick={() => patch(r.id, edit, 'Request updated.')} className="text-brass hover:text-brassbright shrink-0" title="Save">
+                  <button onClick={() => saveEdit(r)} className="text-brass hover:text-brassbright shrink-0" title="Save">
                     <Check className="w-4 h-4" />
                   </button>
                   <button onClick={() => setEditingId(null)} className="text-ash hover:text-bone shrink-0" title="Cancel">
