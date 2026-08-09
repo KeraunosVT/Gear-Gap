@@ -751,10 +751,17 @@ app.get('/api/stats/summary', async (req, res) => {
     try {
       const [members, { data: roleData }] = await Promise.all([
         listMembers(),
-        supabase.from('member_roles').select('pvp_role'),
+        supabase.from('member_roles').select('discord_id, pvp_role'),
       ]);
       activeMembers = members.length;
+      // Scoped to the current member list, the way every other member_roles
+      // reader does it. Rows are never deleted when someone leaves the guild or
+      // loses the member role, so counting the table raw folds in every ex-member
+      // who was ever assigned a role — which is how the breakdown ended up
+      // outrunning the Active Members tile sitting next to it.
+      const active = new Set(members.map((m) => m.id));
       (roleData || []).forEach((r) => {
+        if (!active.has(r.discord_id)) return;
         if (r.pvp_role === 'Tank') tanks++;
         else if (r.pvp_role === 'DPS') dps++;
         else if (r.pvp_role === 'Healer') healers++;
