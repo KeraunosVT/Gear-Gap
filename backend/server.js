@@ -25,6 +25,7 @@ const createEliteTimers = require('./eliteTimers');
 const createGearIlvl = require('./gearIlvl');
 const createIdentities = require('./identities');
 const createLoa = require('./loa');
+const createEventSignups = require('./eventSignups');
 const createAuditLog = require('./auditLog');
 
 const gearUpload = multer({
@@ -84,6 +85,9 @@ const eliteTimers = supabase ? createEliteTimers(supabase) : null;
 const gearIlvl = supabase ? createGearIlvl(supabase) : null;
 const identities = supabase ? createIdentities(supabase) : null;
 const loa = supabase ? createLoa(supabase, identities) : null;
+// Takes loa so "is this person out?" has one answer across signups, the party
+// builder and the attendance breakdown.
+const signups = supabase ? createEventSignups(supabase, identities, loa) : null;
 const auditLog = supabase ? createAuditLog(supabase) : null;
 
 // The gateway needs Supabase for /elitetimer persistence, so start it after setup.
@@ -462,6 +466,57 @@ app.delete('/api/loa/:id', async (req, res) => {
     const { messageId } = await loa.cancel(req.params.id, req.user.id, userHas(req.user, 'loa.admin'));
     res.json({ ok: true });
     gateway.deleteLoaMessage(messageId);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+// ── Event signups ────────────────────────────────────────────────────────────
+// Opt-in only: a row means "I'm coming". There is no way to record "I'm out"
+// here — that's what an LOA is — so a member with no entry is undecided, not
+// declined. Officers open and manage signups through the admin router.
+app.get('/api/signups', async (req, res) => {
+  if (!signups) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    res.json({ signups: await signups.list({ discordId: req.user.id }) });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+app.get('/api/signups/:id', async (req, res) => {
+  if (!signups) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    // LOA reasons are officer-only, same rule as /api/loa/all above.
+    res.json(await signups.detail(req.params.id, { includeReasons: userHas(req.user, 'loa.admin') }));
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+// Always the caller. Signing someone else up is an officer action and lives on
+// the admin router, so there's no body field here to spoof.
+app.post('/api/signups/:id/join', async (req, res) => {
+  if (!signups) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    const result = await signups.join({ id: req.params.id, discordId: req.user.id, displayName: req.user.username });
+    res.json(result);
+    gateway.refreshSignupMessage(req.params.id);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/signups/:id/join', async (req, res) => {
+  if (!signups) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    const result = await signups.withdraw({ id: req.params.id, discordId: req.user.id });
+    res.json(result);
+    // Both after the response and unawaited, for the same reason the LOA
+    // announcement above is: the withdrawal is already saved, and a slow or
+    // unreachable Discord must not make it look like it failed.
+    gateway.refreshSignupMessage(req.params.id);
+    if (result.promoted) gateway.notifySignupPromotion(result.promoted, req.params.id);
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }

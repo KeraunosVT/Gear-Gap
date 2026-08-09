@@ -49,6 +49,14 @@ const ROUTE_PERMISSIONS = [
   { prefix: '/voice-channels', permission: 'attendance' },
   { prefix: '/events', permission: 'attendance' },
   { prefix: '/attendance', permission: 'attendance' },
+  // Running signups is the front half of the attendance loop and the same
+  // officers do both, so it reuses that capability rather than adding a key
+  // nobody has been granted yet.
+  { prefix: '/signups', permission: 'attendance' },
+  // Except the party builder's feed, which Parties gates on 'parties' — same
+  // carve-out as /loa/unavailable above, and for the same reason: a parties
+  // officer has to be able to read it. The sort below puts this first.
+  { prefix: '/signups/by-occasion', permission: 'parties' },
   // Not covered by '/attendance': the boundary rule requires an exact match or a
   // '/'-separated prefix, so a hyphen doesn't count. That strictness is what
   // stops '/events' swallowing '/event-schedule', and it needs its own rule here.

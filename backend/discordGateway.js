@@ -1,17 +1,25 @@
 // backend/discordGateway.js — Lightweight discord.js gateway client.
 // Maintains a WebSocket connection so we can read voice-channel state (which the
 // REST API does not expose), and handles the guild's slash commands.
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, MessageFlags, ChannelType } = require('discord.js');
+const {
+  Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, MessageFlags, ChannelType,
+  ActionRowBuilder, ButtonBuilder, ButtonStyle,
+} = require('discord.js');
 const createEliteTimers = require('./eliteTimers');
 const createLoa = require('./loa');
 const createIdentities = require('./identities');
 const createAttendance = require('./attendance');
+const createEventSignups = require('./eventSignups');
+const { listMembers } = require('./discord');
 
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
 const GUILD_ID = process.env.DISCORD_GUILD_ID;
 const LOA_CHANNEL_ID = process.env.DISCORD_LOA_CHANNEL_ID;
 const ANNOUNCE_CHANNEL_ID = process.env.DISCORD_ANNOUNCE_CHANNEL_ID;
+// Signup posts fall back to the announce channel, so the feature works without
+// anyone having to add a second channel id to the environment first.
+const SIGNUP_CHANNEL_ID = process.env.DISCORD_SIGNUP_CHANNEL_ID || ANNOUNCE_CHANNEL_ID;
 // Same admin role list auth.js uses to gate the website's admin area, so
 // "officer" means the same thing in Discord as it does on the site.
 const ADMIN_ROLE_IDS = (process.env.DISCORD_ADMIN_ROLE_IDS || '').split(',').map((s) => s.trim()).filter(Boolean);
@@ -49,6 +57,8 @@ let eliteTimers = null;
 let loa = null;
 let identities = null;
 let attendance = null;
+let signups = null;
+let sweepTimer = null;
 
 function start(supabase) {
   if (!BOT_TOKEN || !GUILD_ID) {
@@ -60,6 +70,7 @@ function start(supabase) {
   identities = supabase ? createIdentities(supabase) : null;
   loa = supabase ? createLoa(supabase, identities) : null;
   attendance = supabase ? createAttendance(supabase) : null;
+  signups = supabase ? createEventSignups(supabase, identities, loa) : null;
 
   client = new Client({
     intents: [
@@ -74,6 +85,7 @@ function start(supabase) {
     // /announce has no supabase dependency, so commands are always (re)registered
     // once the bot connects, regardless of which optional modules are configured.
     await registerCommands();
+    startSignupSweep();
   });
 
   client.on('interactionCreate', handleInteraction);
@@ -205,6 +217,9 @@ async function registerCommands() {
 
 async function handleInteraction(interaction) {
   if (interaction.isAutocomplete()) return handleAutocomplete(interaction);
+  // Signup buttons. Guarded on the 'sg:' namespace inside the handler so a
+  // future button family can add its own branch without colliding.
+  if (interaction.isButton()) return handleSignupButton(interaction);
   if (!interaction.isChatInputCommand()) return;
   if (interaction.commandName === 'elitetimer') return handleReport(interaction);
   if (interaction.commandName === 'elitetimers') return handleList(interaction);
@@ -706,6 +721,280 @@ async function notifyAttendance(attendees, title, eventDate) {
   }
 }
 
+// ── Event signups ────────────────────────────────────────────────────────────
+// Buttons on an announcement post, backed entirely by the database. The uuid in
+// each customId is the whole lookup key, which is what lets a button on a post
+// from three days ago still work after a deploy — deliberately NOT a
+// createMessageComponentCollector(), which lives in memory and would go dead on
+// every restart, silently, for every existing post.
+//
+// Sibling of admin.js's ROLE_EMOJI. Kept local rather than shared because the
+// two render for different surfaces (a roster image caption vs. a signup list)
+// and neither should have to change when the other's presentation does.
+const ROLE_EMOJI = { Tank: '🛡️', DPS: '⚔️', Healer: '💚' };
+// A Discord embed field value caps at 1024 characters, and a full guild will
+// blow past that — clip well short and point at the "Who's coming?" button.
+const FIELD_CHAR_BUDGET = 900;
+// One edit per burst of clicks instead of one per click. Long enough to absorb
+// a rush when a post goes up, short enough that nobody notices the lag.
+const RENDER_DEBOUNCE_MS = 1500;
+// Each DM opens a new channel; a guild-wide reminder in a tight loop trips a
+// global 429 that costs the whole batch.
+const DM_PACING_MS = 250;
+const SWEEP_INTERVAL_MS = 60_000;
+
+const pendingRenders = new Map();
+
+const signupUnix = (row) => (row.starts_at
+  ? Math.floor(Date.parse(row.starts_at) / 1000)
+  : Math.floor(new Date(`${row.event_date}T12:00:00Z`).getTime() / 1000));
+
+// Names as "🛡️ Someone", clipped to fit the field with a pointer to the button
+// that shows the untruncated list.
+function nameLines(entries) {
+  if (!entries.length) return '—';
+  const lines = [];
+  let used = 0;
+  for (const e of entries) {
+    const line = `${ROLE_EMOJI[e.pvp_role] || '•'} ${e.display_name}`;
+    if (used + line.length + 1 > FIELD_CHAR_BUDGET) {
+      lines.push(`…and ${entries.length - lines.length} more`);
+      break;
+    }
+    lines.push(line);
+    used += line.length + 1;
+  }
+  return lines.join('\n');
+}
+
+// Raw object rather than EmbedBuilder, matching admin.js's rosterEmbed — the
+// only other embed in the codebase.
+function signupEmbed({ event, going, waitlist }) {
+  const unix = signupUnix(event);
+  const cap = event.capacity ? `/${event.capacity}` : '';
+  const waiting = waitlist.length ? ` · ${waitlist.length} waiting` : '';
+  const closed = event.status !== 'open';
+
+  const fields = [{ name: `✅ Going (${going.length})`, value: nameLines(going) }];
+  if (waitlist.length) fields.push({ name: `⏳ Waitlist (${waitlist.length})`, value: nameLines(waitlist) });
+
+  return {
+    title: event.title,
+    description: `<t:${unix}:F> (<t:${unix}:R>)\n**${going.length}${cap}** going${waiting}`
+      + (closed ? '\n\n*Signups are closed.*' : ''),
+    color: 0xc9973a,
+    fields,
+    footer: { text: GUILD_IDENTITY.house },
+    timestamp: new Date().toISOString(),
+  };
+}
+
+function signupButtons(id, closed) {
+  if (closed) return []; // Closing strips the buttons rather than disabling them.
+  return [new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`sg:join:${id}`).setLabel("I'm in").setStyle(ButtonStyle.Success),
+    // "Withdraw", not "Can't make it" — the latter reads as declaring absence,
+    // which signups never record. This just takes your name back off the list.
+    new ButtonBuilder().setCustomId(`sg:leave:${id}`).setLabel('Withdraw').setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder().setCustomId(`sg:who:${id}`).setLabel("Who's coming?").setStyle(ButtonStyle.Secondary),
+  )];
+}
+
+async function signupChannel(channelId) {
+  const guild = getGuild();
+  const channel = guild?.channels.cache.get(channelId || SIGNUP_CHANNEL_ID);
+  return channel?.isTextBased() ? channel : null;
+}
+
+// Posts (or re-posts) the announcement and records where it landed. Called when
+// a signup opens, and again by hand if someone deletes the message.
+async function announceSignup(signupEventId) {
+  if (!ready || !signups || !SIGNUP_CHANNEL_ID) return null;
+  try {
+    const detail = await signups.detail(signupEventId);
+    const channel = await signupChannel(null);
+    if (!channel) {
+      console.error(`Signup announce error: channel ${SIGNUP_CHANNEL_ID} not found or not text-based.`);
+      return null;
+    }
+    const message = await channel.send({
+      embeds: [signupEmbed(detail)],
+      components: signupButtons(signupEventId, detail.event.status !== 'open'),
+    });
+    await signups.setMessageId(signupEventId, channel.id, message.id);
+    return message.id;
+  } catch (err) {
+    console.error('Signup announce error:', err.message);
+    return null;
+  }
+}
+
+// Re-renders the post from the database. Always reads immediately before
+// editing, so whichever call wins the race still writes the newest state.
+async function renderSignupMessage(signupEventId) {
+  if (!ready || !signups) return;
+  try {
+    const detail = await signups.detail(signupEventId);
+    const { discord_channel_id: channelId, discord_message_id: messageId } = detail.event;
+    if (!messageId) return; // Never announced — nothing to keep in sync.
+    const channel = await signupChannel(channelId);
+    if (!channel) return;
+    await channel.messages.edit(messageId, {
+      embeds: [signupEmbed(detail)],
+      components: signupButtons(signupEventId, detail.event.status !== 'open'),
+    });
+  } catch (err) {
+    // An officer deleting the post by hand is the common case here; the signup
+    // itself is unaffected and /announce can put a fresh one up.
+    console.error('Signup render error:', err.message);
+  }
+}
+
+// Coalesces a burst of clicks into one edit. The map is purely an optimisation —
+// losing it on restart costs nothing, because the next click schedules afresh
+// and the render reads from the database either way.
+function refreshSignupMessage(signupEventId) {
+  if (!signupEventId || pendingRenders.has(signupEventId)) return;
+  pendingRenders.set(signupEventId, setTimeout(() => {
+    pendingRenders.delete(signupEventId);
+    renderSignupMessage(signupEventId);
+  }, RENDER_DEBOUNCE_MS));
+}
+
+async function deleteSignupMessage(row) {
+  if (!ready || !row?.discord_message_id) return;
+  try {
+    const channel = await signupChannel(row.discord_channel_id);
+    if (channel) await channel.messages.delete(row.discord_message_id);
+  } catch (err) {
+    console.error('Signup message delete error:', err.message);
+  }
+}
+
+async function notifySignupPromotion(member, signupEventId) {
+  if (!ready || !client || !member?.discord_id) return;
+  try {
+    const { event } = await signups.detail(signupEventId);
+    const user = await client.users.fetch(member.discord_id);
+    await user.send(`✅ A slot opened up — you're off the waitlist and in for **${event.title}** (<t:${signupUnix(event)}:R>).`);
+  } catch (err) {
+    console.error(`Signup promotion DM error for ${member.discord_id}:`, err.message);
+  }
+}
+
+async function handleSignupButton(interaction) {
+  if (!interaction.customId.startsWith('sg:')) return;
+  const [, action, id] = interaction.customId.split(':');
+  if (!id) return;
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+  if (!signups) return interaction.editReply('Signups are not available right now.');
+
+  try {
+    if (action === 'who') {
+      const { event, going, waitlist } = await signups.detail(id);
+      const list = going.length
+        ? going.map((e) => `${ROLE_EMOJI[e.pvp_role] || '•'} ${e.display_name}`).join('\n')
+        : 'Nobody yet.';
+      const waiting = waitlist.length
+        ? `\n\n**Waitlist (${waitlist.length})**\n${waitlist.map((e, i) => `${i + 1}. ${e.display_name}`).join('\n')}`
+        : '';
+      // Ephemeral, so the full list can run long without flooding the channel —
+      // this is the escape hatch for the clipped embed.
+      return interaction.editReply(`**${event.title} — going (${going.length})**\n${list}${waiting}`.slice(0, 1900));
+    }
+
+    if (action === 'join') {
+      const result = await signups.join({
+        id, discordId: interaction.user.id, displayName: displayNameFor(interaction.user),
+      });
+      refreshSignupMessage(id);
+
+      // A member on LOA who signs up anyway is allowed — they may have filed a
+      // range and made an exception for this night. Flagged, not blocked.
+      let note = '';
+      if (loa) {
+        const { event } = await signups.detail(id);
+        const out = await loa.unavailableOn({ date: event.event_date, eventScheduleId: event.event_schedule_id })
+          .catch(() => []);
+        if (out.some((e) => e.discord_id === interaction.user.id)) {
+          note = "\n\n⚠️ Heads up — you still have an LOA on file for that night. Cancel it with `/loa cancel` if you're coming after all.";
+        }
+      }
+
+      if (!result.wasNew) {
+        return interaction.editReply(result.status === 'waitlist'
+          ? `You're already on the waitlist for this one.${note}`
+          : `You're already down as going.${note}`);
+      }
+      if (result.status === 'waitlist') {
+        // Deliberately not "going/capacity": the RPC returns counts, not the cap,
+        // and after a capacity cut the two disagree — a headcount is always true.
+        return interaction.editReply(`This one's full (**${result.going}** going). You're **#${result.waitlist}** on the waitlist — you'll be moved up and DM'd if a slot opens.${note}`);
+      }
+      return interaction.editReply(`You're in ✅ — **${result.going}** going.${note}`);
+    }
+
+    if (action === 'leave') {
+      const result = await signups.withdraw({ id, discordId: interaction.user.id });
+      if (!result.removed) return interaction.editReply("You weren't signed up for this one.");
+      refreshSignupMessage(id);
+      if (result.promoted) notifySignupPromotion(result.promoted, id);
+      return interaction.editReply(result.promoted
+        ? `Withdrawn. **${result.promoted.display_name}** moved up off the waitlist.`
+        : 'Withdrawn — your name is off the list.');
+    }
+  } catch (err) {
+    return interaction.editReply(err.message || 'Something went wrong with that signup.');
+  }
+}
+
+// DMs everyone who hasn't responded and isn't already on LOA. Claims the send
+// first, so the minute timer and a manual "remind now" can't both fire.
+async function sendSignupReminder(signupEventId) {
+  if (!ready || !client || !signups) return;
+  try {
+    if (!(await signups.claimReminder(signupEventId))) return;
+    const roster = await listMembers().catch(() => []);
+    const { event, members } = await signups.nonResponders(signupEventId, roster);
+    if (!members.length) return;
+
+    const text = `📋 **${event.title}** starts <t:${signupUnix(event)}:R> and we haven't heard from you.`
+      + '\nHit **I\'m in** on the signup post if you\'re coming, or file an LOA with `/loa` if you\'re not.';
+    for (const m of members) {
+      try {
+        const user = await client.users.fetch(m.id);
+        await user.send(text);
+      } catch (err) {
+        console.error(`Signup reminder DM error for ${m.id}:`, err.message);
+      }
+      await new Promise((r) => setTimeout(r, DM_PACING_MS));
+    }
+  } catch (err) {
+    console.error('Signup reminder error:', err.message);
+  }
+}
+
+// The only scheduler in the backend. Runs in the web process, so it does nothing
+// while that process is asleep — and the `starts_at > now()` guard in
+// dueForReminder means a long outage suppresses stale reminders rather than
+// sending a burst of them on wake. Two instances would each run a sweep, but the
+// claimReminder compare-and-set still makes a duplicate DM impossible.
+function startSignupSweep() {
+  if (!signups || sweepTimer) return;
+  sweepTimer = setInterval(async () => {
+    try {
+      for (const event of await signups.dueForReminder()) await sendSignupReminder(event.id);
+      for (const event of await signups.dueToClose()) {
+        await signups.setStatus(event.id, 'closed');
+        await renderSignupMessage(event.id); // Immediate, not debounced — nobody is racing this.
+      }
+    } catch (err) {
+      console.error('Signup sweep error:', err.message);
+    }
+  }, SWEEP_INTERVAL_MS);
+}
+
 // List voice channels the bot can see.
 function listVoiceChannels() {
   const guild = getGuild();
@@ -731,4 +1020,16 @@ function getVoiceMembers(channelId) {
   }));
 }
 
-module.exports = { start, listVoiceChannels, getVoiceMembers, announceLoaEntry, deleteLoaMessage, notifyAttendance };
+module.exports = {
+  start,
+  listVoiceChannels,
+  getVoiceMembers,
+  announceLoaEntry,
+  deleteLoaMessage,
+  notifyAttendance,
+  announceSignup,
+  refreshSignupMessage,
+  deleteSignupMessage,
+  notifySignupPromotion,
+  sendSignupReminder,
+};

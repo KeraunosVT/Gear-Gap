@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../auth';
 import { RefreshCw, Camera, Trash2, ChevronDown, Users, CalendarDays, Loader2, ArrowUp, ArrowDown, BarChart3, Wand2 } from 'lucide-react';
-import { fmtTimeEst, guildDayOfWeek, isAfterMidnight } from '../timeUtils';
+import { fmtTimeEst, guildDayOfWeek, isAfterMidnight, todayInGuildTz } from '../timeUtils';
 import RestrictedGate from '../components/ui/RestrictedGate';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -48,7 +48,7 @@ export default function Attendance() {
   const [schedule, setSchedule] = useState([]);
   const [eventScheduleId, setEventScheduleId] = useState('');
   const [title, setTitle] = useState('');
-  const [eventDate, setEventDate] = useState('');
+  const [eventDate, setEventDate] = useState(todayInGuildTz);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState(null);
@@ -292,6 +292,10 @@ export default function Attendance() {
             />
           </div>
           <div>
+            {/* Defaults to the guild night, not the calendar day. Left empty an
+                officer would naturally type the calendar date of an
+                after-midnight event, and the LOA and signup lookups — both
+                keyed on the night — would silently find nothing. */}
             <label className="eyebrow text-[10px] text-ash block mb-2">Event date</label>
             <input
               type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)}
@@ -367,27 +371,50 @@ export default function Attendance() {
                               <div className="py-4 text-center text-ash">No attendees recorded.</div>
                             ) : (
                               <NameGroup label={`Attended (${attendees.length})`} tone="text-ash">
-                                {attendees.map((a) => (
-                                  <NameChip key={a.id}>{a.display_name}</NameChip>
-                                ))}
+                                {attendees.map((a) => {
+                                  // Present without a signup. Only meaningful
+                                  // when a signup existed for this night —
+                                  // walkInIds is absent otherwise, so nobody
+                                  // gets marked on older events.
+                                  const walkIn = absences?.walkInIds?.includes(String(a.discord_id));
+                                  return (
+                                    <NameChip key={a.id} title={walkIn ? 'Turned up without signing up' : undefined}>
+                                      {a.display_name}
+                                      {walkIn && <span className="text-[10px] text-brass">walk-in</span>}
+                                    </NameChip>
+                                  );
+                                })}
                               </NameGroup>
                             )}
 
                             {/* Absences are only computable for a dated event,
-                                and only worth showing when someone is missing. */}
-                            {absences?.excused.length > 0 && (
-                              <NameGroup label={`Excused — LOA on file (${absences.excused.length})`} tone="text-brass">
-                                {absences.excused.map((m) => (
-                                  <NameChip key={m.discord_id} title={loaReason(m.loa)} className="border-brass/30 text-brass">
+                                and only worth showing when someone is missing.
+                                Ordered worst-first: the people who said they
+                                were coming and didn't are the conversation
+                                worth having, and they'd otherwise be buried in
+                                'absent' next to everyone who never answered. */}
+                            {absences?.noShows?.length > 0 && (
+                              <NameGroup label={`Signed up, didn't show (${absences.noShows.length})`} tone="text-oxblood">
+                                {absences.noShows.map((m) => (
+                                  <NameChip key={m.discord_id} title={loaReason(m.loa)} className="border-oxblood/60 text-bone">
                                     {m.display_name}
                                   </NameChip>
                                 ))}
                               </NameGroup>
                             )}
                             {absences?.unexcused.length > 0 && (
-                              <NameGroup label={`No-show — no LOA filed (${absences.unexcused.length})`} tone="text-oxblood">
+                              <NameGroup label={`Absent — no LOA filed (${absences.unexcused.length})`} tone="text-oxblood">
                                 {absences.unexcused.map((m) => (
                                   <NameChip key={m.discord_id} className="border-oxblood/40 text-bone">
+                                    {m.display_name}
+                                  </NameChip>
+                                ))}
+                              </NameGroup>
+                            )}
+                            {absences?.excused.length > 0 && (
+                              <NameGroup label={`Excused — LOA on file (${absences.excused.length})`} tone="text-brass">
+                                {absences.excused.map((m) => (
+                                  <NameChip key={m.discord_id} title={loaReason(m.loa)} className="border-brass/30 text-brass">
                                     {m.display_name}
                                   </NameChip>
                                 ))}

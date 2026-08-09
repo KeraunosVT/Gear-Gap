@@ -20,6 +20,7 @@ const FEATURE_PREFIXES = [
   { prefix: '/voice-channels', label: 'Attendance' },
   { prefix: '/events', label: 'Attendance' },
   { prefix: '/attendance', label: 'Attendance' },
+  { prefix: '/signups', label: 'Attendance' },
   { prefix: '/gear-ilvl', label: 'Gear Levels' },
   { prefix: '/event-schedule', label: 'LOA Schedule' },
   { prefix: '/members', label: 'Members' },

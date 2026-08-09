@@ -21,15 +21,26 @@ function tzOffsetMs(date, timeZone) {
 }
 
 // Resolves an hour/minute (already disambiguated — no am/pm parsing here) to the
-// UTC instant that clock time occurs today in the guild's timezone. Shared by
-// parseGuildTimeToday below and by the /announce command (backend/discordGateway.js),
-// which needs the same DST-aware conversion but without the kill-report rollback rule.
-function guildTimeToday(hour, minute) {
-  const now = new Date();
-  const [y, mo, d] = now.toLocaleDateString('en-CA', { timeZone: GUILD_TZ }).split('-').map(Number);
+// UTC instant that clock time occurs on `dateStr` (YYYY-MM-DD) in the guild's
+// timezone. Split out of guildTimeToday so event signups, whose occurrences are
+// always in the future, get the same DST-aware conversion without a second
+// implementation of it.
+//
+// A wall-clock time that doesn't exist or happens twice on a DST boundary
+// resolves to one arbitrary instant. Guild events run in the evening or just
+// after midnight, so this never lands in the 2am window.
+function guildTimeOn(dateStr, hour, minute) {
+  const [y, mo, d] = dateStr.split('-').map(Number);
   const utcGuess = Date.UTC(y, mo - 1, d, hour, minute);
   const offset = tzOffsetMs(new Date(utcGuess), GUILD_TZ);
   return new Date(utcGuess - offset);
+}
+
+// The same conversion for today's date in the guild's timezone. Shared by
+// parseGuildTimeToday below and by the /announce command (backend/discordGateway.js),
+// which needs it but without the kill-report rollback rule.
+function guildTimeToday(hour, minute) {
+  return guildTimeOn(new Date().toLocaleDateString('en-CA', { timeZone: GUILD_TZ }), hour, minute);
 }
 
 // Parse a clock-time string ("6:40pm", "6:40 PM", "18:40") as happening today in the
@@ -91,3 +102,4 @@ module.exports = function createEliteTimers(supabase) {
 
 module.exports.parseGuildTimeToday = parseGuildTimeToday;
 module.exports.guildTimeToday = guildTimeToday;
+module.exports.guildTimeOn = guildTimeOn;
