@@ -83,7 +83,7 @@ const lootCatalog = supabase ? createLootCatalog(supabase) : null;
 const eliteTimers = supabase ? createEliteTimers(supabase) : null;
 const gearIlvl = supabase ? createGearIlvl(supabase) : null;
 const identities = supabase ? createIdentities(supabase) : null;
-const loa = supabase ? createLoa(supabase) : null;
+const loa = supabase ? createLoa(supabase, identities) : null;
 const auditLog = supabase ? createAuditLog(supabase) : null;
 
 // The gateway needs Supabase for /elitetimer persistence, so start it after setup.
@@ -423,20 +423,22 @@ app.post('/api/loa', async (req, res) => {
   // what the body says.
   const onBehalf = userHas(req.user, 'loa.admin') && discord_id;
   const targetId = onBehalf ? discord_id : req.user.id;
+  // Only a fallback: submit* resolves the target's site alias and hands back
+  // the name it actually stored, which is what the announcement below uses.
   const targetName = onBehalf ? (display_name || 'Member') : req.user.username;
   try {
     let saved;
     let announce;
     if (type === 'event') {
       saved = await loa.submitEvent({ discordId: targetId, displayName: targetName, eventDate: event_date, eventScheduleId: event_schedule_id, startTime: start_time, endTime: end_time, reason });
-      announce = { type: 'event', displayName: targetName, eventName: saved.eventName, eventDate: event_date, startTime: saved.startTime, endTime: saved.endTime };
+      announce = { type: 'event', displayName: saved.displayName, eventName: saved.eventName, eventDate: event_date, startTime: saved.startTime, endTime: saved.endTime };
     } else if (type === 'range') {
       saved = await loa.submitRange({ discordId: targetId, displayName: targetName, startDate: start_date, endDate: end_date, reason });
-      announce = { type: 'range', displayName: targetName, startDate: start_date, endDate: end_date };
+      announce = { type: 'range', displayName: saved.displayName, startDate: start_date, endDate: end_date };
     } else if (type === 'recurring') {
       const dow = parseInt(day_of_week, 10);
       saved = await loa.submitRecurring({ discordId: targetId, displayName: targetName, dayOfWeek: dow, eventScheduleId: event_schedule_id, startTime: start_time, endTime: end_time, reason });
-      announce = { type: 'recurring', displayName: targetName, eventName: saved.eventName, dayOfWeek: dow, startTime: saved.startTime, endTime: saved.endTime };
+      announce = { type: 'recurring', displayName: saved.displayName, eventName: saved.eventName, dayOfWeek: dow, startTime: saved.startTime, endTime: saved.endTime };
     } else {
       return res.status(400).json({ error: 'Type must be "event", "range", or "recurring".' });
     }

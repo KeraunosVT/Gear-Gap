@@ -57,8 +57,8 @@ function start(supabase) {
   }
 
   eliteTimers = supabase ? createEliteTimers(supabase) : null;
-  loa = supabase ? createLoa(supabase) : null;
   identities = supabase ? createIdentities(supabase) : null;
+  loa = supabase ? createLoa(supabase, identities) : null;
   attendance = supabase ? createAttendance(supabase) : null;
 
   client = new Client({
@@ -402,7 +402,9 @@ async function handleLoaEvent(interaction) {
   }
 
   try {
-    const { id, eventName } = await loa.submitEvent({
+    // displayName comes back resolved to the member's site alias — target's is
+    // only the Discord-side fallback for someone with no identity row.
+    const { id, displayName, eventName } = await loa.submitEvent({
       discordId: target.discordId,
       displayName: target.displayName,
       eventDate: date,
@@ -414,10 +416,10 @@ async function handleLoaEvent(interaction) {
     const scope = eventName ? ` for **${eventName}**` : '';
     const timeRange = startTime ? (endTime ? ` from **${fmt12h(startTime)}** to **${fmt12h(endTime)}**` : ` from **${fmt12h(startTime)}**`) : '';
     await interaction.editReply(target.onBehalf
-      ? `Recorded ✅ — LOA submitted for **${target.displayName}** on ${date}${timeRange}${scope}.`
+      ? `Recorded ✅ — LOA submitted for **${displayName}** on ${date}${timeRange}${scope}.`
       : `Recorded ✅ — LOA submitted for ${date}${timeRange}${scope}.`);
     const messageId = await announceLoaEntry({
-      type: 'event', displayName: target.displayName, eventName, eventDate: date, startTime, endTime,
+      type: 'event', displayName, eventName, eventDate: date, startTime, endTime,
     });
     if (messageId) await loa.setMessageId(id, messageId);
   } catch (err) {
@@ -437,16 +439,16 @@ async function handleLoaRange(interaction) {
   const reason = interaction.options.getString('reason') || '';
 
   try {
-    const { id } = await loa.submitRange({
+    const { id, displayName } = await loa.submitRange({
       discordId: target.discordId,
       displayName: target.displayName,
       startDate, endDate, reason,
     });
     await interaction.editReply(target.onBehalf
-      ? `Recorded ✅ — LOA submitted for **${target.displayName}**, ${startDate} to ${endDate}.`
+      ? `Recorded ✅ — LOA submitted for **${displayName}**, ${startDate} to ${endDate}.`
       : `Recorded ✅ — LOA submitted for ${startDate} to ${endDate}.`);
     const messageId = await announceLoaEntry({
-      type: 'range', displayName: target.displayName, startDate, endDate,
+      type: 'range', displayName, startDate, endDate,
     });
     if (messageId) await loa.setMessageId(id, messageId);
   } catch (err) {
@@ -477,7 +479,7 @@ async function handleLoaRecurring(interaction) {
   }
 
   try {
-    const { id, eventName } = await loa.submitRecurring({
+    const { id, displayName, eventName } = await loa.submitRecurring({
       discordId: target.discordId,
       displayName: target.displayName,
       dayOfWeek: dow,
@@ -489,10 +491,10 @@ async function handleLoaRecurring(interaction) {
     const scope = eventName ? ` for **${eventName}**` : '';
     const timeRange = startTime ? (endTime ? ` from **${fmt12h(startTime)}** to **${fmt12h(endTime)}**` : ` from **${fmt12h(startTime)}**`) : '';
     await interaction.editReply(target.onBehalf
-      ? `Recorded ✅ — **${target.displayName}** is now always out on **${DAY_NAMES[dow]}**${timeRange}${scope}.`
+      ? `Recorded ✅ — **${displayName}** is now always out on **${DAY_NAMES[dow]}**${timeRange}${scope}.`
       : `Recorded ✅ — you're now always out on **${DAY_NAMES[dow]}**${timeRange}${scope}.`);
     const messageId = await announceLoaEntry({
-      type: 'recurring', displayName: target.displayName, eventName, dayOfWeek: dow, startTime, endTime,
+      type: 'recurring', displayName, eventName, dayOfWeek: dow, startTime, endTime,
     });
     if (messageId) await loa.setMessageId(id, messageId);
   } catch (err) {

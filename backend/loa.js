@@ -125,12 +125,33 @@ function todayInGuildTz() {
   return shifted.toLocaleDateString('en-CA', { timeZone: GUILD_TZ });
 }
 
-module.exports = function createLoa(supabase) {
+// `identities` is optional so a caller without one still works — names just
+// pass through untouched. Everywhere it is supplied, the alias set on the site
+// wins over whatever Discord happens to call the member, so an LOA reads the
+// same whether it was filed on the website, by an officer, or with /loa.
+module.exports = function createLoa(supabase, identities = null) {
   const isValidDate = (dateStr) => DATE_RE.test(dateStr || '');
   const requireReason = (reason) => {
     const trimmed = (reason || '').trim();
     if (!trimmed) throw httpError(400, 'Reason is required.');
     return trimmed;
+  };
+
+  // Resolved at submit time so the row — and the Discord announcement built
+  // from it — carry the alias rather than a Discord username.
+  const resolveName = async (discordId, fallback) => {
+    if (!identities) return (fallback || '').slice(0, 120);
+    const ids = await identities.load();
+    return (ids.displayNameFor(discordId, fallback) || '').slice(0, 120);
+  };
+
+  // Resolved again on read, because display_name is only a snapshot: an alias
+  // set or changed after the LOA was filed wouldn't otherwise show up. One
+  // load() for the whole batch — it's cached, but this keeps it to one await.
+  const withNames = async (rows) => {
+    if (!identities) return rows;
+    const ids = await identities.load();
+    return rows.map((e) => ({ ...e, display_name: ids.displayNameFor(e.discord_id, e.display_name) }));
   };
 
   return {
@@ -218,7 +239,7 @@ module.exports = function createLoa(supabase) {
         const prev = out.get(e.discord_id);
         if (!prev || (prev.partial && !entry.partial)) out.set(e.discord_id, entry);
       });
-      return [...out.values()];
+      return withNames([...out.values()]);
     },
 
     // `eventScheduleId` and `startTime` are each optional, but at least one is
@@ -248,9 +269,10 @@ module.exports = function createLoa(supabase) {
         eventName = ev.name;
       }
 
+      const name = await resolveName(discordId, displayName);
       const { data: row, error } = await supabase.from('loa_entries').insert({
         discord_id: discordId,
-        display_name: (displayName || '').slice(0, 120),
+        display_name: name,
         type: 'event',
         event_date: eventDate,
         event_schedule_id: eventScheduleId || null,
@@ -261,9 +283,10 @@ module.exports = function createLoa(supabase) {
         reason: cleanReason.slice(0, 500),
       }).select('id').single();
       if (error) { console.error('loa.submitEvent error:', error.message); throw httpError(500, 'Failed to submit LOA.'); }
-      // Cleaned times come back out so callers announce what was stored rather
-      // than the raw input — "9pm" is accepted here but isn't displayable.
-      return { id: row.id, eventName, startTime: cleanStart, endTime: cleanEnd };
+      // Cleaned times and the resolved name come back out so callers announce
+      // what was stored rather than the raw input — "9pm" is accepted here but
+      // isn't displayable, and the caller's name may be a Discord username.
+      return { id: row.id, displayName: name, eventName, startTime: cleanStart, endTime: cleanEnd };
     },
 
     async submitRange({ discordId, displayName, startDate, endDate, reason }) {
@@ -271,9 +294,10 @@ module.exports = function createLoa(supabase) {
       if (new Date(endDate) < new Date(startDate)) throw httpError(400, 'End date must be after start date.');
       const cleanReason = requireReason(reason);
 
+      const name = await resolveName(discordId, displayName);
       const { data: row, error } = await supabase.from('loa_entries').insert({
         discord_id: discordId,
-        display_name: (displayName || '').slice(0, 120),
+        display_name: name,
         type: 'range',
         event_date: null,
         event_schedule_id: null,
@@ -282,7 +306,7 @@ module.exports = function createLoa(supabase) {
         reason: cleanReason.slice(0, 500),
       }).select('id').single();
       if (error) { console.error('loa.submitRange error:', error.message); throw httpError(500, 'Failed to submit LOA.'); }
-      return { id: row.id };
+      return { id: row.id, displayName: name };
     },
 
     // Recurs every week on `dayOfWeek` (0=Sunday..6=Saturday) until cancelled.
@@ -308,9 +332,10 @@ module.exports = function createLoa(supabase) {
         eventName = ev.name;
       }
 
+      const name = await resolveName(discordId, displayName);
       const { data: row, error } = await supabase.from('loa_entries').insert({
         discord_id: discordId,
-        display_name: (displayName || '').slice(0, 120),
+        display_name: name,
         type: 'recurring',
         event_date: null,
         event_schedule_id: eventScheduleId || null,
@@ -322,7 +347,7 @@ module.exports = function createLoa(supabase) {
         reason: cleanReason.slice(0, 500),
       }).select('id').single();
       if (error) { console.error('loa.submitRecurring error:', error.message); throw httpError(500, 'Failed to submit LOA.'); }
-      return { id: row.id, eventName, startTime: cleanStart, endTime: cleanEnd };
+      return { id: row.id, displayName: name, eventName, startTime: cleanStart, endTime: cleanEnd };
     },
 
     // Best-effort — called after announceLoa() posts to Discord, to remember
@@ -339,17 +364,17 @@ module.exports = function createLoa(supabase) {
       const { data, error } = await supabase.from('loa_entries').select('*')
         .eq('discord_id', discordId).order('created_at', { ascending: false });
       if (error) throw httpError(500, 'Failed to load LOAs.');
-      return data || [];
+      return withNames(data || []);
     },
 
     async all(isAdmin) {
       const { data, error } = await supabase.from('loa_entries').select('*').order('created_at', { ascending: false });
       if (error) throw httpError(500, 'Failed to load LOAs.');
-      return (data || []).map((e) => {
+      return withNames((data || []).map((e) => {
         const out = { ...e };
         if (!isAdmin) delete out.reason;
         return out;
-      });
+      }));
     },
 
     async cancel(id, discordId, isAdmin) {

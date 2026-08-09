@@ -105,7 +105,7 @@ const team = (v) => {
 module.exports = function createAdminRouter(supabase, gateway, lootCatalog, identities) {
   const router = express.Router();
   const attendance = supabase ? createAttendance(supabase) : null;
-  const loa = supabase ? createLoa(supabase) : null;
+  const loa = supabase ? createLoa(supabase, identities) : null;
 
   router.get('/whoami', (req, res) => {
     res.json({ admin: true, username: req.user.username });
