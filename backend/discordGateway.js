@@ -754,13 +754,14 @@ const signupUnix = (row) => (row.starts_at
   : Math.floor(new Date(`${row.event_date}T12:00:00Z`).getTime() / 1000));
 
 // Names as "🛡️ Someone", clipped to fit the field with a pointer to the button
-// that shows the untruncated list.
-function nameLines(entries) {
+// that shows the untruncated list. `withEmoji` is off for the role columns,
+// where the header already says which role these are.
+function nameLines(entries, withEmoji = true) {
   if (!entries.length) return '—';
   const lines = [];
   let used = 0;
   for (const e of entries) {
-    const line = `${ROLE_EMOJI[e.pvp_role] || '•'} ${e.display_name}`;
+    const line = withEmoji ? `${ROLE_EMOJI[e.pvp_role] || '•'} ${e.display_name}` : e.display_name;
     if (used + line.length + 1 > FIELD_CHAR_BUDGET) {
       lines.push(`…and ${entries.length - lines.length} more`);
       break;
@@ -771,6 +772,13 @@ function nameLines(entries) {
   return lines.join('\n');
 }
 
+// Discord lays out up to three consecutive `inline` fields side by side, which
+// is the only column mechanism an embed has. Four groups would wrap Unassigned
+// onto its own row — which is fine, and it only appears when someone actually
+// has no role on file.
+const ROLE_COLUMNS = ['Tank', 'DPS', 'Healer'];
+const columnFor = (role) => (ROLE_COLUMNS.includes(role) ? role : 'Unassigned');
+
 // Raw object rather than EmbedBuilder, matching admin.js's rosterEmbed — the
 // only other embed in the codebase.
 function signupEmbed({ event, going, waitlist }) {
@@ -779,12 +787,34 @@ function signupEmbed({ event, going, waitlist }) {
   const waiting = waitlist.length ? ` · ${waitlist.length} waiting` : '';
   const closed = event.status !== 'open';
 
-  const fields = [{ name: `✅ Going (${going.length})`, value: nameLines(going) }];
-  if (waitlist.length) fields.push({ name: `⏳ Waitlist (${waitlist.length})`, value: nameLines(waitlist) });
+  // Grouped rather than one flat list, so the shape of the raid reads at a
+  // glance — "12 going" says nothing about whether it has a tank.
+  const byRole = { Tank: [], DPS: [], Healer: [], Unassigned: [] };
+  going.forEach((e) => byRole[columnFor(e.pvp_role)].push(e));
+
+  const fields = ROLE_COLUMNS.map((role) => ({
+    name: `${ROLE_EMOJI[role]} ${role} (${byRole[role].length})`,
+    // Names alone here: the column header already carries the role, so the
+    // per-name emoji nameLines() adds would just be the same glyph repeated.
+    value: nameLines(byRole[role], false),
+    inline: true,
+  }));
+  if (byRole.Unassigned.length) {
+    fields.push({
+      name: `• No role set (${byRole.Unassigned.length})`,
+      value: nameLines(byRole.Unassigned, false),
+      inline: true,
+    });
+  }
+  if (waitlist.length) {
+    // Full width, and keeps its emoji: a waitlist is read in order, not by role.
+    fields.push({ name: `⏳ Waitlist (${waitlist.length})`, value: nameLines(waitlist) });
+  }
 
   return {
     title: event.title,
     description: `<t:${unix}:F> (<t:${unix}:R>)\n**${going.length}${cap}** going${waiting}`
+      + `\n${ROLE_COLUMNS.map((r) => `${ROLE_EMOJI[r]} ${byRole[r].length}`).join('   ')}`
       + (closed ? '\n\n*Signups are closed.*' : ''),
     color: 0xc9973a,
     fields,
@@ -897,8 +927,15 @@ async function handleSignupButton(interaction) {
   try {
     if (action === 'who') {
       const { event, going, waitlist } = await signups.detail(id);
+      // Grouped the same way the post is, so this reads as the untruncated
+      // version of what they just looked at rather than a different view.
+      const grouped = { Tank: [], DPS: [], Healer: [], Unassigned: [] };
+      going.forEach((e) => grouped[columnFor(e.pvp_role)].push(e.display_name));
       const list = going.length
-        ? going.map((e) => `${ROLE_EMOJI[e.pvp_role] || '•'} ${e.display_name}`).join('\n')
+        ? [...ROLE_COLUMNS, 'Unassigned']
+          .filter((r) => grouped[r].length)
+          .map((r) => `**${ROLE_EMOJI[r] || '•'} ${r} (${grouped[r].length})**\n${grouped[r].join('\n')}`)
+          .join('\n\n')
         : 'Nobody yet.';
       const waiting = waitlist.length
         ? `\n\n**Waitlist (${waitlist.length})**\n${waitlist.map((e, i) => `${i + 1}. ${e.display_name}`).join('\n')}`

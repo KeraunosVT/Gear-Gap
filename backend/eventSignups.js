@@ -16,6 +16,9 @@ const createEliteTimers = require('./eliteTimers');
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const STATUSES = ['open', 'closed', 'cancelled'];
+// The PvP roles member_roles stores, in the order every surface displays them.
+// Anything else — including no row at all — tallies as Unassigned.
+const ROLE_ORDER = ['Tank', 'DPS', 'Healer'];
 // Ceiling on the reminder-candidate query below. Nothing to do with how far
 // ahead a reminder can be set — just keeps the coarse SQL filter bounded.
 const REMINDER_LOOKAHEAD_DAYS = 7;
@@ -77,6 +80,16 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
       .select('discord_id, pvp_role, pve_role').in('discord_id', discordIds);
     if (error) { console.error('signups.rolesFor error:', error.message); return out; }
     (data || []).forEach((r) => { out[r.discord_id] = { pvp: r.pvp_role || '', pve: r.pve_role || '' }; });
+    return out;
+  };
+
+  // Headcount per stored role, for the composition line on the post and the
+  // site card. 'Unassigned' is deliberately counted rather than dropped: a
+  // signup with no role on file is exactly the person an officer has to chase
+  // before they can build parties, and a silent omission would hide them.
+  const tallyRoles = (entries) => {
+    const out = { Tank: 0, DPS: 0, Healer: 0, Unassigned: 0 };
+    entries.forEach((e) => { out[ROLE_ORDER.includes(e.pvp_role) ? e.pvp_role : 'Unassigned'] += 1; });
     return out;
   };
 
@@ -201,16 +214,30 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
         .select('signup_event_id, discord_id, status')
         .in('signup_event_id', events.map((e) => e.id));
 
+      // One roles lookup for every entry across every listed occurrence, so the
+      // composition on the cards costs a single extra round trip rather than
+      // one per event.
+      const roles = await rolesFor([...new Set((entries || []).map((r) => r.discord_id))]);
+      const roleOf = (id) => {
+        const r = roles[id]?.pvp || '';
+        return ROLE_ORDER.includes(r) ? r : 'Unassigned';
+      };
+
       const tally = {};
       (entries || []).forEach((r) => {
-        const t = tally[r.signup_event_id] || (tally[r.signup_event_id] = { going: 0, waitlist: 0, mine: null });
-        if (r.status === 'going') t.going += 1; else t.waitlist += 1;
+        const t = tally[r.signup_event_id] || (tally[r.signup_event_id] = {
+          going: 0, waitlist: 0, mine: null, roles: { Tank: 0, DPS: 0, Healer: 0, Unassigned: 0 },
+        });
+        if (r.status === 'going') { t.going += 1; t.roles[roleOf(r.discord_id)] += 1; } else t.waitlist += 1;
         if (discordId && r.discord_id === discordId) t.mine = r.status;
       });
       return events.map((e) => ({
         ...e,
         going_count: tally[e.id]?.going || 0,
         waitlist_count: tally[e.id]?.waitlist || 0,
+        // Going only — the waitlist breakdown is detail-level, and a card that
+        // showed both would need twice the room to say half as much.
+        role_counts: tally[e.id]?.roles || { Tank: 0, DPS: 0, Healer: 0, Unassigned: 0 },
         my_status: tally[e.id]?.mine || null,
       }));
     },
@@ -255,6 +282,10 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
         going,
         waitlist,
         counts: { going: going.length, waitlist: waitlist.length, capacity: event.capacity },
+        // Composition, split the same way the party builder's pools are. The
+        // waitlist gets its own tally because "we're short a healer and there's
+        // one waiting" is the case that justifies raising the cap.
+        roleCounts: { going: tallyRoles(going), waitlist: tallyRoles(waitlist) },
         onLoa,
         noResponse,
         conflicts,

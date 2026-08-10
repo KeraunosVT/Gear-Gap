@@ -448,10 +448,17 @@ export default function Parties() {
   // the button can say nothing rather than promise a no-op.
   const signupCounts = useMemo(() => {
     let going = 0; let waitlist = 0;
-    signupById.forEach((s) => { if (s === 'going') going += 1; else waitlist += 1; });
+    // Composition of who's coming, read off the same rolesByMode the seed uses
+    // — so the banner is a preview of what "Seed parties" would actually build.
+    const byRole = { Tank: 0, DPS: 0, Healer: 0, unroled: 0 };
+    signupById.forEach((s, id) => {
+      if (s !== 'going') { waitlist += 1; return; }
+      going += 1;
+      if (ROLES.includes(roles[id])) byRole[roles[id]] += 1; else byRole.unroled += 1;
+    });
     const inPool = POOL_KEYS.flatMap((k) => items[k]).filter((id) => signupById.has(id)).length;
-    return { going, waitlist, inPool };
-  }, [signupById, items]);
+    return { going, waitlist, inPool, byRole };
+  }, [signupById, items, roles]);
 
   // Keep absentWhy in step with the Absent box. Anyone arriving without an
   // already-recorded reason is classified once, on arrival: a definite absence
@@ -956,6 +963,19 @@ export default function Parties() {
               {signupCounts.waitlist > 0 && `, ${signupCounts.waitlist} on the waitlist`}.
               <span className="text-ash"> Everyone else just hasn&apos;t answered.</span>
             </span>
+          </div>
+          <div className="flex items-center gap-3 shrink-0">
+            {ROLES.map((r) => (
+              <span key={r} className="inline-flex items-center gap-1.5" title={`${r}s signed up`}>
+                <span className={`w-1.5 h-1.5 rounded-full ${ROLE_STYLE[r].dot}`} />
+                <span className={`font-mono text-sm ${signupCounts.byRole[r] ? 'text-bone' : 'text-ash/50'}`}>{signupCounts.byRole[r]}</span>
+              </span>
+            ))}
+            {signupCounts.byRole.unroled > 0 && (
+              <span className="text-xs text-brass" title="Signed up with no role set — the seed leaves these in the pool">
+                +{signupCounts.byRole.unroled} no role
+              </span>
+            )}
           </div>
           {signupCounts.inPool > 0 && (
             <Button variant="secondary" size="none" className="px-3 py-1.5 text-xs shrink-0" onClick={seedFromSignups}>

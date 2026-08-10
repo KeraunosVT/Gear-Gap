@@ -18,7 +18,30 @@ const DAY_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 // Same three colours the roster tiles and the party board already use for
 // roles, so a Healer is green everywhere on the site.
-const ROLE_TONE = { Tank: 'text-sky-400', Healer: 'text-emerald-400', DPS: 'text-oxblood' };
+const ROLE_TONE = { Tank: 'text-sky-400', Healer: 'text-emerald-400', DPS: 'text-oxblood', Unassigned: 'text-ash' };
+const ROLE_DOT = { Tank: 'bg-sky-400', Healer: 'bg-emerald-400', DPS: 'bg-oxblood', Unassigned: 'bg-ash' };
+// Display order everywhere on this page, matching the backend's ROLE_ORDER.
+const ROLE_COLUMNS = ['Tank', 'DPS', 'Healer'];
+const roleKey = (role) => (ROLE_COLUMNS.includes(role) ? role : 'Unassigned');
+
+// The composition strip. Tank/DPS/Healer always render even at zero — a missing
+// tank is the thing an officer is looking for, and hiding the row when it's
+// empty would hide exactly that.
+function RoleCounts({ counts, className = '' }) {
+  if (!counts) return null;
+  const cols = [...ROLE_COLUMNS, ...(counts.Unassigned ? ['Unassigned'] : [])];
+  return (
+    <div className={`flex items-center gap-3 ${className}`}>
+      {cols.map((role) => (
+        <span key={role} className="inline-flex items-center gap-1.5" title={role === 'Unassigned' ? 'No role on file' : role}>
+          <span className={`w-1.5 h-1.5 rounded-full ${ROLE_DOT[role]}`} />
+          <span className={`font-mono text-sm ${counts[role] ? 'text-bone' : 'text-ash/50'}`}>{counts[role] || 0}</span>
+          <span className="eyebrow text-[10px] text-ash/75">{role === 'Unassigned' ? 'none' : role}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
 
 const REMINDER_OPTIONS = [
   { value: '', label: 'No reminder' },
@@ -359,6 +382,8 @@ function SignupCard({
         </div>
       </div>
 
+      <RoleCounts counts={row.role_counts} className="mt-3" />
+
       <div className="flex items-center gap-2 flex-wrap mt-4">
         {row.my_status ? (
           <>
@@ -389,16 +414,46 @@ function SignupCard({
         <div className="mt-5 pt-5 border-t border-line space-y-5">
           {!detail ? <div className="text-sm text-ash">Reading the list…</div> : (
             <>
-              <NameGroup label={`Going (${detail.going.length})`} tone="text-emerald-400">
-                {detail.going.length === 0 && <span className="text-sm text-ash">Nobody yet.</span>}
-                {detail.going.map((e) => (
-                  <EntryChip key={e.discord_id} entry={e}
-                    onRemove={isOfficer ? () => onRemoveEntry(e.discord_id) : undefined} />
-                ))}
-              </NameGroup>
+              {detail.going.length === 0 ? (
+                <NameGroup label="Going (0)" tone="text-emerald-400">
+                  <span className="text-sm text-ash">Nobody yet.</span>
+                </NameGroup>
+              ) : (
+                /* One column per role rather than a single list. Collapses to
+                   stacked groups below `sm`, where three columns of chips would
+                   be one name wide. */
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+                  {ROLE_COLUMNS.map((role) => {
+                    const inRole = detail.going.filter((e) => roleKey(e.pvp_role) === role);
+                    return (
+                      <NameGroup key={role} label={`${role} (${inRole.length})`} tone={ROLE_TONE[role]}>
+                        {inRole.length === 0 && <span className="text-sm text-ash/50">—</span>}
+                        {inRole.map((e) => (
+                          <EntryChip key={e.discord_id} entry={e}
+                            onRemove={isOfficer ? () => onRemoveEntry(e.discord_id) : undefined} />
+                        ))}
+                      </NameGroup>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Signed up with no role on file — the people who'd silently
+                  fall out of a party seed, so they get their own row. */}
+              {detail.going.some((e) => roleKey(e.pvp_role) === 'Unassigned') && (
+                <NameGroup label="No role on file" tone="text-brass">
+                  {detail.going.filter((e) => roleKey(e.pvp_role) === 'Unassigned').map((e) => (
+                    <EntryChip key={e.discord_id} entry={e}
+                      onRemove={isOfficer ? () => onRemoveEntry(e.discord_id) : undefined} />
+                  ))}
+                </NameGroup>
+              )}
 
               {detail.waitlist.length > 0 && (
                 <NameGroup label={`Waitlist (${detail.waitlist.length})`} tone="text-brass">
+                  {/* Composition of the queue, so "we're short a healer and
+                      there's one waiting" is visible before deciding on the cap. */}
+                  <RoleCounts counts={detail.roleCounts?.waitlist} className="w-full mb-1" />
                   {detail.waitlist.map((e, i) => (
                     <NameChip key={e.discord_id} className="border-brass/30 text-brass"
                       onRemove={isOfficer ? () => onRemoveEntry(e.discord_id) : undefined}>
