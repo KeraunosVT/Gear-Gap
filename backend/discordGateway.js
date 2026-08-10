@@ -11,6 +11,10 @@ const createIdentities = require('./identities');
 const createAttendance = require('./attendance');
 const createEventSignups = require('./eventSignups');
 const { listMembers } = require('./discord');
+// House name and tag for embed footers — the same branding admin.js stamps on
+// the roster embed. Not to be confused with DISCORD_GUILD_ID below, which is
+// the server's snowflake.
+const GUILD_IDENTITY = require('../shared/guild.json');
 
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
