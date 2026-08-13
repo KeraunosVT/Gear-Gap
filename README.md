@@ -8,7 +8,7 @@ A guild-management web app for a *Throne & Liberty* guild, built around Discord:
 - **Roster & War Record** — every member's all-time PvP stats, drill into a player's match history
 - **Loot Wishlist** — pick items you want per build (PvP / PvE / Second Build); see live demand
 - **Archboss Shards** — track how many of each archboss shard type you need, plus a weapon wishlist
-- **Gear Level** — upload an in-game Equipment Level screenshot, parsed automatically (Gemini)
+- **Gear Level** — upload a gear screenshot, parsed automatically (Gemini). Two kinds: the small **Equipment Level popup** (fast, four numbers, counts everything), or the **full equipment window**, which reads each item individually and leaves Heroic-tier pieces out of the totals — the popup's own "Max Weapon Lv." always counts a Heroic weapon and never says which item produced the number, so there's nothing to subtract afterwards. The window screenshot is stored and visible to you and to officers, with every item listed and the excluded ones struck through
 - **My Classes** — rank up to 3 classes per mode so officers can plan parties around your build
 - **Leave of Absence** — submit LOA for a single event, a date range, or recurring days (pick more than one at once); optionally scope any of these to a time window (e.g. "I can make the 6pm event but I'm out after that," or "out 7–8pm, back after") — also via `/loa` in Discord
 - **My Attendance** — every night attendance was taken in the last 30 days and whether you were counted. If the snapshot missed you, ask an officer to add you — for 24 hours after attendance was taken, from the site or via `/attendance-late`. Nobody writes their own attendance; a member asks, an officer decides, and you get a DM either way
@@ -19,7 +19,7 @@ A guild-management web app for a *Throne & Liberty* guild, built around Discord:
 - **Late attendance queue** — pending requests appear above the record with the member's reason and one click each way. Two officers deciding the same request at once produces one attendance row and one "already decided", not two rows and an inflated rate
 - **Loot Council** — see wishlist demand, award items, track Lucent and archboss-shard grants per member
 - **Parties** — drag-and-drop party builder with roles, saved rosters, posts directly to Discord. Each roster is saved against the date/event it's for, so reopening it re-checks LOA for that occasion and reports what changed since — who has filed since you built it, and who's since cancelled. The posted image lists who's on leave underneath the parties, so members can see they were accounted for
-- **Gear Levels / Merge Names** — guild-wide gear-level leaderboard; reconcile OCR-misread in-game names to the right player
+- **Gear Levels / Merge Names** — guild-wide gear-level leaderboard, marking which rows were measured with Heroic items excluded and opening any stored equipment window to check a number against the picture; reconcile OCR-misread in-game names to the right player
 - **Admin** — match/screenshot ingestion, member role management, event schedule management
 
 **Discord bot**

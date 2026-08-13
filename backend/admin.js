@@ -242,14 +242,22 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
   // ── Gear item levels (admin-only comparison table) ───────────────────────────
   router.get('/gear-ilvl', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-    const [{ data, error }, ids] = await Promise.all([
+    // The third query is ids only: the leaderboard needs to know WHETHER each
+    // member has a stored equipment window so it can offer the button, and
+    // nothing more. Selecting the parsed item lists here would ship a full
+    // inventory per member to render one icon.
+    const [{ data, error }, ids, { data: shots }] = await Promise.all([
       supabase.from('gear_levels').select('*'),
       identities.load(),
+      supabase.from('gear_screenshots').select('discord_id, excluded_count'),
     ]);
     if (error) return res.status(500).json({ error: 'Failed to load gear levels.' });
+    const shotBy = new Map((shots || []).map((s) => [String(s.discord_id), s]));
     const entries = (data || []).map((e) => ({
       ...e,
       display_name: ids.displayNameFor(e.discord_id, e.display_name),
+      has_screenshot: shotBy.has(String(e.discord_id)),
+      excluded_count: shotBy.get(String(e.discord_id))?.excluded_count ?? 0,
     }));
     res.json({ entries });
   });

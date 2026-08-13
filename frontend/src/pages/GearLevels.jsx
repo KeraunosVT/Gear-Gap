@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../auth';
-import { RefreshCw, History } from 'lucide-react';
+import { RefreshCw, History, Image as ImageIcon, EyeOff } from 'lucide-react';
 import RestrictedGate from '../components/ui/RestrictedGate';
 import { PageShell } from '../components/ui/PageShell';
 import ErrorState from '../components/ui/ErrorState';
@@ -12,6 +12,16 @@ import { fmtDatetime } from '../timeUtils';
 
 const MAX_LEVEL = 80;
 const isMaxed = (e) => e.weapon === MAX_LEVEL && e.armor === MAX_LEVEL && e.accessory === MAX_LEVEL;
+
+// Which screenshot produced a member's row. These are not the same measurement
+// — the popup's maxima count Heroic items and the window's don't — so two rows
+// sitting next to each other can be scored by different rules. Marking the
+// window rows is the cheapest honest way to say so; an unmarked row is the
+// long-standing default and needs no explaining.
+const SOURCE_NOTE = {
+  popup: 'From the Equipment Level popup — Heroic items counted',
+  window: 'From the full equipment window — Heroic items excluded',
+};
 
 const COLUMNS = [
   { key: 'display_name', label: 'Member', align: 'left' },
@@ -80,6 +90,23 @@ export default function GearLevels() {
       .finally(() => setHistoryLoading(false));
   };
 
+  const [shotMember, setShotMember] = useState(null);
+  const [shot, setShot] = useState(null);
+  const [shotLoading, setShotLoading] = useState(false);
+  const [shotError, setShotError] = useState('');
+
+  // Fetched per-view rather than with the leaderboard. The image URL is a
+  // signed one that expires in minutes, so handing out sixty of them on page
+  // load would mean most had died before anyone clicked.
+  const openShot = (entry) => {
+    setShotMember(entry); setShot(null); setShotError('');
+    setShotLoading(true);
+    axios.get(`/api/gear-screenshot/${entry.discord_id}`)
+      .then((res) => setShot(res.data.screenshot))
+      .catch((err) => setShotError(err.response?.data?.error || 'Could not load that screenshot.'))
+      .finally(() => setShotLoading(false));
+  };
+
   if (!can('gear')) {
     return <RestrictedGate />;
   }
@@ -114,21 +141,41 @@ export default function GearLevels() {
             {COLUMNS.map((c) => (
               <SortableTh key={c.key} label={c.label} sortKey={c.key} activeKey={sortKey} dir={sortDir} onSort={sortBy} align={c.align} />
             ))}
-            <th className="p-4 w-10"></th>
+            <th className="p-4 w-20"></th>
           </Thead>
           <tbody>
             {rows.map((e) => (
               <Tr key={e.discord_id}>
-                <td className="p-4 text-bone font-semibold">{e.display_name || 'Member'}</td>
+                <td className="p-4 text-bone font-semibold">
+                  <span className="inline-flex items-center gap-2">
+                    {e.display_name || 'Member'}
+                    {e.source === 'window' && (
+                      <span title={SOURCE_NOTE.window}
+                        className="inline-flex items-center gap-1 text-[10px] eyebrow border border-brass/40 rounded-full px-1.5 py-0.5 text-brass">
+                        <EyeOff className="w-2.5 h-2.5" />
+                        {e.excluded_count > 0 ? `−${e.excluded_count}` : 'window'}
+                      </span>
+                    )}
+                  </span>
+                </td>
                 <td className="p-4 text-right font-mono text-bone">{e.weapon || '—'}</td>
                 <td className="p-4 text-right font-mono text-bone">{e.armor || '—'}</td>
                 <td className="p-4 text-right font-mono text-bone">{e.accessory || '—'}</td>
                 <td className="p-4 text-right font-mono text-brassbright">{e.average || '—'}</td>
                 <td className="p-4 text-right text-ash text-xs">{e.maxed_at ? fmtDatetime(e.maxed_at) : '—'}</td>
-                <td className="p-4 text-center">
-                  <button onClick={() => openHistory(e)} className="text-ash hover:text-brass" title="View submission history">
-                    <History className="w-3.5 h-3.5" />
-                  </button>
+                <td className="p-4">
+                  <span className="flex items-center justify-center gap-2">
+                    {/* Only offered when there is one — a button that reliably
+                        says "nothing on file" is a button people stop trusting. */}
+                    {e.has_screenshot && (
+                      <button onClick={() => openShot(e)} className="text-ash hover:text-brass" title="View their equipment window">
+                        <ImageIcon className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    <button onClick={() => openHistory(e)} className="text-ash hover:text-brass" title="View submission history">
+                      <History className="w-3.5 h-3.5" />
+                    </button>
+                  </span>
                 </td>
               </Tr>
             ))}
@@ -155,6 +202,67 @@ export default function GearLevels() {
                   <span className="font-mono text-brassbright ml-auto">Avg {h.average}</span>
                 </div>
               ))}
+            </div>
+          )}
+        </Modal>
+      )}
+
+      {shotMember && (
+        <Modal onClose={() => setShotMember(null)} maxWidth="max-w-3xl" scrollable>
+          <div className="eyebrow text-brass text-[11px] mb-3">Equipment Window</div>
+          <h2 className="font-display text-xl text-bone tracking-[0.06em] mb-1">{shotMember.display_name || 'Member'}</h2>
+          {shot?.submitted_at && <p className="text-ash text-xs mb-4">Uploaded {fmtDatetime(shot.submitted_at)}</p>}
+
+          {shotLoading ? (
+            <p className="text-ash text-sm">Loading…</p>
+          ) : shotError ? (
+            <p className="text-bone text-sm px-4 py-2.5 rounded-lg border border-oxblood/50 bg-oxblooddeep/20">{shotError}</p>
+          ) : !shot ? (
+            <p className="text-ash text-sm">No equipment window on file.</p>
+          ) : (
+            <div className="space-y-4">
+              {shot.excluded_count > 0 && (
+                <p className="text-brass text-xs inline-flex items-center gap-1.5">
+                  <EyeOff className="w-3 h-3" />
+                  {shot.excluded_count} Heroic item{shot.excluded_count === 1 ? '' : 's'} excluded from these levels
+                </p>
+              )}
+
+              {/* Every item, excluded ones struck through rather than dropped.
+                  "Why is their weapon 68 when I know they have a 74" is the
+                  question this modal exists to answer, and hiding the 74 is
+                  precisely what would make it unanswerable. */}
+              <div className="rounded-lg border border-line overflow-auto max-h-72">
+                <table className="w-full text-sm">
+                  <thead className="border-b border-line bg-hall sticky top-0">
+                    <tr className="eyebrow text-[10px] text-ash">
+                      <th className="p-2.5 font-normal text-left">Slot</th>
+                      <th className="p-2.5 font-normal text-left">Item</th>
+                      <th className="p-2.5 font-normal text-left">Tier</th>
+                      <th className="p-2.5 font-normal text-right">Lv.</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(shot.items || []).map((it, i) => (
+                      <tr key={`${it.slot}-${i}`} className={`border-b border-line/60 ${it.excluded ? 'text-ash/50' : ''}`}>
+                        <td className="p-2.5 whitespace-nowrap">{it.slot}</td>
+                        <td className={`p-2.5 ${it.excluded ? '' : 'text-bone'}`}>{it.name}</td>
+                        <td className="p-2.5 whitespace-nowrap">{it.tier}</td>
+                        <td className={`p-2.5 text-right font-mono text-xs ${it.excluded ? 'line-through' : 'text-bone'}`}>{it.level}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {shot.image_url ? (
+                <a href={shot.image_url} target="_blank" rel="noreferrer">
+                  <img src={shot.image_url} alt={`${shotMember.display_name || 'Member'}'s equipment window`}
+                    className="max-w-full rounded-lg border border-line hover:border-brass/50 transition-colors" />
+                </a>
+              ) : (
+                <p className="text-ash text-xs">The stored image is missing — only the parsed items are on file.</p>
+              )}
             </div>
           )}
         </Modal>
