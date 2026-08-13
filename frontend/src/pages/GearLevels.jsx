@@ -228,32 +228,17 @@ export default function GearLevels() {
                 </p>
               )}
 
-              {/* Every item, excluded ones struck through rather than dropped.
-                  "Why is their weapon 68 when I know they have a 74" is the
-                  question this modal exists to answer, and hiding the 74 is
-                  precisely what would make it unanswerable. */}
-              <div className="rounded-lg border border-line overflow-auto max-h-72">
-                <table className="w-full text-sm">
-                  <thead className="border-b border-line bg-hall sticky top-0">
-                    <tr className="eyebrow text-[10px] text-ash">
-                      <th className="p-2.5 font-normal text-left">Slot</th>
-                      <th className="p-2.5 font-normal text-left">Item</th>
-                      <th className="p-2.5 font-normal text-left">Tier</th>
-                      <th className="p-2.5 font-normal text-right">Lv.</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(shot.items || []).map((it, i) => (
-                      <tr key={`${it.slot}-${i}`} className={`border-b border-line/60 ${it.excluded ? 'text-ash/50' : ''}`}>
-                        <td className="p-2.5 whitespace-nowrap">{it.slot}</td>
-                        <td className={`p-2.5 ${it.excluded ? '' : 'text-bone'}`}>{it.name}</td>
-                        <td className="p-2.5 whitespace-nowrap">{it.tier}</td>
-                        <td className={`p-2.5 text-right font-mono text-xs ${it.excluded ? 'line-through' : 'text-bone'}`}>{it.level}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              {/* The per-item table that used to sit here is deliberately
+                  gone, for the same reason it went from the member's page:
+                  item names and slots come back subtly wrong often enough that
+                  the table read as a list of mistakes, and a wrong detail
+                  beside a right number makes officers doubt the number.
+
+                  The screenshot below IS the verification — it is the original
+                  picture, not a transcription of it, so "why is their weapon 68
+                  when I know they have a 74" is answered by looking at it. The
+                  full parse is still stored if a number ever needs digging
+                  into properly. */}
 
               {shot.image_url ? (
                 <a href={shot.image_url} target="_blank" rel="noreferrer">

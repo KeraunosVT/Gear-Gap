@@ -26,13 +26,6 @@ const SOURCE_LABEL = {
   window: 'Equipment window — Heroic items excluded',
 };
 
-const CATEGORY_META = {
-  weapon: { label: 'Weapon', icon: <Sword className="w-3.5 h-3.5" /> },
-  armor: { label: 'Armor', icon: <Shield className="w-3.5 h-3.5" /> },
-  accessory: { label: 'Accessory', icon: <Gem className="w-3.5 h-3.5" /> },
-  other: { label: 'Other', icon: null },
-};
-
 function Dropzone({ onFile, busy, busyLabel, children }) {
   return (
     <label className={`block panel rounded-lg border-dashed border-2 border-line hover:border-brass/50 transition-colors p-8 text-center ${busy ? 'opacity-60 pointer-events-none' : 'cursor-pointer'}`}>
@@ -47,50 +40,6 @@ function Dropzone({ onFile, busy, busyLabel, children }) {
         </>
       )}
     </label>
-  );
-}
-
-// Every item read, excluded ones included and struck through. An officer asking
-// "why is their weapon 68 when I know they have a 74" needs to see the 74
-// sitting there marked ignored — hiding it makes the question unanswerable.
-function ItemTable({ items }) {
-  return (
-    <div className="panel rounded-lg overflow-auto">
-      <table className="w-full text-sm min-w-[480px]">
-        <thead className="border-b border-line">
-          <tr className="eyebrow text-[10px] text-ash whitespace-nowrap">
-            <th className="p-3 font-normal text-left">Slot</th>
-            <th className="p-3 font-normal text-left">Item</th>
-            <th className="p-3 font-normal text-left">Tier</th>
-            <th className="p-3 font-normal text-right">Level</th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((it, i) => (
-            <tr key={`${it.slot}-${it.name}-${i}`}
-              className={`border-b border-line/60 ${it.excluded ? 'text-ash/50' : ''}`}>
-              <td className="p-3 whitespace-nowrap">
-                <span className="inline-flex items-center gap-1.5">
-                  {CATEGORY_META[it.category]?.icon}
-                  {it.slot}
-                </span>
-              </td>
-              <td className={`p-3 ${it.excluded ? '' : 'text-bone'}`}>{it.name}</td>
-              <td className="p-3 whitespace-nowrap">
-                {it.excluded ? (
-                  <span className="inline-flex items-center gap-1.5 text-brass" title="Not counted toward your gear level">
-                    <EyeOff className="w-3 h-3" /> {it.tier}
-                  </span>
-                ) : it.tier}
-              </td>
-              <td className={`p-3 text-right font-mono text-xs ${it.excluded ? 'line-through' : 'text-bone'}`}>
-                {it.level}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
   );
 }
 
@@ -146,6 +95,52 @@ export default function GearLevel() {
         <div className="py-16 text-center text-ash">Loading…</div>
       ) : (
         <>
+          {/* ── UPLOAD, FIRST ──────────────────────────────────────────────
+              Uploading is the only thing anyone comes to this page to DO;
+              the levels underneath are the result of having done it. The
+              tabs govern which upload, not which record — the record below
+              is the same either way. */}
+          <Tabs
+            variant="flat" active={tab} onChange={setTab}
+            items={[
+              { key: 'window', label: 'Equipment window' },
+              { key: 'popup', label: 'Equipment Level popup' },
+            ]}
+          />
+
+          {tab === 'window' && (
+            <div className="space-y-3">
+              <Dropzone onFile={(f) => post('/api/gear-screenshot', f, 'window', 'Gear screenshot read and saved.')}
+                busy={uploading === 'window'} busyLabel="Reading every item…">
+                Click to upload your full equipment window
+              </Dropzone>
+              <p className="text-ash/60 text-xs">
+                Open your character&apos;s equipment window with every slot and item level visible, then screenshot the
+                whole thing. Heroic-tier items are skipped when working out your levels. Your screenshot is visible to
+                you and to officers.
+              </p>
+            </div>
+          )}
+
+          {tab === 'popup' && (
+            <div className="space-y-3">
+              <Dropzone onFile={(f) => post('/api/gear-ilvl', f, 'popup', 'Gear level updated.')}
+                busy={uploading === 'popup'} busyLabel="Reading screenshot…">
+                Click to upload the Equipment Level popup
+              </Dropzone>
+              <p className="text-ash/60 text-xs">
+                The small in-game popup showing Equipment Lv. / Max Weapon / Max Armor / Max Accessory. Faster, but it
+                counts Heroic items — use the equipment window if you have any.
+              </p>
+            </div>
+          )}
+
+          <div className="rule-fade my-8" />
+
+          {/* ── WHAT IS ON FILE ────────────────────────────────────────────
+              Not tab-scoped. A member's gear level is one record however it
+              was produced, and hiding their stored screenshot because they
+              happened to click the other tab would read as having lost it. */}
           {entry ? (
             <>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -164,70 +159,41 @@ export default function GearLevel() {
               </p>
             </>
           ) : (
-            <div className="panel rounded-lg p-8 text-center text-ash">Nothing on file yet — upload a screenshot below.</div>
+            <div className="panel rounded-lg p-8 text-center text-ash">Nothing on file yet — upload a screenshot above.</div>
           )}
 
-          <div className="rule-fade my-8" />
+          {shot && (
+            <div className="mt-8 space-y-3">
+              {/* The per-item breakdown used to sit here and is deliberately
+                  gone. Item names and slots come back subtly wrong often
+                  enough — there are far too many of them — that the table read
+                  as a list of mistakes rather than as an explanation, and a
+                  wrong detail beside a right number makes people doubt the
+                  number.
 
-          <Tabs
-            variant="flat" active={tab} onChange={setTab}
-            items={[
-              { key: 'window', label: 'Equipment window' },
-              { key: 'popup', label: 'Equipment Level popup' },
-            ]}
-          />
-
-          {tab === 'window' && (
-            <div className="space-y-6">
-              <Dropzone onFile={(f) => post('/api/gear-screenshot', f, 'window', 'Gear screenshot read and saved.')}
-                busy={uploading === 'window'} busyLabel="Reading every item…">
-                Click to upload your full equipment window
-              </Dropzone>
-              <p className="text-ash/60 text-xs -mt-3">
-                Open your character&apos;s equipment window with every slot and item level visible, then screenshot the
-                whole thing. Heroic-tier items are listed but not counted. Your screenshot is visible to you and to
-                officers.
-              </p>
-
-              {shot && (
-                <>
-                  <div className="flex items-baseline justify-between gap-3 flex-wrap">
-                    <div className="eyebrow text-[10px] text-brass">What we read ({shot.items?.length || 0} items)</div>
-                    {shot.excluded_count > 0 && (
-                      <span className="text-xs text-brass inline-flex items-center gap-1.5">
-                        <EyeOff className="w-3 h-3" />
-                        {shot.excluded_count} Heroic item{shot.excluded_count === 1 ? '' : 's'} not counted
-                      </span>
-                    )}
-                  </div>
-                  <ItemTable items={shot.items || []} />
-
-                  {shot.image_url && (
-                    <div>
-                      <div className="eyebrow text-[10px] text-brass mb-2 flex items-center gap-2">
-                        <ImageIcon className="w-3 h-3" /> Stored screenshot
-                      </div>
-                      <a href={shot.image_url} target="_blank" rel="noreferrer">
-                        <img src={shot.image_url} alt="Your stored equipment window"
-                          className="max-w-full rounded-lg border border-line hover:border-brass/50 transition-colors" />
-                      </a>
-                    </div>
-                  )}
-                </>
+                  The screenshot itself is the ground truth. The only parsed
+                  fact kept is the count of excluded items, which doesn't depend
+                  on reading any name correctly. (The full parse is still
+                  stored — worth having when diagnosing a number that looks
+                  wrong.) */}
+              {shot.excluded_count > 0 && (
+                <p className="text-xs text-brass inline-flex items-center gap-1.5">
+                  <EyeOff className="w-3 h-3" />
+                  {shot.excluded_count} Heroic item{shot.excluded_count === 1 ? '' : 's'} not counted toward these levels
+                </p>
               )}
-            </div>
-          )}
 
-          {tab === 'popup' && (
-            <div className="space-y-4">
-              <Dropzone onFile={(f) => post('/api/gear-ilvl', f, 'popup', 'Gear level updated.')}
-                busy={uploading === 'popup'} busyLabel="Reading screenshot…">
-                Click to upload the Equipment Level popup
-              </Dropzone>
-              <p className="text-ash/60 text-xs">
-                The small in-game popup showing Equipment Lv. / Max Weapon / Max Armor / Max Accessory. Faster, but it
-                counts Heroic items — use the equipment window if you have any.
-              </p>
+              {shot.image_url && (
+                <div>
+                  <div className="eyebrow text-[10px] text-brass mb-2 flex items-center gap-2">
+                    <ImageIcon className="w-3 h-3" /> Your stored screenshot
+                  </div>
+                  <a href={shot.image_url} target="_blank" rel="noreferrer">
+                    <img src={shot.image_url} alt="Your stored equipment window"
+                      className="max-w-full rounded-lg border border-line hover:border-brass/50 transition-colors" />
+                  </a>
+                </div>
+              )}
             </div>
           )}
 
