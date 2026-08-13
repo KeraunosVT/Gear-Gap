@@ -97,6 +97,14 @@ export default function EventAttendance() {
   const [page, setPage] = useState(0);
   const [pageSize, setPageSize] = useState(100);
   const [selected, setSelected] = useState(() => new Set());
+  // The No Reply table keeps its OWN selection rather than sharing the set
+  // above. Nobody can be in both tables — every member gets exactly one status
+  // — so there is no collision to worry about, but the two selections mean
+  // different things: the main bar offers approve/deny/add/remove depending on
+  // what is picked, and the only thing that can ever happen to a no-reply is
+  // being added. Sharing one set would also make the main table's
+  // "N of M rows selected" footer count rows that aren't in it.
+  const [selectedNoReply, setSelectedNoReply] = useState(() => new Set());
   const [busy, setBusy] = useState(false);
   const [asking, setAsking] = useState(false);
   const [reason, setReason] = useState('');
@@ -104,7 +112,7 @@ export default function EventAttendance() {
   const load = useCallback(() => {
     setLoading(true);
     axios.get(`/api/attendance/events/${id}`)
-      .then((res) => { setData(res.data); setSelected(new Set()); })
+      .then((res) => { setData(res.data); setSelected(new Set()); setSelectedNoReply(new Set()); })
       .catch((err) => setError(err.response?.data?.error || 'Could not load that event.'))
       .finally(() => setLoading(false));
   }, [id]);
@@ -172,6 +180,27 @@ export default function EventAttendance() {
   const absentSelected = selectedRows.filter((r) => r.status !== 'attended');
   const attendedSelected = selectedRows.filter((r) => r.status === 'attended');
 
+  // ── No Reply selection ────────────────────────────────────────────────────
+  // Read off `data` rather than the destructured `noReply` below, because that
+  // destructuring happens after the loading guard — and every hook has to run
+  // on every render regardless of which branch the component takes.
+  const noReplyAll = useMemo(() => (data && data.no_reply) || [], [data]);
+  const noReplySelected = useMemo(
+    () => noReplyAll.filter((r) => selectedNoReply.has(r.discord_id)),
+    [noReplyAll, selectedNoReply],
+  );
+  const allNoReplySelected = noReplyAll.length > 0 && noReplyAll.every((r) => selectedNoReply.has(r.discord_id));
+
+  const toggleNoReply = (discordId) => setSelectedNoReply((prev) => {
+    const next = new Set(prev);
+    if (next.has(discordId)) next.delete(discordId); else next.add(discordId);
+    return next;
+  });
+
+  const toggleAllNoReply = () => setSelectedNoReply(
+    () => (allNoReplySelected ? new Set() : new Set(noReplyAll.map((r) => r.discord_id))),
+  );
+
   const run = async (fn, done) => {
     setBusy(true);
     try { await fn(); flash(done); load(); }
@@ -185,16 +214,23 @@ export default function EventAttendance() {
     `${pendingSelected.length} request${pendingSelected.length === 1 ? '' : 's'} ${status}.`,
   );
 
-  const markAttended = () => run(
-    // Names travel with the ids so a member who has since left the server still
-    // gets a readable row. The server re-resolves through player_identities
-    // anyway and only falls back to this, but the fallback is the case that
-    // matters — it is the one where Discord can't tell us anything.
+  // One call path for both tables. Names travel with the ids so a member who
+  // has since left the server still gets a readable row — the server
+  // re-resolves through player_identities and only falls back to this, but the
+  // fallback is the case that matters, since it is the one where Discord can't
+  // tell us anything.
+  //
+  // Anyone already on the night is skipped server-side rather than erroring the
+  // whole call, so a selection that overlaps what is already recorded still
+  // does the useful part.
+  const addAttendees = (people) => run(
     () => axios.post(`/api/admin/events/${id}/attendees`, {
-      members: absentSelected.map((r) => ({ id: r.discord_id, name: r.display_name })),
+      members: people.map((r) => ({ id: r.discord_id, name: r.display_name })),
     }),
-    `${absentSelected.length} added to this night.`,
+    `${people.length} added to this night.`,
   );
+
+  const markAttended = () => addAttendees(absentSelected);
 
   const removeAttended = () => run(
     () => Promise.all(attendedSelected.map((r) =>
@@ -424,10 +460,42 @@ export default function EventAttendance() {
                 No Reply <span className="text-sm font-sans text-ash">— {noReply.length}</span>
               </h2>
               <div className="rule-fade mt-2 mb-4" />
+
+              {/* Officers can add from here too. Someone who never signed up and
+                  never filed still turns up and plays — "no reply" describes
+                  what was heard beforehand, not whether they were there, and
+                  making an officer go hunting for them in the other table to
+                  record that would be busywork.
+
+                  Adding is the ONLY action offered: these rows have no pending
+                  request to approve and no attendance row to remove. Once added
+                  they leave this table on the next load and any correction
+                  happens in the main one. */}
+              {officer && selectedNoReply.size > 0 && (
+                <div className="mb-4 panel rounded-lg px-4 py-3 flex items-center gap-3 flex-wrap">
+                  <span className="text-sm text-ash">{selectedNoReply.size} selected</span>
+                  <Button size="sm" variant="secondary" disabled={busy}
+                    onClick={() => addAttendees(noReplySelected)}
+                    icon={<UserPlus className="w-3.5 h-3.5" />}>
+                    Mark {selectedNoReply.size} attended
+                  </Button>
+                  <Button size="sm" variant="neutral" onClick={() => setSelectedNoReply(new Set())}>Clear</Button>
+                </div>
+              )}
+
               <div className="panel rounded-lg overflow-auto">
                 <table className="w-full text-sm min-w-[600px]">
                   <thead className="border-b border-line">
                     <tr className="eyebrow text-[10px] text-ash whitespace-nowrap">
+                      {officer && (
+                        <th className="p-3 w-10">
+                          {/* This table isn't paginated, so the header box
+                              really does mean everyone in it — unlike the main
+                              table's, which is deliberately page-scoped. */}
+                          <input type="checkbox" checked={allNoReplySelected} onChange={toggleAllNoReply}
+                            title="Select everyone who didn't reply" className="accent-brass cursor-pointer" />
+                        </th>
+                      )}
                       <th className="p-3 font-normal text-left w-12">#</th>
                       <th className="p-3 font-normal text-left">Username</th>
                       <th className="p-3 font-normal text-left">Role</th>
@@ -436,7 +504,14 @@ export default function EventAttendance() {
                   </thead>
                   <tbody>
                     {noReply.map((r, i) => (
-                      <tr key={r.discord_id} className="border-b border-line/60 hover:bg-panelup transition-colors">
+                      <tr key={r.discord_id}
+                        className={`border-b border-line/60 hover:bg-panelup transition-colors ${selectedNoReply.has(r.discord_id) ? 'bg-panelup' : ''}`}>
+                        {officer && (
+                          <td className="p-3">
+                            <input type="checkbox" checked={selectedNoReply.has(r.discord_id)}
+                              onChange={() => toggleNoReply(r.discord_id)} className="accent-brass cursor-pointer" />
+                          </td>
+                        )}
                         <td className="p-3 text-ash tabular-nums">{i + 1}</td>
                         <td className="p-3">
                           <span className="flex items-center gap-2">
