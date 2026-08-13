@@ -47,10 +47,6 @@ export default function Names() {
 
   useEffect(() => { load(); }, []);
 
-  if (!can('names')) {
-    return <RestrictedGate />;
-  }
-
   const removeRow = (name) => setUnmapped((prev) => prev.filter((u) => u.name !== name));
 
   const assign = async (u) => {
@@ -154,6 +150,12 @@ export default function Names() {
     () => [...identities].sort((a, b) => (a.display_name || '').localeCompare(b.display_name || '')),
     [identities]
   );
+
+  // Below every hook, not above them. This gate used to sit just after the
+  // effects and before the two useMemos above, which made the hook count depend
+  // on a capability — legal only for as long as nobody's permissions changed
+  // mid-session, and a React crash the moment one did.
+  if (!can('names')) return <RestrictedGate />;
 
   return (
     <PageShell>

@@ -11,9 +11,12 @@ A guild-management web app for a *Throne & Liberty* guild, built around Discord:
 - **Gear Level** — upload an in-game Equipment Level screenshot, parsed automatically (Gemini)
 - **My Classes** — rank up to 3 classes per mode so officers can plan parties around your build
 - **Leave of Absence** — submit LOA for a single event, a date range, or recurring days (pick more than one at once); optionally scope any of these to a time window (e.g. "I can make the 6pm event but I'm out after that," or "out 7–8pm, back after") — also via `/loa` in Discord
+- **My Attendance** — every night attendance was taken in the last 30 days and whether you were counted. If the snapshot missed you, ask an officer to add you — for 24 hours after attendance was taken, from the site or via `/attendance-late`. Nobody writes their own attendance; a member asks, an officer decides, and you get a DM either way
 
 **For officers**
-- **Attendance** — snap a voice channel's members into a logged event, tied to the recurring event schedule; also runnable straight from Discord via `/attendance`. Expanding a logged event splits everyone who didn't show into *excused* (an LOA was on file for that date) and *no-show* (neither turned up nor filed)
+- **Attendance** — snap a voice channel's members into a logged event, tied to the recurring event schedule; also runnable straight from Discord via `/attendance`. One set of window tabs (1 week / 2 weeks / 30 days / all) governs both the per-member rate table and the list of logged nights beside it, so the percentage and the events explaining it always cover the same period
+- **The night in full** — every logged event has its own page: one row and exactly one status per member (attended, pending, no-show having signed up, LOA, request denied), anyone who never answered at all in a separate table, the party that was fielded, and bulk approve/deny/add/remove. A **copy** of the party is frozen onto the event when attendance is saved, so editing or deleting the saved roster afterwards can't rewrite what that night ran with
+- **Late attendance queue** — pending requests appear above the record with the member's reason and one click each way. Two officers deciding the same request at once produces one attendance row and one "already decided", not two rows and an inflated rate
 - **Loot Council** — see wishlist demand, award items, track Lucent and archboss-shard grants per member
 - **Parties** — drag-and-drop party builder with roles, saved rosters, posts directly to Discord. Each roster is saved against the date/event it's for, so reopening it re-checks LOA for that occasion and reports what changed since — who has filed since you built it, and who's since cancelled. The posted image lists who's on leave underneath the parties, so members can see they were accounted for
 - **Gear Levels / Merge Names** — guild-wide gear-level leaderboard; reconcile OCR-misread in-game names to the right player
@@ -22,7 +25,8 @@ A guild-management web app for a *Throne & Liberty* guild, built around Discord:
 **Discord bot**
 - `/elitetimer`, `/elitetimers` — report and check elite boss respawn timers
 - `/loa` — submit or cancel leave of absence from Discord
-- `/attendance` — snap the caller's voice channel and log attendance for a scheduled event
+- `/attendance` — snap a voice channel and log attendance for a scheduled event. Uses the channel you name, else the one you're sitting in, else the guild's configured attendance channel — so it works from a text channel once that's set
+- `/attendance-late` — the one attendance command that isn't officers-only: ask to be added to a night the snapshot missed. The autocomplete *is* the 24-hour window, so a member with nothing eligible sees an empty list rather than a rejection
 - `/announce` — post a timed announcement (e.g. "get into CTA Comms") with a timestamp that renders in each viewer's own timezone
 
 ## Tech stack
@@ -117,7 +121,11 @@ The seed script never overwrites a set column with a blank one, so re-running it
 
 A guild night doesn't end at midnight. The 12:30 AM Guild Field Boss is the tail of the previous evening's block, not the start of a new day — so "Saturday's events" means Saturday 8 PM through Sunday 12:30 AM, and a member who files *"out from 9 PM Saturday"* is out for that 12:30 AM boss too.
 
-The schedule stores each event on the calendar day it **actually occurs** (the 12:30 AM boss is stored under Sunday). The code maps that back to the night it belongs to: anything before `GUILD_DAY_START` (01:00 ET) counts as the night before. That constant lives in [`backend/loa.js`](backend/loa.js), mirrored in [`frontend/src/timeUtils.js`](frontend/src/timeUtils.js) — change both together. It must sit after the guild's latest event and before the earliest of the next evening.
+The schedule stores each event on the calendar day it **actually occurs** (the 12:30 AM boss is stored under Sunday). The code maps that back to the night it belongs to: anything before the **guild-night rollover** (01:00 by default) counts as the night before. It must sit after the guild's latest event and before the earliest of the next evening.
+
+The rollover and the guild timezone are both set on [Guild Settings](#guild-settings-adminsettings). They used to be consts in [`backend/loa.js`](backend/loa.js) and [`frontend/src/timeUtils.js`](frontend/src/timeUtils.js) that had to be edited together; both files now read them at call time — the backend from `guild_config`, the frontend from `GET /api/guild` via `configureGuildTime()`, which runs before anything renders. **Never hoist either value into a module-scope const**: a copy taken at import time keeps the old rollover until the next deploy, and the symptom isn't an error, it's a whole night of LOA, signups and attendance filed against the wrong date.
+
+Moving the rollover re-buckets **existing** records as well as new ones, since the night an event belongs to is derived, not stored. The settings page says so before it saves.
 
 Two consequences worth knowing:
 

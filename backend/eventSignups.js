@@ -477,18 +477,13 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
       return { event, members: (roster || []).filter((m) => !responded.has(m.id) && !out.has(m.id)) };
     },
 
-    // Signed up vs actually turned up. Both directions are worth seeing: a
-    // no-show is someone to talk to, and a walk-in is someone the cap would have
-    // turned away for nothing.
-    async attendanceComparison({ signupEventId, attendees }) {
-      const { going } = await entriesFor(signupEventId);
-      const present = new Set((attendees || []).map((a) => a.discord_id || a.id));
-      const signedUp = new Set(going.map((e) => e.discord_id));
-      return {
-        noShows: going.filter((e) => !present.has(e.discord_id)),
-        walkIns: (attendees || []).filter((a) => !signedUp.has(a.discord_id || a.id)),
-      };
-    },
+    // `attendanceComparison` used to live here: signed-up vs turned-up, for the
+    // admin event route. It is gone because eventDetail.js now derives both from
+    // the same pass that resolves LOA and late requests, and it must — a
+    // no-show is only a no-show once you know they didn't file leave and didn't
+    // ask to be added afterwards. Two implementations of that join would answer
+    // the same question differently within a month, which is the whole reason
+    // eventDetail exists. See `walk_in` and the `noshow_signed` status there.
   };
 };
 
