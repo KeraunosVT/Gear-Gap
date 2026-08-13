@@ -19,12 +19,15 @@ import LootItems from './pages/LootItems';
 import LootCurrency from './pages/LootCurrency';
 import LootRequests from './pages/LootRequests';
 import Permissions from './pages/Permissions';
+import GuildSettings from './pages/GuildSettings';
 import MyProfile from './pages/MyProfile';
 import LootHistory from './pages/LootHistory';
 import Attendance from './pages/Attendance';
 import PlayerProfile from './pages/PlayerProfile';
 import LOA from './pages/LOA';
 import Signups from './pages/Signups';
+import MyAttendance from './pages/MyAttendance';
+import EventAttendance from './pages/EventAttendance';
 import Classes from './pages/Classes';
 import GearLevel from './pages/GearLevel';
 import GearLevels from './pages/GearLevels';
@@ -83,6 +86,8 @@ function Gate() {
           <Route path="/loot" element={<Loot />} />
           <Route path="/loa" element={<LOA />} />
           <Route path="/signups" element={<Signups />} />
+          <Route path="/attendance" element={<MyAttendance />} />
+          <Route path="/attendance/:id" element={<EventAttendance />} />
           <Route path="/classes" element={<Classes />} />
           <Route path="/gear" element={<GearLevel />} />
           <Route path="/admin" element={<Admin />} />
@@ -97,6 +102,7 @@ function Gate() {
           <Route path="/admin/gear-levels" element={<GearLevels />} />
           <Route path="/admin/permissions" element={<Permissions />} />
           <Route path="/admin/audit-log" element={<AuditLog />} />
+          <Route path="/admin/settings" element={<GuildSettings />} />
           {/* Legacy aliases kept so old links still resolve */}
           <Route path="/dashboard" element={<MatchStats />} />
           <Route path="/match-stats" element={<MatchStats />} />

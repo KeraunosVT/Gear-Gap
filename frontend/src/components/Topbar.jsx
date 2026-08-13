@@ -4,7 +4,7 @@ import { Moon, Sun, Check, PanelLeft, ChevronRight } from 'lucide-react';
 import { guildLinks, memberLinks, adminLinks } from './Sidebar';
 import { applyTheme } from '../theme';
 import { applyPalette, PALETTES } from '../palette';
-import { GUILD } from '../guild';
+import { useGuild } from '../guild';
 
 const ALL_LINKS = [...guildLinks, ...memberLinks, ...adminLinks];
 
@@ -15,7 +15,9 @@ const ALL_LINKS = [...guildLinks, ...memberLinks, ...adminLinks];
 // scan of ALL_LINKS never sees: every one of them missed and fell through to the
 // fallback, so they all read the same. Matching children as well both fixes that
 // and gives them the group as a parent crumb.
-function trailFor(pathname) {
+// `house` is threaded in rather than read from a module import: guild identity
+// is fetched at runtime now, and a plain function can't call a hook.
+function trailFor(pathname, house) {
   for (const link of ALL_LINKS) {
     if (link.to === pathname) return [{ label: link.label }];
     const child = (link.children || []).find((c) => c.to === pathname);
@@ -25,12 +27,17 @@ function trailFor(pathname) {
   if (pathname.startsWith('/roster/')) {
     return [{ label: 'Roster', to: '/roster' }, { label: decodeURIComponent(pathname.slice('/roster/'.length)) }];
   }
+  // One night's roll. Without this it falls through to the house name, which
+  // reads as "you're nowhere" on a page reached by clicking a link.
+  if (pathname.startsWith('/attendance/')) {
+    return [{ label: 'Attendance', to: '/attendance' }, { label: 'Event' }];
+  }
   // Resolver route: redirects to /roster/<name>, but is the active path for
   // an instant before that lands.
   if (pathname === '/me') return [{ label: 'My Profile' }];
   // Legacy aliases kept in App.jsx so old links still resolve.
   if (pathname === '/dashboard' || pathname === '/match-stats') return [{ label: 'War Record', to: '/war-record' }];
-  return [{ label: GUILD.house }];
+  return [{ label: house }];
 }
 
 const PALETTE_META = {
@@ -41,6 +48,7 @@ const PALETTE_META = {
 
 export default function Topbar({ collapsed, onToggleSidebar }) {
   const { pathname } = useLocation();
+  const { house } = useGuild();
   const isHome = pathname === '/';
   const [theme, setTheme] = useState(() => document.documentElement.dataset.theme || 'dark');
   const [palette, setPalette] = useState(() => document.documentElement.dataset.palette || 'dispatch');
@@ -81,7 +89,7 @@ export default function Topbar({ collapsed, onToggleSidebar }) {
           <NavLink to="/" className={`shrink-0 transition-colors ${isHome ? 'text-bone font-semibold' : 'text-ash hover:text-bone'}`}>
             Dashboard
           </NavLink>
-          {!isHome && trailFor(pathname).map((crumb, i, all) => (
+          {!isHome && trailFor(pathname, house).map((crumb, i, all) => (
             <span key={crumb.label} className="flex items-center gap-1.5 min-w-0">
               <ChevronRight className="w-3.5 h-3.5 text-ash/50 shrink-0" />
               {/* Only the last crumb is the current page; the rest navigate. */}

@@ -5,7 +5,7 @@ import {
   Upload, LayoutGrid, Tag, Gavel, ClipboardCheck, ClipboardList, ScrollText, ShieldCheck, LogOut, Settings, ChevronDown,
 } from 'lucide-react';
 import Sigil from './Sigil';
-import { GUILD } from '../guild';
+import { useGuild } from '../guild';
 import { useAuth } from '../auth';
 import { getDisplayTimezone, setDisplayTimezone, TIMEZONE_OPTIONS } from '../timeUtils';
 
@@ -21,6 +21,10 @@ export const memberLinks = [
   // Member-facing like /loa, so no `perm` — the officer controls on the page
   // gate themselves inline on 'attendance'.
   { to: '/signups', label: 'Signups', icon: ClipboardList },
+  // Beside Signups and LOA on purpose: those three are the whole of "will you
+  // be there / were you there" from a member's side. No `perm` — reading your
+  // own attendance is not an officer action.
+  { to: '/attendance', label: 'Attendance', icon: ClipboardCheck },
   { to: '/loa', label: 'LOA', icon: CalendarOff },
   { to: '/classes', label: 'Classes', icon: Layers },
   { to: '/gear', label: 'Gear Level', icon: Gauge },
@@ -45,6 +49,10 @@ export const adminLinks = [
   { to: '/admin/gear-levels', label: 'Gear Levels', icon: Gauge, perm: 'gear' },
   { to: '/admin/permissions', label: 'Permissions', icon: ShieldCheck, perm: 'permissions' },
   { to: '/admin/audit-log', label: 'Audit Log', icon: ScrollText, perm: 'audit' },
+  // Last, and deliberately: it is the only page here whose settings gate every
+  // other one, so it reads as the floor of the section rather than one item
+  // among the rest.
+  { to: '/admin/settings', label: 'Guild Settings', icon: Settings, perm: 'settings' },
 ];
 
 // Loot History reads gear awards and currency side by side, so any loot
@@ -72,6 +80,7 @@ export function getInitialSidebarCollapsed() {
 
 export default function Sidebar({ collapsed }) {
   const { user, logout, can } = useAuth();
+  const { house, tag } = useGuild();
   // Section disappears entirely when no capability opens anything in it.
   const adminNav = visibleAdminLinks(can);
 
@@ -86,8 +95,8 @@ export default function Sidebar({ collapsed }) {
         <Sigil className="w-7 h-9 text-brass shrink-0" />
         {!collapsed && (
           <div className="leading-none min-w-0">
-            <div className="font-display text-bone text-sm tracking-[0.18em] truncate">{GUILD.house.toUpperCase()}</div>
-            <div className="text-[10px] text-ash tracking-[0.25em] mt-1">⟨ {GUILD.tag} ⟩</div>
+            <div className="font-display text-bone text-sm tracking-[0.18em] truncate">{house.toUpperCase()}</div>
+            <div className="text-[10px] text-ash tracking-[0.25em] mt-1">⟨ {tag} ⟩</div>
           </div>
         )}
       </NavLink>
@@ -193,7 +202,14 @@ function NavSection({ title, links, linkClass, collapsed }) {
         {links.map(({ to, label, end, icon: Icon, children }) => {
           // Collapsed rail has no room for a chevron/sub-list — just link
           // straight to the parent page, same as any other icon-only item.
-          if (!children || collapsed) {
+          //
+          // `children.length === 0` is not redundant. visibleAdminLinks() gives
+          // EVERY link a children array (`children: (l.children || []).filter(…)`),
+          // and an empty array is truthy — so without this every admin item took
+          // the group branch below: a chevron that expanded to nothing, and a
+          // parent-row highlight driven by pathname.startsWith('/admin/'), which
+          // lit Upload Match on every page in the section.
+          if (!children || children.length === 0 || collapsed) {
             return (
               <NavLink key={to} to={to} end={end} className={linkClass} title={collapsed ? label : undefined}>
                 <Icon className="w-4 h-4 shrink-0" />

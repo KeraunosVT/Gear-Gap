@@ -59,26 +59,59 @@ For local dev with two separate dev servers, set `CORS_ORIGINS=http://localhost:
 
 ## Configuration
 
-All configuration is environment variables, read from `backend/.env` (see `require('dotenv')` in `server.js`) or injected directly by your host. Nothing below is hardcoded except guild branding.
+Configuration is split in two. **Secrets and identity** are environment variables, read from `backend/.env` or injected by your host. **Everything an officer might want to change** — the guild's name, which channels the bot posts in, which roles mean what — lives in the database and is edited on the **Guild Settings** page.
 
 | Variable | Purpose |
 |---|---|
 | `DISCORD_CLIENT_ID`, `DISCORD_CLIENT_SECRET`, `DISCORD_REDIRECT_URI` | Discord OAuth2 app (member login) |
 | `DISCORD_BOT_TOKEN` | Discord bot (gateway, slash commands, session re-verification) |
 | `DISCORD_GUILD_ID` | The one Discord server this deployment is bound to |
-| `DISCORD_ALLOWED_ROLE_IDS` | Comma-separated role IDs allowed to log in (empty = any member) |
-| `DISCORD_ADMIN_ROLE_IDS` | Comma-separated role IDs granted officer/admin access |
-| `DISCORD_MEMBER_ROLE_IDS` | Roles counted as "member" for roster display |
-| `DISCORD_ROSTER_CHANNEL_ID`, `DISCORD_LOA_CHANNEL_ID`, `DISCORD_ANNOUNCE_CHANNEL_ID` | Channels each feature posts to |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` | Database connection |
 | `JWT_SECRET` | Signs the session cookie |
 | `GEMINI_API_KEY` | Screenshot parsing (match stats, gear level) |
 | `GEMINI_MODEL` | Optional, defaults to `gemini-2.5-flash` |
 | `PORT` | Optional, defaults to `3000` |
 | `CORS_ORIGINS` | Optional, comma-separated trusted origins (local dev only — production is same-origin) |
-| `APP_URL`, `NODE_ENV`, `SESSION_REVERIFY_MINUTES`, `GEAR_SUBMIT_LIMIT_PER_HOUR`, `IDENTITY_CACHE_SECONDS`, `MEMBER_CACHE_SECONDS`, `WEAPON_LEGEND_PATH` | Secondary tuning, all have sensible defaults |
+| `APP_URL`, `NODE_ENV`, `SESSION_REVERIFY_MINUTES`, `GEAR_SUBMIT_LIMIT_PER_HOUR`, `IDENTITY_CACHE_SECONDS`, `MEMBER_CACHE_SECONDS`, `GUILD_CONFIG_CACHE_SECONDS`, `WEAPON_LEGEND_PATH` | Secondary tuning, all have sensible defaults |
 
-Guild branding is edited in two files: the name and past-name aliases in [`shared/guild.json`](shared/guild.json) (shared with the backend, which uses the aliases to keep a renamed guild's war record together), and the motto and creed in [`frontend/src/guild.js`](frontend/src/guild.js).
+### Guild Settings (`/admin/settings`)
+
+Everything below used to be an environment variable or a file in the repo, and changing any of it needed a redeploy. It now lives in the `guild_config` table (one row, migration 014) and is read at call time — so a save takes effect on the next page load, not the next deploy.
+
+| Setting | Was | Notes |
+|---|---|---|
+| House name, tag, past names | `shared/guild.json` | Past names must stay listed forever — see below |
+| Motto, creed | `frontend/src/guild.js` | Shown on the login page |
+| Timezone, guild-night rollover | consts in `loa.js` / `timeUtils.js` | See *Guild nights run past midnight* |
+| Officer roles | `DISCORD_ADMIN_ROLE_IDS` | Grants every capability, present and future |
+| Member allow-list | `DISCORD_ALLOWED_ROLE_IDS` | Who may sign in. Empty = any member of the server |
+| Roster roles | `DISCORD_MEMBER_ROLE_IDS` | Who appears in parties, attendance and reminders |
+| Roster / LOA / Announce / Signup channels | `DISCORD_*_CHANNEL_ID` | Blank = that feature posts nowhere |
+| Attendance voice channel | *(new)* | The one channel the bot **reads** rather than posts to |
+
+**Those environment variables are no longer read.** Setting `DISCORD_LOA_CHANNEL_ID` today does nothing; leaving stale ones in `.env` is harmless but misleading, so delete them once you have migrated.
+
+Two saves are refused rather than confirmed, because neither is recoverable from inside the app:
+
+- **Removing your own officer role**, or a role you hold from the allow-list. Capabilities live in the session cookie and refresh hourly, so the mistake surfaces an hour later — by which point you can't sign in to undo it. Checked against Discord, not the session, and fails closed if Discord is unreachable.
+- **Removing a past name that still appears in the war record.** `canonicalGuild()` collapses every listed alias onto the current tag; drop one that history uses and those matches are silently re-read as an enemy guild's, taking their kills out of the record with no error anywhere. Renaming the tag adds the new name automatically for the same reason, pointed at the future.
+
+#### Migrating an existing deployment
+
+Order matters. Doing step 3 before step 2 leaves the bot with no channels and — because the two role lists gate the admin area and the login itself — nobody able to sign in and fix it.
+
+```bash
+# 1. Run migrations/014_guild_config.sql in the Supabase SQL editor.
+
+# 2. In the DEPLOYMENT'S OWN environment, so it reads the same DISCORD_* values
+#    the server reads. Dry run first; it prints exactly what would change.
+node backend/scripts/seedConfigFromEnv.js
+node backend/scripts/seedConfigFromEnv.js --write
+
+# 3. Verify row 1 against the current env, then deploy.
+```
+
+The seed script never overwrites a set column with a blank one, so re-running it after someone has edited settings in the app won't wipe their work.
 
 ### Guild nights run past midnight
 

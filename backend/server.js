@@ -27,6 +27,9 @@ const createIdentities = require('./identities');
 const createLoa = require('./loa');
 const createEventSignups = require('./eventSignups');
 const createAuditLog = require('./auditLog');
+const guildConfig = require('./guildConfig');
+const createLateAttendance = require('./lateAttendance');
+const createEventDetail = require('./eventDetail');
 
 const gearUpload = multer({
   storage: multer.memoryStorage(),
@@ -89,6 +92,12 @@ const loa = supabase ? createLoa(supabase, identities) : null;
 // builder and the attendance breakdown.
 const signups = supabase ? createEventSignups(supabase, identities, loa) : null;
 const auditLog = supabase ? createAuditLog(supabase) : null;
+const lateAttendance = supabase ? createLateAttendance(supabase, identities) : null;
+// The same assembler admin.js mounts. Two routes, one reconciliation — a member
+// and an officer looking at the same night must not see different facts.
+const eventDetail = supabase
+  ? createEventDetail(supabase, { identities, loa, signups, lateAttendance, listMembers })
+  : null;
 
 // The gateway needs Supabase for /elitetimer persistence, so start it after setup.
 gateway.start(supabase);
@@ -98,20 +107,44 @@ gateway.start(supabase);
 // one so stats aren't split across what looks like several separate guilds. Any
 // name NOT in this list is treated as an enemy guild and kept as-is.
 //
-// Read from shared/guild.json, the same file the frontend brands itself from —
-// these used to be two hand-maintained lists, and a rename that updated only one
-// would silently orphan match rows into an enemy guild rather than error.
+// Read from guild_config, which Guild Settings writes — these used to be two
+// hand-maintained lists (shared/guild.json and the frontend bundle), and a
+// rename that updated only one would silently orphan match rows into an enemy
+// guild rather than error.
+//
+// FUNCTIONS, NOT CONSTS. This was `const GUILD_ALIASES = Object.fromEntries(…)`
+// evaluated once at require time, which is fine for a file you edit and
+// redeploy and completely wrong for a row an officer can edit at 9pm: the
+// branding would change immediately and the war-record collapsing would not
+// change until the next restart, which is a silent divergence of exactly the
+// kind the alias guard in guildSettings.js exists to prevent.
 //
 // Renaming is ADDITIVE: a scoreboard records whatever the guild was called the
-// day it was uploaded, so every past name has to stay listed forever. And note
-// "Highly Regarded" is a *different* guild — it must not be added.
-const GUILD_IDENTITY = require('../shared/guild.json');
-const MY_GUILD = GUILD_IDENTITY.tag;
-const GUILD_ALIASES = Object.fromEntries(GUILD_IDENTITY.aliases.map((n) => [n, MY_GUILD]));
-const canonicalGuild = (name) => GUILD_ALIASES[(name || '').trim()] || (name || '').trim() || 'Unknown';
+// day it was uploaded, so every past name has to stay listed forever. The
+// settings page enforces that; see assertAliasesSafe. And note "Highly
+// Regarded" is a *different* guild — it must not be added.
+const myGuild = () => guildConfig.get().tag;
+const guildAliases = () => guildConfig.aliasMap();
+const canonicalGuild = (name) => guildConfig.canonicalGuild(name);
 
 // Health check (public)
 app.get('/api/health', (req, res) => res.json({ status: 'ok' }));
+
+// ── GUILD IDENTITY (public) ──────────────────────────────────────────────────
+// The branding the frontend used to import from shared/guild.json at build
+// time. It has to be public and it has to be outside the login wall, because
+// the login page itself renders the house name — gating this behind auth would
+// mean nobody could see whose hall they were signing in to.
+//
+// An EXPLICIT field list, never the row. guild_config also holds the officer
+// role ids, the member allow-list and every channel id; a `res.json(row)` here,
+// or a spread added later by someone in a hurry, publishes all of it to anyone
+// who can reach the site. guildConfig.publicIdentity() is the projection, and
+// it is the only thing this route is allowed to send.
+app.get('/api/guild', (req, res) => {
+  res.set('Cache-Control', 'no-cache');
+  res.json(guildConfig.publicIdentity());
+});
 
 // Discord login routes (public)
 app.use('/api/auth', authRouter);
@@ -186,7 +219,7 @@ app.get('/api/my-profile', async (req, res) => {
     const { count } = await supabase.from('player_match_stats')
       .select('*', { count: 'exact', head: true })
       .in('player_name', names)
-      .in('guild_name', Object.keys(GUILD_ALIASES));
+      .in('guild_name', Object.keys(guildAliases()));
 
     res.json({ name, mapped: true, hasRecord: (count || 0) > 0 });
   } catch (err) {
@@ -522,6 +555,69 @@ app.delete('/api/signups/:id/join', async (req, res) => {
   }
 });
 
+// ── MEMBERS AREA: Attendance ─────────────────────────────────────────────────
+// A member's own attendance record, and the one correction they may ask for.
+//
+// Everything here is self-scoped in the WHERE clause rather than checked after
+// the fact: the requester is always req.user.id and never a body field, so
+// there is no on-behalf-of path to get wrong. Officers add people on someone
+// else's behalf through /api/admin, where the audit middleware sees it.
+
+// The night in full. `officer` widens the response for someone who holds
+// 'attendance' — the reasons and the decider — rather than changing what the
+// page computes; see eventDetail.js.
+app.get('/api/attendance/events/:id', async (req, res) => {
+  if (!eventDetail) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    const out = await eventDetail.detail(req.params.id, {
+      viewerId: req.user.id,
+      officer: userHas(req.user, 'attendance'),
+    });
+    res.json(out);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || 'Failed to load that event.' });
+  }
+});
+
+app.get('/api/attendance/mine', async (req, res) => {
+  if (!lateAttendance) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    const days = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 1), 180);
+    const events = await lateAttendance.listForMember(req.user.id, { days });
+    res.json({ events, days, window_hours: lateAttendance.WINDOW_HOURS });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || 'Failed to load your attendance.' });
+  }
+});
+
+app.post('/api/attendance/late', async (req, res) => {
+  if (!lateAttendance) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    const out = await lateAttendance.request({
+      eventId: req.body?.event_id,
+      // Always the session's own id. There is deliberately no way to file for
+      // someone else here — attendance is the number the guild makes decisions
+      // with, so nobody writes their own and nobody writes anyone else's
+      // without going through an officer route that is audited.
+      discordId: req.user.id,
+      displayName: req.user.username,
+      reason: req.body?.reason,
+    });
+    res.json(out);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || 'Failed to file that request.' });
+  }
+});
+
+app.delete('/api/attendance/late/:id', async (req, res) => {
+  if (!lateAttendance) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    res.json(await lateAttendance.cancel(req.params.id, req.user.id));
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message || 'Failed to withdraw that request.' });
+  }
+});
+
 // ── ALL-TIME PLAYER STATS (our guild only) ───────────────────────────────────
 app.get('/api/players', async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
@@ -538,7 +634,7 @@ app.get('/api/players', async (req, res) => {
       matchIds = (recentMatches || []).map((m) => m.id);
       if (matchIds.length === 0) return res.json({ players: [] });
 
-      const guildNames = Object.keys(GUILD_ALIASES);
+      const guildNames = Object.keys(guildAliases());
       const { data: rows, error: rErr } = await supabase
         .from('player_match_stats')
         .select('player_name, kills, assists, damage_dealt, damage_taken, healing')
@@ -569,7 +665,7 @@ app.get('/api/players', async (req, res) => {
     // RPC output, so this is a separate fetch, scoped to the same match set as
     // the stats above. Paginated via .range() since player_match_stats can
     // exceed PostgREST's 1,000-row default cap for a guild with real history.
-    const guildNames = Object.keys(GUILD_ALIASES);
+    const guildNames = Object.keys(guildAliases());
     // Only the unscoped all-time scan is worth caching — a "last N" query is
     // already bounded by its match set and changes with the parameter.
     const weaponRows = matchIds
@@ -695,7 +791,7 @@ app.get('/api/player/:name', async (req, res) => {
     const gearEntry = discordId && gearIlvl ? await gearIlvl.forMember(discordId) : null;
 
     // Pull every match row for those names (our guild only).
-    const guildNames = Object.keys(GUILD_ALIASES);
+    const guildNames = Object.keys(guildAliases());
     const { data: rows, error: rErr } = await supabase
       .from('player_match_stats')
       // Explicit constraint name, not just "!inner" — player_match_stats has
@@ -887,8 +983,8 @@ app.get('/api/matches/recent', async (req, res) => {
         const g = canonicalGuild(p.guild_name);
         teamGuildCount[teamKey][g] = (teamGuildCount[teamKey][g] || 0) + 1;
       });
-      const myRedCount = teamGuildCount.Red[MY_GUILD] || 0;
-      const myYellowCount = teamGuildCount.Yellow[MY_GUILD] || 0;
+      const myRedCount = teamGuildCount.Red[myGuild()] || 0;
+      const myYellowCount = teamGuildCount.Yellow[myGuild()] || 0;
       const ourColor = myRedCount >= myYellowCount ? 'Red' : 'Yellow';
 
       // Sum kills by team color
@@ -907,7 +1003,7 @@ app.get('/api/matches/recent', async (req, res) => {
       const myKills = teamKills[ourColor];
       const enemyKills = teamKills[ourColor === 'Red' ? 'Yellow' : 'Red'];
       const killDifference = Math.abs(myKills - enemyKills);
-      const winningGuild = myKills >= enemyKills ? MY_GUILD : 'Enemy';
+      const winningGuild = myKills >= enemyKills ? myGuild() : 'Enemy';
 
       return {
         ...match,
@@ -1113,6 +1209,19 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Something went wrong on the server.' });
 });
 
-app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
-});
+// Load guild_config BEFORE accepting the first request. guildConfig.get() falls
+// back to DEFAULTS on a cold cache, and DEFAULTS has empty role lists — which
+// fails closed, correctly, but would mean the first few requests after a deploy
+// saw nobody as an officer and nobody as allowed to sign in. One await removes
+// that window entirely.
+//
+// A failure here is logged, not fatal: the app still starts, serves the
+// defaults, and self-heals on the next read. Refusing to boot because a config
+// row was briefly unreadable would turn a blip into an outage.
+guildConfig.load()
+  .catch((err) => console.error('guild_config preload failed — serving defaults until it recovers:', err.message))
+  .finally(() => {
+    app.listen(PORT, () => {
+      console.log(`🚀 Server running on port ${PORT}`);
+    });
+  });

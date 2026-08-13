@@ -1,6 +1,6 @@
 import { useAuth } from '../auth';
 import Sigil from '../components/Sigil';
-import { GUILD } from '../guild';
+import { useGuild } from '../guild';
 
 function gateMessage(house) {
   const params = new URLSearchParams(window.location.search);
@@ -18,7 +18,10 @@ function gateMessage(house) {
 
 export default function Login() {
   const { login } = useAuth();
-  const message = gateMessage(GUILD.house);
+  // Public — /api/guild sits outside the login wall precisely so this page can
+  // name the hall to someone who has not signed in yet.
+  const { house, motto, creed } = useGuild();
+  const message = gateMessage(house);
 
   return (
     <div className="min-h-screen bg-ink text-bone flex flex-col items-center justify-center px-6 text-center">
@@ -28,13 +31,13 @@ export default function Login() {
 
       <div className="rise rise-1 eyebrow text-brass text-[11px] mt-8 mb-4">The gate is barred</div>
       <h1 className="rise rise-1 font-display font-bold text-bone text-4xl md:text-5xl tracking-[0.08em]">
-        {GUILD.house}
+        {house}
       </h1>
       <p className="rise rise-2 font-display text-brassbright text-lg md:text-xl tracking-[0.12em] mt-6">
-        {GUILD.motto}
+        {motto}
       </p>
       <p className="rise rise-2 max-w-xl text-ash mt-5 leading-relaxed">
-        {GUILD.creed}
+        {creed}
       </p>
       <p className="rise rise-2 text-ash max-w-md mt-5 leading-relaxed">
         This hall is open to the house alone. Sign in with Discord to prove your standing.
@@ -71,7 +74,7 @@ export default function Login() {
       </div>
 
       <div className="rise rise-3 mt-10 font-display text-[10px] tracking-[0.25em] text-ash">
-        {GUILD.house.toUpperCase()}
+        {house.toUpperCase()}
       </div>
     </div>
   );

@@ -11,7 +11,10 @@ const { todayInGuildTz } = createLoa;
 const createAttendance = require('./attendance');
 const createEventSignups = require('./eventSignups');
 const SHARDS = require('../shared/shards.json');
-const GUILD_IDENTITY = require('../shared/guild.json');
+const guildConfig = require('./guildConfig');
+const createGuildSettings = require('./guildSettings');
+const createLateAttendance = require('./lateAttendance');
+const createEventDetail = require('./eventDetail');
 
 const ROLE_EMOJI = { Tank: '🛡️', DPS: '⚔️', Healer: '💚' };
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -77,7 +80,7 @@ function rosterEmbed(name, parties) {
     title: (name || 'Roster').slice(0, 256),
     color: 0xc9973a,
     fields: fields.length ? fields : [{ name: 'Empty', value: 'No members assigned.' }],
-    footer: { text: GUILD_IDENTITY.house },
+    footer: { text: guildConfig.get().house },
     timestamp: new Date().toISOString(),
   };
 }
@@ -108,9 +111,83 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
   const attendance = supabase ? createAttendance(supabase) : null;
   const loa = supabase ? createLoa(supabase, identities) : null;
   const signups = supabase ? createEventSignups(supabase, identities, loa) : null;
+  const guildSettings = supabase ? createGuildSettings(supabase) : null;
+  const lateAttendance = supabase ? createLateAttendance(supabase, identities) : null;
+  // One assembler for a logged night, shared with the member-facing route in
+  // server.js. Both must describe the same night; see eventDetail.js's header.
+  const eventDetail = supabase
+    ? createEventDetail(supabase, { identities, loa, signups, lateAttendance, listMembers })
+    : null;
+
+  // ── THE TIME WINDOW, RESOLVED ONCE ──────────────────────────────────────────
+  // ?window=7|14|30|all, defaulting to 30. Used by the event list AND the
+  // attendance-rate table, from this one helper — two copies of the arithmetic
+  // is how the list and the rate come to disagree about which nights count,
+  // which shows up as rates that don't match the events on screen.
+  //
+  // The cutoff is (days - 1) back from today so `window=7` means "this night and
+  // the six before it" — seven nights, which is what someone picking "7 days"
+  // is counting.
+  const WINDOWS = { 7: 7, 14: 14, 30: 30 };
+  function attendanceWindow(req) {
+    const raw = String(req.query.window || '30');
+    if (raw === 'all') return { days: null, since: null };
+    const days = WINDOWS[raw] || 30;
+    const today = todayInGuildTz();
+    const since = new Date(new Date(`${today}T12:00:00Z`).getTime() - (days - 1) * 86_400_000)
+      .toISOString().slice(0, 10);
+    return { days, since };
+  }
 
   router.get('/whoami', (req, res) => {
     res.json({ admin: true, username: req.user.username });
+  });
+
+  // ── GUILD SETTINGS ──────────────────────────────────────────────────────────
+  // Everything the form needs in one call: the stored values, plus the live
+  // Discord lists the pickers offer.
+  //
+  // The two channel lists are separate and must stay separate. Every
+  // *_channel_id except one is a text channel the bot POSTS into;
+  // attendance_voice_channel_id is a voice channel the bot READS a member list
+  // out of, and a text-channel dropdown cannot offer it.
+  //
+  // botOnline is sent explicitly rather than left to be inferred from an empty
+  // array, because "the bot is offline" and "the bot is online and can see no
+  // channels" need different words on screen — and because the page uses it to
+  // decide whether an unrecognised stored id means "deleted" or "can't tell
+  // right now".
+  router.get('/settings', async (req, res) => {
+    if (!guildSettings) return res.status(503).json({ error: 'Database not configured.' });
+    try {
+      const [settings, roles] = await Promise.all([
+        guildSettings.load(),
+        listRoles().catch((err) => { console.error('settings listRoles failed:', err.message); return []; }),
+      ]);
+      const channels = gateway.listTextChannels();
+      const voiceChannels = gateway.listVoiceChannels();
+      res.json({
+        settings,
+        roles,
+        channels,
+        voice_channels: voiceChannels,
+        bot_online: Boolean(channels.length || voiceChannels.length),
+      });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message || 'Failed to load settings.' });
+    }
+  });
+
+  router.patch('/settings', async (req, res) => {
+    if (!guildSettings) return res.status(503).json({ error: 'Database not configured.' });
+    try {
+      // req.user, never a body field: the self-lockout guard is only a guard if
+      // the identity it checks is the one that actually made the request.
+      const out = await guildSettings.save(req.body, req.user);
+      res.json(out);
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message || 'Failed to save settings.' });
+    }
   });
 
   // ── Party member pool (Discord members with the member role) ────────────────
@@ -1187,9 +1264,15 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
   });
 
   // ── Attendance: voice-channel snapshots ──────────────────────────────────────
+  // `configured_id` rides along so the Attendance page can name the guild's
+  // default channel without calling GET /settings — which 403s for an officer
+  // who holds 'attendance' but not 'settings', and that is most of them.
   router.get('/voice-channels', (req, res) => {
     if (!gateway) return res.status(503).json({ error: 'Discord gateway not available.' });
-    res.json({ channels: gateway.listVoiceChannels() });
+    res.json({
+      channels: gateway.listVoiceChannels(),
+      configured_id: guildConfig.get().attendance_voice_channel_id || null,
+    });
   });
 
   router.get('/voice-channels/:id/members', async (req, res) => {
@@ -1206,105 +1289,168 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
 
   router.get('/events', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-    const { data, error } = await supabase
-      .from('events').select('id, title, event_date, created_at')
+    const { days, since } = attendanceWindow(req);
+
+    let q = supabase.from('events').select('id, title, event_date, created_at')
       .order('event_date', { ascending: false });
+    if (since) q = q.gte('event_date', since);
+    const { data, error } = await q;
     if (error) return res.status(500).json({ error: 'Failed to load events.' });
 
     const eventIds = (data || []).map((e) => e.id);
-    let countMap = {};
+    const countMap = {};
+    const withParty = new Set();
     if (eventIds.length > 0) {
-      const { data: att } = await supabase
-        .from('event_attendance').select('event_id')
-        .in('event_id', eventIds);
+      // Two queries rather than selecting party_layout in the list: the layout
+      // is a whole roster of jsonb per row, and the list only needs to know
+      // whether there is one. An id-only query costs nothing; shipping thirty
+      // party layouts to render thirty badges is not free.
+      const [{ data: att }, { data: parties }] = await Promise.all([
+        supabase.from('event_attendance').select('event_id').in('event_id', eventIds),
+        supabase.from('events').select('id').in('id', eventIds).not('party_layout', 'is', null),
+      ]);
       (att || []).forEach((a) => { countMap[a.event_id] = (countMap[a.event_id] || 0) + 1; });
+      (parties || []).forEach((p) => withParty.add(String(p.id)));
     }
 
-    res.json({ events: (data || []).map((e) => ({ ...e, attendees: countMap[e.id] || 0 })) });
+    res.json({
+      window: days,
+      events: (data || []).map((e) => ({
+        ...e,
+        attendees: countMap[e.id] || 0,
+        has_party: withParty.has(String(e.id)),
+      })),
+    });
   });
 
+  // The whole night, assembled by eventDetail — the same call the member-facing
+  // GET /api/attendance/events/:id makes, with `officer: true` widening what
+  // comes back rather than changing what is computed.
+  //
+  // This used to be ~120 lines of inline reconciliation right here, joining the
+  // attendance snapshot against LOA and signups by hand. It grew a fourth
+  // source (late requests) and a second consumer (the member page) at the same
+  // time, and two hand-written copies of a four-way join do not stay in
+  // agreement.
   router.get('/events/:id', async (req, res) => {
-    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-    const { data: event, error: eErr } = await supabase
-      .from('events').select('*').eq('id', req.params.id).single();
-    if (eErr) return res.status(404).json({ error: 'Event not found.' });
-    const { data: attendees, error: aErr } = await supabase
-      .from('event_attendance').select('*').eq('event_id', req.params.id)
-      .order('display_name');
-    if (aErr) return res.status(500).json({ error: 'Failed to load attendees.' });
-
-    // Who didn't show, split by whether they'd said so. An LOA on file for the
-    // event's date makes an absence excused; anything left is someone who
-    // neither turned up nor filed — the number officers actually want, and the
-    // only place attendance and LOA are compared.
-    //
-    // Best-effort: this needs Discord (for the member roster) and can't be
-    // computed for an undated event, and neither is worth failing the attendee
-    // list over, so absences comes back null and the UI just omits the section.
-    let absences = null;
-    if (event.event_date && loa) {
-      try {
-        const [unavailable, roster, ids] = await Promise.all([
-          loa.unavailableOn({ date: event.event_date, eventScheduleId: event.event_schedule_id || null }),
-          listMembers(),
-          identities.load(),
-        ]);
-        const present = new Set((attendees || []).map((a) => String(a.discord_id)));
-        const excusedBy = new Map(unavailable.map((u) => [String(u.discord_id), u]));
-        const missing = roster
-          .filter((m) => !present.has(String(m.id)))
-          .map((m) => ({
-            discord_id: m.id,
-            display_name: ids.displayNameFor(m.id, m.name),
-            loa: excusedBy.get(String(m.id)) || null,
-          }))
-          .sort((a, b) => a.display_name.localeCompare(b.display_name));
-        absences = {
-          excused: missing.filter((m) => m.loa),
-          unexcused: missing.filter((m) => !m.loa),
-        };
-
-        // A third bucket, and the one this comparison exists for: people who
-        // said they were coming and then didn't. They'd otherwise be buried in
-        // 'unexcused' alongside everyone who simply never responded, which is a
-        // very different conversation to have with someone.
-        //
-        // Same (night, event) key as the LOA lookup above, so the 12:30am event
-        // lines up on both sides. Nested in its own try: a missing signup is the
-        // normal case for any event that predates this feature.
-        if (signups) {
-          const occasion = await signups.getByOccasion({
-            eventDate: event.event_date, eventScheduleId: event.event_schedule_id || null,
-          });
-          if (occasion) {
-            const { noShows, walkIns } = await signups.attendanceComparison({
-              signupEventId: occasion.id, attendees: attendees || [],
-            });
-            const noShowIds = new Set(noShows.map((n) => String(n.discord_id)));
-            absences.noShows = missing.filter((m) => noShowIds.has(String(m.discord_id)));
-            // Anyone who no-showed is already accounted for; leaving them in
-            // unexcused too would double-count the same absence.
-            absences.unexcused = absences.unexcused.filter((m) => !noShowIds.has(String(m.discord_id)));
-            absences.signupId = occasion.id;
-            absences.walkInIds = walkIns.map((a) => String(a.discord_id));
-          }
-        }
-      } catch (err) {
-        console.error('Attendance absence breakdown failed:', err.message);
-      }
+    if (!eventDetail) return res.status(503).json({ error: 'Database not configured.' });
+    try {
+      const out = await eventDetail.detail(req.params.id, { viewerId: req.user.id, officer: true });
+      res.json(out);
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message || 'Failed to load that event.' });
     }
+  });
 
-    res.json({ event, attendees: attendees || [], absences });
+  // ── Attendance: adding and removing people after the fact ───────────────────
+  // Bulk, because the realistic case is "the snapshot missed the four people who
+  // were in the overflow channel", and four separate confirmations for one
+  // mistake is how officers stop bothering to fix it.
+  //
+  // Anyone already present is SKIPPED rather than erroring the whole call: a
+  // partially-correct selection is the normal case when someone re-checks a
+  // list, and refusing all of it teaches people to stop using the feature.
+  router.post('/events/:id/attendees', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const members = Array.isArray(req.body?.members) ? req.body.members : [];
+    if (!members.length) return res.status(400).json({ error: 'Nobody selected.' });
+
+    const { data: event } = await supabase.from('events').select('id').eq('id', req.params.id).maybeSingle();
+    if (!event) return res.status(404).json({ error: 'Event not found.' });
+
+    const { data: existing } = await supabase.from('event_attendance')
+      .select('discord_id').eq('event_id', req.params.id);
+    const present = new Set((existing || []).map((a) => String(a.discord_id)));
+
+    const ids = await identities.load().catch(() => null);
+    const now = new Date().toISOString();
+    const rows = members
+      .filter((m) => m && m.id && !present.has(String(m.id)))
+      .map((m) => ({
+        id: crypto.randomUUID(),
+        event_id: req.params.id,
+        discord_id: String(m.id),
+        display_name: String((ids ? ids.displayNameFor(m.id, m.name) : m.name) || '').slice(0, 120),
+        joined_at: now,
+        // Not a snapshot. Everything added here arrived after the photograph
+        // was taken, which is exactly what this column is for.
+        source: 'late',
+      }));
+
+    if (!rows.length) return res.json({ added: 0, skipped: members.length });
+    const { error } = await supabase.from('event_attendance').insert(rows);
+    if (error) {
+      console.error('Add attendees error:', error.message);
+      return res.status(500).json({ error: 'Failed to add those attendees.' });
+    }
+    res.json({ added: rows.length, skipped: members.length - rows.length });
+  });
+
+  router.delete('/events/:id/attendees/:discordId', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    // Scoped by BOTH ids: an event id alone would be enough to delete the same
+    // member's attendance from a different night if the params were swapped.
+    const { data, error } = await supabase.from('event_attendance')
+      .delete().eq('event_id', req.params.id).eq('discord_id', String(req.params.discordId))
+      .select('id').maybeSingle();
+    if (error) {
+      console.error('Remove attendee error:', error.message);
+      return res.status(500).json({ error: 'Failed to remove that attendee.' });
+    }
+    if (!data) return res.status(404).json({ error: 'That member is not on this event.' });
+    res.json({ ok: true });
+  });
+
+  // ── Late attendance: the officer queue ──────────────────────────────────────
+  // Covered by the existing { prefix: '/attendance', permission: 'attendance' }
+  // rule. Deliberately NOT a new permission key: a new key starts granted to
+  // nobody, which would lock every granular attendance officer out of a feature
+  // they already run, while leaving blanket admins untouched.
+  router.get('/attendance/late-requests', async (req, res) => {
+    if (!lateAttendance) return res.status(503).json({ error: 'Database not configured.' });
+    try {
+      const requests = await lateAttendance.list({
+        status: req.query.status || 'pending',
+        eventId: req.query.event || null,
+      });
+      res.json({ requests, window_hours: lateAttendance.WINDOW_HOURS });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message || 'Failed to load late requests.' });
+    }
+  });
+
+  router.patch('/attendance/late-requests/:id', async (req, res) => {
+    if (!lateAttendance) return res.status(503).json({ error: 'Database not configured.' });
+    try {
+      const decided = await lateAttendance.decide(
+        req.params.id,
+        req.body?.status,
+        { id: req.user.id, name: req.user.username },
+      );
+      res.json({ request: decided });
+
+      // After responding, unawaited: a DM that is slow or fails must not delay
+      // or undo a decision that is already written. A denial is private, so
+      // this is a DM rather than a channel post.
+      if (gateway) gateway.notifyLateAttendance(decided).catch(() => {});
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message || 'Failed to record that decision.' });
+    }
   });
 
   router.post('/events', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-    const { title, event_date, event_schedule_id, attendees } = req.body || {};
+    const { title, event_date, event_schedule_id, attendees, roster_id } = req.body || {};
 
     let result;
     try {
       result = await attendance.createEvent({
         title, eventDate: event_date, eventScheduleId: event_schedule_id, attendees,
+        // Three-way, and `undefined` is the meaningful default: omitting the
+        // field auto-matches the roster saved for this night, while an explicit
+        // null records "there was no party". `roster_id ?? undefined` would
+        // collapse those two — see freezeParty in attendance.js.
+        rosterId: Object.prototype.hasOwnProperty.call(req.body || {}, 'roster_id') ? roster_id : undefined,
       });
     } catch (err) {
       return res.status(err.status || 500).json({ error: err.message || 'Failed to create event.' });
@@ -1342,13 +1488,22 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
   router.get('/attendance-stats', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
     try {
-      const { data: evts, error: eErr } = await supabase.from('events').select('id');
+      const { days, since } = attendanceWindow(req);
+
+      let eq = supabase.from('events').select('id');
+      if (since) eq = eq.gte('event_date', since);
+      const { data: evts, error: eErr } = await eq;
       if (eErr) throw eErr;
       const totalEvents = (evts || []).length;
-      if (totalEvents === 0) return res.json({ totalEvents: 0, members: [] });
+      if (totalEvents === 0) return res.json({ window: days, totalEvents: 0, members: [] });
 
+      // The window has to narrow BOTH halves. Filtering only the denominator
+      // leaves attendance rows from outside it counting against a smaller total
+      // — which produces rates over 100% and, worse, plausible-looking ones
+      // like 95% for someone who came twice.
       const { data: att, error: aErr } = await supabase
-        .from('event_attendance').select('discord_id, display_name');
+        .from('event_attendance').select('discord_id, display_name')
+        .in('event_id', (evts || []).map((e) => e.id));
       if (aErr) throw aErr;
 
       const map = {};
@@ -1362,7 +1517,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
         .map((m) => ({ ...m, rate: Math.round((m.attended / totalEvents) * 100) }))
         .sort((a, b) => b.rate - a.rate || a.display_name.localeCompare(b.display_name));
 
-      res.json({ totalEvents, members });
+      res.json({ window: days, totalEvents, members });
     } catch (err) {
       console.error('Attendance stats error:', err.message);
       res.status(500).json({ error: 'Failed to compute attendance stats.' });

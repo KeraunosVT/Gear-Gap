@@ -15,18 +15,23 @@ const {
   DISCORD_CLIENT_SECRET,
   DISCORD_REDIRECT_URI,
   DISCORD_GUILD_ID,
-  DISCORD_ALLOWED_ROLE_IDS = '',
   JWT_SECRET,
   APP_URL = '/',
 } = process.env;
 
-// Comma-separated role IDs that are allowed in. Empty list = any member of the
-// guild is allowed (membership alone gates access).
-const ALLOWED_ROLES = DISCORD_ALLOWED_ROLE_IDS.split(',').map(s => s.trim()).filter(Boolean);
-
-// Admin role IDs — a tighter check for the admin area. Empty list = nobody is an
-// admin until configured (fails closed).
-const ADMIN_ROLES = (process.env.DISCORD_ADMIN_ROLE_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
+// The allow-list and the officer list used to be two env-derived consts right
+// here. They are now columns on guild_config, edited from Guild Settings.
+//
+// They are read INSIDE evaluateMember rather than hoisted, and via ensure()
+// rather than the synchronous get(): this is the one place Discord roles become
+// session claims, so a stale copy means someone keeps officer powers after
+// being removed, or keeps being refused after being added. Everywhere else in
+// the codebase get() is fine; here it is worth the await.
+//
+//   allowed_role_ids — may sign in at all. EMPTY means any member of the
+//     server passes, which is a real configuration and not an error.
+//   admin_role_ids   — officer. Empty means nobody, which fails closed.
+const guildConfig = require('./guildConfig');
 
 const COOKIE_NAME = 'gh_session';
 const STATE_COOKIE = 'gh_oauth_state';
@@ -171,17 +176,23 @@ router.post('/logout', (req, res) => {
 // become session claims, and it runs on both login and the hourly re-verify —
 // so a changed grant reaches an existing session without any extra machinery.
 //
-// A role in ADMIN_ROLES is absolute: it holds every capability, including ones
-// added in later releases, and can't be narrowed from the permissions page.
-// That's the deliberate escape hatch — a mistaken grant can't lock everyone out
-// of the site, because whoever holds the env-configured admin role still gets in.
+// A role in admin_role_ids is absolute: it holds every capability, including
+// ones added in later releases, and can't be narrowed from the permissions
+// page. That's the deliberate escape hatch — a mistaken grant can't lock
+// everyone out of the site, because whoever holds an officer role still gets in.
+// It is also why Guild Settings refuses a save that would leave the actor
+// without one.
 async function evaluateMember(member) {
+  const cfg = await guildConfig.ensure();
+  const allowedRoles = cfg.allowed_role_ids;
+  const adminRoles = cfg.admin_role_ids;
+
   const roles = member?.roles || [];
-  const allowed = ALLOWED_ROLES.length === 0 || roles.some((r) => ALLOWED_ROLES.includes(r));
+  const allowed = allowedRoles.length === 0 || roles.some((r) => allowedRoles.includes(r));
   if (!allowed) return null;
   const u = member.user || {};
 
-  const fullAccess = ADMIN_ROLES.length > 0 && roles.some((r) => ADMIN_ROLES.includes(r));
+  const fullAccess = adminRoles.length > 0 && roles.some((r) => adminRoles.includes(r));
   const granted = fullAccess
     ? perms.ALL_PERMISSIONS.map((p) => p.key)
     : await perms.resolveFor({ roleIds: roles, userId: u.id });

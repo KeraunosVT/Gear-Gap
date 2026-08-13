@@ -196,6 +196,42 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
       return (data || [])[0] || null;
     },
 
+    // getByOccasion + detail in the one shape eventDetail.js wants: "the signup
+    // for this night, with its headcount and composition, or null".
+    //
+    // The composition here is FLAT and covers `going` only — { Tank, DPS,
+    // Healer, unknown, total } — deliberately different from detail()'s nested
+    // roleCounts. The event page shows one line summarising who is coming; the
+    // signups page shows going and waitlist side by side because "we're short a
+    // healer and there's one waiting" is the case that justifies raising the
+    // cap. Flattening at the boundary keeps each consumer reading the shape it
+    // actually needs rather than reaching into a nested object for one half.
+    //
+    // `unknown` rather than `Unassigned`: this is the summary vocabulary, where
+    // the question is "how many can't be placed", not "which bucket is empty".
+    async forOccasion({ date, eventScheduleId = null }) {
+      const event = await this.getByOccasion({ eventDate: date, eventScheduleId });
+      if (!event) return null;
+      const d = await this.detail(event.id);
+      const going = d.roleCounts.going;
+      return {
+        id: event.id,
+        title: event.title,
+        capacity: event.capacity,
+        status: event.status,
+        counts: d.counts,
+        composition: {
+          Tank: going.Tank,
+          DPS: going.DPS,
+          Healer: going.Healer,
+          unknown: going.Unassigned,
+          total: d.going.length,
+        },
+        going: d.going,
+        waitlist: d.waitlist,
+      };
+    },
+
     // Occurrences with their headcounts. Counts are tallied in JS off one extra
     // query rather than a per-row aggregate — the list is a handful of rows and
     // this keeps it to two round trips.

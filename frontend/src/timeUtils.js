@@ -1,12 +1,25 @@
-export const GUILD_TZ = 'America/New_York';
+// ── GUILD TIME, CONFIGURED AT RUNTIME ────────────────────────────────────────
+// These were two exported consts. They are now module state, set once by the
+// guild provider (src/guild.jsx) from GET /api/guild before anything renders,
+// because both live in guild_config and are editable from Guild Settings.
+//
+// Every function below reads them LIVE rather than closing over them at module
+// scope. That is the whole point: a copy taken at import time would be the
+// hardcoded default forever, and the symptom is not an error — it is an entire
+// night's LOA, signups and attendance quietly filed against the wrong date.
+//
+// The defaults here are only what applies for the instant between the bundle
+// loading and the provider's fetch resolving. Nothing renders in that window.
+let guildTz = 'America/New_York';
 
 // Mirror of the guild-night model in backend/loa.js — keep the two in step.
 // A guild night doesn't end at midnight: the 12:30am Guild Field Boss is the
 // tail of the previous evening's block, not the start of a new day. The
 // schedule stores each event on the calendar day it actually occurs (Sunday
 // 00:30), and these map it back to the night it belongs to (Saturday).
-export const GUILD_DAY_START = '01:00';
-const GUILD_DAY_START_MIN = 60;
+let guildDayStart = '01:00';
+let guildDayStartMin = 60;
+
 const MINUTES_PER_DAY = 1440;
 
 const minutesOf = (hhmm) => {
@@ -14,24 +27,45 @@ const minutesOf = (hhmm) => {
   return h * 60 + m;
 };
 
+// Called by the guild provider. Both arguments are validated on the way in:
+// a bad timezone would otherwise throw inside Intl on every date the site
+// renders, which turns one bad settings value into a blank page.
+export function configureGuildTime(timezone, dayStart) {
+  if (timezone) {
+    try {
+      new Intl.DateTimeFormat('en-US', { timeZone: timezone });
+      guildTz = timezone;
+    } catch {
+      console.error(`Ignoring unusable guild timezone "${timezone}" — falling back to ${guildTz}.`);
+    }
+  }
+  if (/^([01]\d|2[0-3]):([0-5]\d)$/.test(String(dayStart || ''))) {
+    guildDayStart = dayStart;
+    guildDayStartMin = minutesOf(dayStart);
+  }
+}
+
+export const getGuildTz = () => guildTz;
+export const getGuildDayStart = () => guildDayStart;
+
 // Where a wall-clock time falls within the guild night, as minutes from its
 // start — so 00:30 (1470) sorts after 21:00 (1260) instead of before it, which
 // is what comparing "HH:MM" as text would give you.
 export function daySlot(hhmm) {
   const mins = minutesOf(hhmm);
-  return mins < GUILD_DAY_START_MIN ? mins + MINUTES_PER_DAY : mins;
+  return mins < guildDayStartMin ? mins + MINUTES_PER_DAY : mins;
 }
 
 // The day-of-week a scheduled event belongs to, from the calendar day and time
 // it's stored under: a 00:30 event stored on Sunday is part of Saturday night.
 export function guildDayOfWeek(dow, eventTime) {
-  if (!eventTime || minutesOf(eventTime) >= GUILD_DAY_START_MIN) return dow;
+  if (!eventTime || minutesOf(eventTime) >= guildDayStartMin) return dow;
   return (dow + 6) % 7;
 }
 
 // True when an event runs after midnight, so its calendar day is a day ahead
 // of the night it belongs to — worth labelling wherever it's listed.
-export const isAfterMidnight = (eventTime) => Boolean(eventTime) && minutesOf(eventTime) < GUILD_DAY_START_MIN;
+export const isAfterMidnight = (eventTime) => Boolean(eventTime) && minutesOf(eventTime) < guildDayStartMin;
 
 // Events for one guild night, newest-last. Not a plain day_of_week filter:
 // Saturday night's list has to pull in the Sunday 00:30 row and leave Sunday
@@ -51,15 +85,36 @@ export function eventsForGuildDay(schedule, dow) {
 // midnight for the same reason: at 12:30am the night in progress is still
 // last night's.
 export function todayInGuildTz() {
-  const shifted = new Date(Date.now() - GUILD_DAY_START_MIN * 60_000);
-  return shifted.toLocaleDateString('en-CA', { timeZone: GUILD_TZ });
+  const shifted = new Date(Date.now() - guildDayStartMin * 60_000);
+  return shifted.toLocaleDateString('en-CA', { timeZone: guildTz });
 }
 
+// The guild timezone's short name ("ET", "GMT", "AEDT") as of right now.
+//
+// "Right now" is the honest answer available: these are bare recurring times
+// with no date attached, so there is no instant to resolve DST against. During
+// the fortnight either side of a transition the suffix can read a week early or
+// late; the alternative is picking an arbitrary date, which is wrong more often.
+//
+// Intl gives "EST"/"EDT" for US zones; the leading region letter plus "T" is
+// the form people actually write, so those collapse to "ET". Anything that
+// doesn't match that shape (GMT, UTC, +05:30) passes through untouched.
+function guildZoneAbbrev() {
+  const raw = new Intl.DateTimeFormat('en-US', { timeZone: guildTz, timeZoneName: 'short' })
+    .formatToParts(new Date()).find((p) => p.type === 'timeZoneName')?.value || '';
+  const seasonal = /^([A-Z])[SD]T$/.exec(raw);
+  return seasonal ? `${seasonal[1]}T` : raw;
+}
+
+// Named for the guild's timezone, not the browser's — a recurring event time is
+// stored as the guild's wall clock and is meaningless in any other zone. The
+// name is historical: this was hardcoded to ET back when the timezone was too.
 export function fmtTimeEst(t) {
   if (!t) return '';
   const [h, m] = t.split(':').map(Number);
   const ampm = h >= 12 ? 'PM' : 'AM';
-  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${ampm} ET`;
+  const zone = guildZoneAbbrev();
+  return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${ampm}${zone ? ` ${zone}` : ''}`;
 }
 
 // Per-member display preference for how full timestamps (created_at,
@@ -71,7 +126,7 @@ export function fmtTimeEst(t) {
 const DISPLAY_TZ_KEY = 'displayTimezone';
 
 export function getDisplayTimezone() {
-  return localStorage.getItem(DISPLAY_TZ_KEY) || GUILD_TZ;
+  return localStorage.getItem(DISPLAY_TZ_KEY) || guildTz;
 }
 
 export function setDisplayTimezone(tz) {

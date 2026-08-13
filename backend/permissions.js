@@ -28,6 +28,10 @@ const ALL_PERMISSIONS = [
   { key: 'schedule', label: 'Event Schedule', hint: 'Recurring event schedule' },
   { key: 'audit', label: 'Audit Log', hint: 'View the admin audit log' },
   { key: 'permissions', label: 'Permissions', hint: 'Grant capabilities to roles and members' },
+  // Editing this one can lock people out of the site, which is why the save
+  // itself refuses to remove the actor's own officer role rather than relying
+  // on this key being granted carefully.
+  { key: 'settings', label: 'Guild Settings', hint: 'House identity, Discord channels and role wiring' },
   { key: 'loa.admin', label: 'LOA Officer', hint: "See LOA reasons, cancel others', file on behalf" },
   { key: 'loot.awards', label: 'Loot — Awards', hint: 'Award and revoke items, tag builds' },
   { key: 'loot.catalog', label: 'Loot — Catalog', hint: 'Manage loot items and categories' },
@@ -67,6 +71,7 @@ const ROUTE_PERMISSIONS = [
   { prefix: '/event-schedule', permission: 'schedule' },
   { prefix: '/audit-log', permission: 'audit' },
   { prefix: '/permissions', permission: 'permissions' },
+  { prefix: '/settings', permission: 'settings' },
   // Awarding is the exception under /loot; everything else there — categories,
   // items, and the whole questlog import/link family — manages the catalog, so
   // the bare prefix falls to loot.catalog and only /loot/awards is an award.

@@ -1,19 +1,9 @@
 // backend/loa.js — Leave-of-absence entries, shared between the website's
 // /api/loa routes and the /loa Discord command so both write through the
 // same validation instead of maintaining it twice.
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const GUILD_TZ = 'America/New_York';
+const guildConfig = require('./guildConfig');
 
-// A guild night doesn't end at midnight. The 12:30am Guild Field Boss is the
-// tail of the previous evening's block, not the start of a new day — the
-// schedule stores it on the calendar day it actually occurs (Sunday 00:30),
-// and everything here maps that back to the night it belongs to (Saturday).
-//
-// Anything before this wall-clock time counts as the night before. It has to
-// sit after the guild's latest event (12:30am) and before the earliest of the
-// following evening, which leaves the small hours free; 01:00 is the line.
-const GUILD_DAY_START = '01:00';
-const GUILD_DAY_START_MIN = 60;
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MINUTES_PER_DAY = 1440;
 
 const minutesOf = (hhmm) => {
@@ -21,25 +11,43 @@ const minutesOf = (hhmm) => {
   return h * 60 + m;
 };
 
+// A guild night doesn't end at midnight. The 12:30am Guild Field Boss is the
+// tail of the previous evening's block, not the start of a new day — the
+// schedule stores it on the calendar day it actually occurs (Sunday 00:30),
+// and everything here maps that back to the night it belongs to (Saturday).
+//
+// Anything before the rollover counts as the night before. It has to sit after
+// the guild's latest event and before the earliest of the following evening,
+// which leaves the small hours free; 01:00 is the usual line.
+//
+// Both of these used to be module-scope consts. They are now read from
+// guild_config on every call, because the settings page can change them — a
+// hoisted copy would keep the old rollover until the next deploy, and the
+// symptom of that is not an error, it is an entire night's LOA, signups and
+// attendance silently filed against the wrong date.
+const guildTz = () => guildConfig.get().timezone;
+const guildDayStart = () => guildConfig.get().day_start;
+const dayStartMin = () => minutesOf(guildDayStart());
+
 // Where a wall-clock time falls within the guild night, as minutes from its
 // start. Times before the rollover are pushed past the previous evening's, so
 // 00:30 (1470) correctly compares and sorts later than 21:00 (1260) — plain
 // "HH:MM" string comparison gets this exactly backwards.
 function daySlot(hhmm) {
   const mins = minutesOf(hhmm);
-  return mins < GUILD_DAY_START_MIN ? mins + MINUTES_PER_DAY : mins;
+  return mins < dayStartMin() ? mins + MINUTES_PER_DAY : mins;
 }
 
 // The day-of-week a scheduled event belongs to, from the calendar day and time
 // it's stored under: a 00:30 event stored on Sunday is part of Saturday night.
 function guildDayOfWeek(dow, eventTime) {
-  if (!eventTime || minutesOf(eventTime) >= GUILD_DAY_START_MIN) return dow;
+  if (!eventTime || minutesOf(eventTime) >= dayStartMin()) return dow;
   return (dow + 6) % 7;
 }
 
 // True when an event runs after midnight, so its calendar day is one ahead of
 // the night it belongs to. Used to label it as such wherever it's listed.
-const isAfterMidnight = (eventTime) => Boolean(eventTime) && minutesOf(eventTime) < GUILD_DAY_START_MIN;
+const isAfterMidnight = (eventTime) => Boolean(eventTime) && minutesOf(eventTime) < dayStartMin();
 
 function httpError(status, message) {
   const err = new Error(message);
@@ -121,8 +129,8 @@ function withinLoaWindow(entry, eventTime) {
 // doesn't use UTC: at 12:30am an officer snapping attendance or building the
 // roster for the event starting right now means last night, not today.
 function todayInGuildTz() {
-  const shifted = new Date(Date.now() - GUILD_DAY_START_MIN * 60_000);
-  return shifted.toLocaleDateString('en-CA', { timeZone: GUILD_TZ });
+  const shifted = new Date(Date.now() - dayStartMin() * 60_000);
+  return shifted.toLocaleDateString('en-CA', { timeZone: guildTz() });
 }
 
 // `identities` is optional so a caller without one still works — names just
@@ -393,4 +401,8 @@ module.exports.parseTimeOfDay = parseTimeOfDay;
 module.exports.daySlot = daySlot;
 module.exports.guildDayOfWeek = guildDayOfWeek;
 module.exports.isAfterMidnight = isAfterMidnight;
-module.exports.GUILD_DAY_START = GUILD_DAY_START;
+// Accessors, not constants — the rollover and timezone are configuration now.
+// Exporting the *values* here would hand every importer a copy frozen at
+// require time, which is the exact bug this whole conversion exists to remove.
+module.exports.guildDayStart = guildDayStart;
+module.exports.guildTz = guildTz;

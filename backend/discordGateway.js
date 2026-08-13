@@ -10,23 +10,38 @@ const createLoa = require('./loa');
 const createIdentities = require('./identities');
 const createAttendance = require('./attendance');
 const createEventSignups = require('./eventSignups');
+const createLateAttendance = require('./lateAttendance');
 const { listMembers } = require('./discord');
-// House name and tag for embed footers — the same branding admin.js stamps on
-// the roster embed. Not to be confused with DISCORD_GUILD_ID below, which is
-// the server's snowflake.
-const GUILD_IDENTITY = require('../shared/guild.json');
+const guildConfig = require('./guildConfig');
 
+// Only the three things that are identity or secret still come from the
+// environment. Every channel, every role list and the house name are columns on
+// guild_config, read through the getters below.
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const CLIENT_ID = process.env.DISCORD_CLIENT_ID;
 const GUILD_ID = process.env.DISCORD_GUILD_ID;
-const LOA_CHANNEL_ID = process.env.DISCORD_LOA_CHANNEL_ID;
-const ANNOUNCE_CHANNEL_ID = process.env.DISCORD_ANNOUNCE_CHANNEL_ID;
-// Signup posts fall back to the announce channel, so the feature works without
-// anyone having to add a second channel id to the environment first.
-const SIGNUP_CHANNEL_ID = process.env.DISCORD_SIGNUP_CHANNEL_ID || ANNOUNCE_CHANNEL_ID;
-// Same admin role list auth.js uses to gate the website's admin area, so
+
+// ── CONFIG GETTERS ──────────────────────────────────────────────────────────
+// Every one of these is a function on purpose. The gateway process is long
+// lived — it is the same process for weeks — so a value captured in a const
+// here would outlive any number of settings saves and there would be no
+// symptom beyond posts continuing to arrive in the old channel.
+//
+// houseName() is branding for embed footers. Not to be confused with GUILD_ID
+// above, which is the Discord server's snowflake.
+const houseName = () => guildConfig.get().house;
+const loaChannelId = () => guildConfig.get().loa_channel_id;
+const announceChannelId = () => guildConfig.get().announce_channel_id;
+// Signups fall back to the announce channel, so the feature works before anyone
+// configures a second one. The fallback lives in guildConfig.signupChannelId().
+const signupChannelId = () => guildConfig.signupChannelId();
+// The voice channel /attendance snaps when the officer names none and isn't
+// sitting in one themselves.
+const attendanceVoiceChannelId = () => guildConfig.get().attendance_voice_channel_id;
+// Same officer role list auth.js uses to gate the website's admin area, so
 // "officer" means the same thing in Discord as it does on the site.
-const ADMIN_ROLE_IDS = (process.env.DISCORD_ADMIN_ROLE_IDS || '').split(',').map((s) => s.trim()).filter(Boolean);
+const adminRoleIds = () => guildConfig.get().admin_role_ids;
+
 const DAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 // "21:00" -> "9:00 PM", for echoing a recurring LOA's start time back in chat.
@@ -62,6 +77,7 @@ let loa = null;
 let identities = null;
 let attendance = null;
 let signups = null;
+let lateAttendance = null;
 let sweepTimer = null;
 
 function start(supabase) {
@@ -75,6 +91,7 @@ function start(supabase) {
   loa = supabase ? createLoa(supabase, identities) : null;
   attendance = supabase ? createAttendance(supabase) : null;
   signups = supabase ? createEventSignups(supabase, identities, loa) : null;
+  lateAttendance = supabase ? createLateAttendance(supabase, identities) : null;
 
   client = new Client({
     intents: [
@@ -191,6 +208,26 @@ async function registerCommands() {
       );
 
     commands.push(attendanceCommand.toJSON());
+
+    // The one attendance command that is NOT officer-gated: a member asking to
+    // be added to a night the snapshot missed. It writes a request, never an
+    // attendance row.
+    //
+    // The event option is autocompleted, and the autocomplete IS the 24-hour
+    // window: a member with nothing eligible sees an empty list, which reads as
+    // "nothing to do here" rather than as being told no. The window is
+    // re-checked server-side on submit regardless — a list being short is not a
+    // permission check.
+    const lateCommand = new SlashCommandBuilder()
+      .setName('attendance-late')
+      .setDescription("Ask an officer to add you to a night you attended but the snapshot missed.")
+      .addStringOption((opt) =>
+        opt.setName('event').setDescription('Which night').setRequired(true).setAutocomplete(true)
+      )
+      .addStringOption((opt) =>
+        opt.setName('reason').setDescription('Anything that helps the officer decide').setRequired(false)
+      );
+    commands.push(lateCommand.toJSON());
   }
 
   // No supabase dependency — this just posts a message, so it's always available
@@ -229,6 +266,7 @@ async function handleInteraction(interaction) {
   if (interaction.commandName === 'elitetimers') return handleList(interaction);
   if (interaction.commandName === 'loa') return handleLoa(interaction);
   if (interaction.commandName === 'attendance') return handleAttendance(interaction);
+  if (interaction.commandName === 'attendance-late') return handleAttendanceLate(interaction);
   if (interaction.commandName === 'announce') return handleAnnounce(interaction);
 }
 
@@ -300,10 +338,11 @@ function displayNameFor(user) {
 }
 
 function isAdminMember(interaction) {
-  if (!ADMIN_ROLE_IDS.length) return false;
+  const officerRoles = adminRoleIds();
+  if (!officerRoles.length) return false;
   const roles = interaction.member?.roles?.cache;
   if (!roles) return false;
-  return ADMIN_ROLE_IDS.some((r) => roles.has(r));
+  return officerRoles.some((r) => roles.has(r));
 }
 
 // Who an LOA submission is for. Defaults to the invoker; if they passed the
@@ -333,11 +372,12 @@ function discordDate(dateStr) {
 // which is already recorded by the time this runs. Returns the sent message's
 // id (so the caller can remember it for later cleanup) or null if nothing sent.
 async function announceLoa(text) {
-  if (!LOA_CHANNEL_ID) return null;
+  const loaChannel = loaChannelId();
+  if (!loaChannel) return null;
   const guild = getGuild();
-  const channel = guild?.channels.cache.get(LOA_CHANNEL_ID);
+  const channel = guild?.channels.cache.get(loaChannel);
   if (!channel?.isTextBased()) {
-    console.error(`LOA announce error: channel ${LOA_CHANNEL_ID} not found or not text-based (check DISCORD_LOA_CHANNEL_ID and bot permissions).`);
+    console.error(`LOA announce error: channel ${loaChannel} not found or not text-based (check the LOA channel in Guild Settings and the bot's permissions).`);
     return null;
   }
   try {
@@ -378,9 +418,10 @@ async function announceLoaEntry(entry) {
 // or a missing channel/permission just gets logged, not surfaced to the caller
 // — the LOA record is already gone by the time this runs either way.
 async function deleteLoaMessage(messageId) {
-  if (!messageId || !LOA_CHANNEL_ID) return;
+  const loaChannel = loaChannelId();
+  if (!messageId || !loaChannel) return;
   const guild = getGuild();
-  const channel = guild?.channels.cache.get(LOA_CHANNEL_ID);
+  const channel = guild?.channels.cache.get(loaChannel);
   if (!channel?.isTextBased()) return;
   try {
     await channel.messages.delete(messageId);
@@ -542,6 +583,7 @@ async function handleLoaCancel(interaction) {
 
 async function handleAutocomplete(interaction) {
   if (interaction.commandName === 'attendance') return autocompleteAttendanceEvent(interaction);
+  if (interaction.commandName === 'attendance-late') return autocompleteLateEvent(interaction);
   if (interaction.commandName !== 'loa') return interaction.respond([]).catch(() => {});
   const sub = interaction.options.getSubcommand();
   if (sub === 'event') return autocompleteLoaEvent(interaction);
@@ -643,9 +685,22 @@ async function handleAttendance(interaction) {
   const ev = await attendance.getScheduleEvent(eventScheduleId);
   if (!ev) return interaction.editReply('Unknown event — pick one from the list.');
 
+  // Three ways to find the channel, in order of how specific the intent is:
+  // what the officer named on the command, where they are sitting, and the
+  // guild's configured default. The default is last so it can never override
+  // someone who said what they meant — but it is there so /attendance works
+  // from a text channel, which is where officers usually run it.
   const channelOpt = interaction.options.getChannel('channel');
-  const channel = channelOpt || interaction.member?.voice?.channel;
-  if (!channel) return interaction.editReply("You're not in a voice channel — specify one with the channel option.");
+  const configuredVoice = attendanceVoiceChannelId();
+  const channel = channelOpt
+    || interaction.member?.voice?.channel
+    || (configuredVoice ? getGuild()?.channels.cache.get(configuredVoice) : null);
+  if (!channel) {
+    return interaction.editReply(
+      "You're not in a voice channel, and no default is set. Name one with the `channel` option, "
+      + 'or pick an attendance voice channel in Guild Settings.'
+    );
+  }
 
   const dateInput = interaction.options.getString('date');
   const eventDate = dateInput || createLoa.todayInGuildTz();
@@ -673,11 +728,77 @@ async function handleAttendance(interaction) {
   notifyAttendance(members, ev.name, eventDate).catch(() => {});
 }
 
+// ── /attendance-late ──────────────────────────────────────────────────────
+// The list a member could actually file against: recent nights they weren't
+// snapped for, inside the 24-hour window, with no pending ask already. All of
+// that is decided by lateAttendance.eligibleEvents, so this and the website
+// can't drift apart about who may ask for what.
+async function autocompleteLateEvent(interaction) {
+  if (!lateAttendance) return interaction.respond([]).catch(() => {});
+  try {
+    const focused = interaction.options.getFocused().toLowerCase();
+    const events = await lateAttendance.eligibleEvents(interaction.user.id);
+    const choices = events
+      .filter((e) => String(e.title || '').toLowerCase().includes(focused))
+      .slice(0, 25)
+      .map((e) => ({
+        name: `${e.title}${e.event_date ? ` — ${e.event_date}` : ''}`.slice(0, 100),
+        value: e.id,
+      }));
+    await interaction.respond(choices).catch(() => {});
+  } catch (err) {
+    console.error('attendance-late autocomplete error:', err.message);
+    await interaction.respond([]).catch(() => {});
+  }
+}
+
+async function handleAttendanceLate(interaction) {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  if (!lateAttendance) return interaction.editReply('Attendance tracking is not configured right now.');
+
+  try {
+    const out = await lateAttendance.request({
+      eventId: interaction.options.getString('event'),
+      // The invoker, always. There is no member option on this command and
+      // there should not be one — adding someone else is an officer action,
+      // and it lives on the website where it is audited.
+      discordId: interaction.user.id,
+      displayName: displayNameFor(interaction.user),
+      reason: interaction.options.getString('reason'),
+    });
+    await interaction.editReply(
+      `Asked an officer to add you to **${out.event_title}**. You'll get a DM either way.`
+    );
+  } catch (err) {
+    await interaction.editReply(err.message || 'Something went wrong filing that request.');
+  }
+}
+
+// A DM, not a channel post. Being turned down is between the member and the
+// officers — announcing it to the guild would make asking cost something, and
+// the whole point is that correcting a missed snapshot should be cheap.
+async function notifyLateAttendance(request) {
+  if (!ready || !client || !request?.discord_id) return;
+  const title = request.event?.title || 'that night';
+  const text = request.status === 'approved'
+    ? `✅ You've been added to attendance for **${title}**.`
+    : `❌ Your late attendance request for **${title}** wasn't approved. Talk to an officer if you think that's wrong.`;
+  try {
+    const user = await client.users.fetch(String(request.discord_id));
+    await user.send(text);
+  } catch (err) {
+    // Closed DMs are the common case and are not an error worth surfacing —
+    // the decision is recorded either way, and the member sees it on the site.
+    console.warn(`Late attendance DM to ${request.discord_id} failed:`, err.message);
+  }
+}
+
 // ── /announce ─────────────────────────────────────────────────────────────
 async function handleAnnounce(interaction) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   if (!isAdminMember(interaction)) return interaction.editReply('Officers only.');
-  if (!ANNOUNCE_CHANNEL_ID) return interaction.editReply('Announcements are not configured — set DISCORD_ANNOUNCE_CHANNEL_ID.');
+  const announceChannel = announceChannelId();
+  if (!announceChannel) return interaction.editReply('Announcements are not configured — pick an announce channel in Guild Settings.');
 
   const timeInput = interaction.options.getString('time');
   const message = interaction.options.getString('message') || 'Get into CTA Comms — {time}';
@@ -686,9 +807,9 @@ async function handleAnnounce(interaction) {
   if (!when) return interaction.editReply(`Couldn't understand "${timeInput}" as a time. Try something like \`9:30pm\` or \`2130\`.`);
 
   const guild = getGuild();
-  const channel = guild?.channels.cache.get(ANNOUNCE_CHANNEL_ID);
+  const channel = guild?.channels.cache.get(announceChannel);
   if (!channel?.isTextBased()) {
-    return interaction.editReply('Announcement channel not found — check DISCORD_ANNOUNCE_CHANNEL_ID and bot permissions.');
+    return interaction.editReply("Announcement channel not found — check the announce channel in Guild Settings and the bot's permissions.");
   }
 
   const unix = Math.floor(when.getTime() / 1000);
@@ -818,7 +939,7 @@ function signupEmbed({ event, going, waitlist }) {
       + (closed ? '\n\n*Signups are closed.*' : ''),
     color: 0xc9973a,
     fields,
-    footer: { text: GUILD_IDENTITY.house },
+    footer: { text: houseName() },
     timestamp: new Date().toISOString(),
   };
 }
@@ -836,19 +957,20 @@ function signupButtons(id, closed) {
 
 async function signupChannel(channelId) {
   const guild = getGuild();
-  const channel = guild?.channels.cache.get(channelId || SIGNUP_CHANNEL_ID);
+  const channel = guild?.channels.cache.get(channelId || signupChannelId());
   return channel?.isTextBased() ? channel : null;
 }
 
 // Posts (or re-posts) the announcement and records where it landed. Called when
 // a signup opens, and again by hand if someone deletes the message.
 async function announceSignup(signupEventId) {
-  if (!ready || !signups || !SIGNUP_CHANNEL_ID) return null;
+  const target = signupChannelId();
+  if (!ready || !signups || !target) return null;
   try {
     const detail = await signups.detail(signupEventId);
     const channel = await signupChannel(null);
     if (!channel) {
-      console.error(`Signup announce error: channel ${SIGNUP_CHANNEL_ID} not found or not text-based.`);
+      console.error(`Signup announce error: channel ${target} not found or not text-based.`);
       return null;
     }
     const message = await channel.send({
@@ -1046,6 +1168,24 @@ function listVoiceChannels() {
     .map((ch) => ({ id: ch.id, name: ch.name, memberCount: ch.members.size }));
 }
 
+// List text channels the bot can see, for the channel pickers in Guild
+// Settings. Announcement channels (type 5) are included because a guild
+// announcing its CTAs in one is entirely normal and the bot can post there the
+// same way.
+//
+// An EMPTY list is ambiguous and the settings route has to say which kind it
+// is: the bot being offline, and the bot being online but able to see nothing,
+// look identical from here. That distinction is why the page never silently
+// blanks a stored channel id it can't find in this list.
+function listTextChannels() {
+  const guild = getGuild();
+  if (!guild) return [];
+  return guild.channels.cache
+    .filter((ch) => ch.type === ChannelType.GuildText || ch.type === ChannelType.GuildAnnouncement)
+    .sort((a, b) => a.rawPosition - b.rawPosition)
+    .map((ch) => ({ id: ch.id, name: ch.name }));
+}
+
 // Snap the current members in a voice channel.
 function getVoiceMembers(channelId) {
   const guild = getGuild();
@@ -1064,6 +1204,7 @@ function getVoiceMembers(channelId) {
 module.exports = {
   start,
   listVoiceChannels,
+  listTextChannels,
   getVoiceMembers,
   announceLoaEntry,
   deleteLoaMessage,
@@ -1073,4 +1214,5 @@ module.exports = {
   deleteSignupMessage,
   notifySignupPromotion,
   sendSignupReminder,
+  notifyLateAttendance,
 };

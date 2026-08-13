@@ -2,8 +2,12 @@
 // Each of the 4 locations has exactly one timer, keyed by location, overwritten
 // whenever a newer kill is reported.
 const LOCATIONS = require('../shared/eliteLocations.json');
+const guildConfig = require('./guildConfig');
 
-const GUILD_TZ = 'America/New_York';
+// Read per call, never hoisted: the timezone is editable in Guild Settings, and
+// a copy taken at require time would keep converting kill reports against the
+// old zone until the next deploy.
+const guildTz = () => guildConfig.get().timezone;
 
 // Offset (ms) that `timeZone`'s wall clock reads relative to UTC at the instant `date`
 // (e.g. -4h for America/New_York during EDT). Timezone-independent of the host
@@ -32,7 +36,7 @@ function tzOffsetMs(date, timeZone) {
 function guildTimeOn(dateStr, hour, minute) {
   const [y, mo, d] = dateStr.split('-').map(Number);
   const utcGuess = Date.UTC(y, mo - 1, d, hour, minute);
-  const offset = tzOffsetMs(new Date(utcGuess), GUILD_TZ);
+  const offset = tzOffsetMs(new Date(utcGuess), guildTz());
   return new Date(utcGuess - offset);
 }
 
@@ -40,7 +44,7 @@ function guildTimeOn(dateStr, hour, minute) {
 // parseGuildTimeToday below and by the /announce command (backend/discordGateway.js),
 // which needs it but without the kill-report rollback rule.
 function guildTimeToday(hour, minute) {
-  return guildTimeOn(new Date().toLocaleDateString('en-CA', { timeZone: GUILD_TZ }), hour, minute);
+  return guildTimeOn(new Date().toLocaleDateString('en-CA', { timeZone: guildTz() }), hour, minute);
 }
 
 // Parse a clock-time string ("6:40pm", "6:40 PM", "18:40") as happening today in the

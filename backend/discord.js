@@ -4,12 +4,18 @@
 // "Server Members Intent" enabled for member listing.
 const axios = require('axios');
 
+const guildConfig = require('./guildConfig');
+
 const API = 'https://discord.com/api/v10';
+// Secrets and identity stay in the environment; everything else moved to
+// guild_config so Guild Settings can change it without a redeploy.
 const BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 const GUILD_ID = process.env.DISCORD_GUILD_ID;
-const ROSTER_CHANNEL_ID = process.env.DISCORD_ROSTER_CHANNEL_ID;
-const MEMBER_ROLES = (process.env.DISCORD_MEMBER_ROLE_IDS || process.env.DISCORD_ALLOWED_ROLE_IDS || '')
-  .split(',').map((s) => s.trim()).filter(Boolean);
+
+// Getters, deliberately. Hoisting either of these back into a const is the one
+// change that would make the settings page silently stop working.
+const rosterChannelId = () => guildConfig.get().roster_channel_id;
+const memberRoles = () => guildConfig.get().member_role_ids;
 
 const botConfigured = Boolean(BOT_TOKEN && GUILD_ID);
 
@@ -68,8 +74,9 @@ async function fetchAllMembers() {
     after = batch[batch.length - 1].user.id;
   }
 
-  const filtered = MEMBER_ROLES.length
-    ? members.filter((m) => (m.roles || []).some((r) => MEMBER_ROLES.includes(r)))
+  const roleFilter = memberRoles();
+  const filtered = roleFilter.length
+    ? members.filter((m) => (m.roles || []).some((r) => roleFilter.includes(r)))
     : members;
 
   return filtered
@@ -99,9 +106,10 @@ async function fetchMember(userId) {
 // Post an embed to the configured roster channel.
 async function postEmbed(embed, content) {
   if (!botConfigured) throw new Error('Discord bot is not configured.');
-  if (!ROSTER_CHANNEL_ID) throw new Error('DISCORD_ROSTER_CHANNEL_ID is not set.');
+  const channel = rosterChannelId();
+  if (!channel) throw new Error('No roster channel is set — pick one in Guild Settings.');
   await axios.post(
-    `${API}/channels/${ROSTER_CHANNEL_ID}/messages`,
+    `${API}/channels/${channel}/messages`,
     { content: content || undefined, embeds: [embed] },
     { headers: { ...authHeaders(), 'Content-Type': 'application/json' } }
   );
@@ -110,13 +118,14 @@ async function postEmbed(embed, content) {
 // Post an image file to the configured roster channel.
 async function postImage(buffer, filename, content) {
   if (!botConfigured) throw new Error('Discord bot is not configured.');
-  if (!ROSTER_CHANNEL_ID) throw new Error('DISCORD_ROSTER_CHANNEL_ID is not set.');
+  const channel = rosterChannelId();
+  if (!channel) throw new Error('No roster channel is set — pick one in Guild Settings.');
   const FormData = require('form-data');
   const form = new FormData();
   form.append('file', buffer, { filename: filename || 'roster.png', contentType: 'image/png' });
   if (content) form.append('payload_json', JSON.stringify({ content }));
   await axios.post(
-    `${API}/channels/${ROSTER_CHANNEL_ID}/messages`,
+    `${API}/channels/${channel}/messages`,
     form,
     { headers: { ...authHeaders(), ...form.getHeaders() } }
   );
@@ -153,4 +162,17 @@ async function listRoles() {
   }
 }
 
-module.exports = { listMembers, listRoles, fetchMember, postEmbed, postImage, botConfigured };
+// Drop both caches. Called by guildSettings.save(), because member_role_ids
+// decides who listMembers() returns: without this, changing the roster roles
+// looks like it did nothing for up to CACHE_TTL_MS, and the officer who just
+// saved goes looking for a bug in the settings page instead.
+function invalidateCaches() {
+  membersCache = null;
+  membersCacheAt = 0;
+  rolesCache = null;
+  rolesCacheAt = 0;
+}
+
+module.exports = {
+  listMembers, listRoles, fetchMember, postEmbed, postImage, botConfigured, invalidateCaches,
+};

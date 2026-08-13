@@ -24,6 +24,7 @@ const FEATURE_PREFIXES = [
   { prefix: '/gear-ilvl', label: 'Gear Levels' },
   { prefix: '/event-schedule', label: 'LOA Schedule' },
   { prefix: '/members', label: 'Members' },
+  { prefix: '/settings', label: 'Guild Settings' },
 ];
 
 function featureFor(path) {

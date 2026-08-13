@@ -1,62 +1,55 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../auth';
-import { RefreshCw, Camera, Trash2, ChevronDown, Users, CalendarDays, Loader2, ArrowUp, ArrowDown, BarChart3, Wand2 } from 'lucide-react';
-import { fmtTimeEst, guildDayOfWeek, isAfterMidnight, todayInGuildTz } from '../timeUtils';
+import {
+  RefreshCw, Camera, Trash2, Users, CalendarDays, Loader2,
+  BarChart3, Wand2, Swords, Check, X, Inbox, Volume2, AlertTriangle,
+} from 'lucide-react';
+import { fmtTimeEst, fmtDatetime, guildDayOfWeek, isAfterMidnight, todayInGuildTz } from '../timeUtils';
 import RestrictedGate from '../components/ui/RestrictedGate';
+import Tabs from '../components/ui/Tabs';
+import { Table, Thead, SortableTh, Tr } from '../components/ui/Table';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-const LOA_TYPE_LABEL = { event: 'Out this event', range: 'Away (date range)', recurring: 'Out weekly' };
-
-// Tooltip text for an excused absence: the window if the LOA had one, otherwise
-// what kind it was, plus the reason.
-function loaReason(loa) {
-  if (!loa) return undefined;
-  const when = loa.start_time
-    ? (loa.end_time
-      ? `Out ${fmtTimeEst(loa.start_time)} – ${fmtTimeEst(loa.end_time)}`
-      : `Out from ${fmtTimeEst(loa.start_time)} on`)
-    : LOA_TYPE_LABEL[loa.type] || 'On leave of absence';
-  return loa.reason ? `${when} — ${loa.reason}` : when;
-}
-
-function NameGroup({ label, tone, children }) {
-  return (
-    <div>
-      <div className={`eyebrow text-[10px] mb-2 ${tone}`}>{label}</div>
-      <div className="flex flex-wrap gap-2">{children}</div>
-    </div>
-  );
-}
-
-function NameChip({ children, className = '', title }) {
-  return (
-    <span title={title}
-      className={`inline-flex items-center gap-1.5 text-sm bg-hall border rounded-full px-3 py-1 ${className || 'border-line text-ash'}`}>
-      {children}
-    </span>
-  );
-}
+// The four windows this page can be looked at through. Server-side: the rate
+// table and the event list sit side by side, and the only way to guarantee they
+// agree about what "the last two weeks" means is for one place to decide it.
+//
+// "All" is here so the pre-filter behaviour stays reachable — a filter that
+// hides history with no way back loses data as far as anyone using it can tell.
+const WINDOWS = [
+  { key: '7', label: '1 week' },
+  { key: '14', label: '2 weeks' },
+  { key: '30', label: '30 days' },
+  { key: 'all', label: 'All' },
+];
+const WINDOW_LABEL = { 7: 'last 7 days', 14: 'last 14 days', 30: 'last 30 days', all: 'all time' };
 
 export default function Attendance() {
-  const { user, can } = useAuth();
+  const { can } = useAuth();
 
   const [channels, setChannels] = useState([]);
-  const [selectedChannel, setSelectedChannel] = useState('');
+  const [configuredId, setConfiguredId] = useState(null);
   const [snapped, setSnapped] = useState([]);
   const [schedule, setSchedule] = useState([]);
   const [eventScheduleId, setEventScheduleId] = useState('');
   const [title, setTitle] = useState('');
+  // Defaults to the guild NIGHT, not the calendar day. Left empty, an officer
+  // logging the 12:30am boss types the date they see on the clock, and the join
+  // against LOA and signups — both keyed on the night — silently misses.
   const [eventDate, setEventDate] = useState(todayInGuildTz);
+  const [rosters, setRosters] = useState([]);
+  const [rosterId, setRosterId] = useState('auto');
+  const [snapping, setSnapping] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState(null);
 
+  const [window_, setWindow_] = useState('30');
   const [events, setEvents] = useState([]);
   const [loadingEvents, setLoadingEvents] = useState(true);
-  const [expanded, setExpanded] = useState(null);
-  const [detail, setDetail] = useState({});
 
   const [stats, setStats] = useState({ totalEvents: 0, members: [] });
   const [loadingStats, setLoadingStats] = useState(true);
@@ -64,41 +57,74 @@ export default function Attendance() {
   const [statDir, setStatDir] = useState('desc');
   const [backfilling, setBackfilling] = useState(false);
 
-  const loadChannels = () => {
-    axios.get('/api/admin/voice-channels')
-      .then((res) => setChannels(res.data.channels || []))
-      .catch(() => setChannels([]));
-  };
+  const [lateRequests, setLateRequests] = useState([]);
+  const [deciding, setDeciding] = useState('');
 
-  const loadEvents = () => {
+  const flash = (text, ok = true) => { setMsg({ text, ok }); setTimeout(() => setMsg(null), 4000); };
+
+  // One call answers both questions: which channel is configured, and what it
+  // is called. The id alone would put a snowflake on screen where a name
+  // belongs, and /api/admin/settings is closed to attendance-only officers.
+  const loadChannels = useCallback(() => {
+    axios.get('/api/admin/voice-channels')
+      .then((res) => {
+        setChannels(res.data.channels || []);
+        setConfiguredId(res.data.configured_id || null);
+      })
+      .catch(() => { setChannels([]); setConfiguredId(null); });
+  }, []);
+
+  // The rate table and the event list are refetched together, always, and both
+  // are handed the same window. Filtering one without the other is how a member
+  // ends up with a rate above 100%.
+  const loadEvents = useCallback(() => {
     setLoadingEvents(true);
-    axios.get('/api/admin/events')
+    axios.get('/api/admin/events', { params: { window: window_ } })
       .then((res) => setEvents(res.data.events || []))
       .catch((err) => setError(err.response?.data?.error || 'Could not load events.'))
       .finally(() => setLoadingEvents(false));
-  };
+  }, [window_]);
 
-  const loadStats = () => {
+  const loadStats = useCallback(() => {
     setLoadingStats(true);
-    axios.get('/api/admin/attendance-stats')
+    axios.get('/api/admin/attendance-stats', { params: { window: window_ } })
       .then((res) => setStats(res.data || { totalEvents: 0, members: [] }))
       .catch(() => {})
       .finally(() => setLoadingStats(false));
-  };
+  }, [window_]);
 
-  const loadSchedule = () => {
-    axios.get('/api/event-schedule')
-      .then((res) => setSchedule(res.data.schedule || []))
-      .catch(() => setSchedule([]));
-  };
+  const loadLate = useCallback(() => {
+    axios.get('/api/admin/attendance/late-requests', { params: { status: 'pending' } })
+      .then((res) => setLateRequests(res.data.requests || []))
+      .catch(() => setLateRequests([]));
+  }, []);
 
-  useEffect(() => { loadChannels(); loadEvents(); loadStats(); loadSchedule(); }, []);
+  useEffect(() => {
+    axios.get('/api/event-schedule').then((res) => setSchedule(res.data.schedule || [])).catch(() => setSchedule([]));
+    axios.get('/api/admin/rosters').then((res) => setRosters(res.data.rosters || [])).catch(() => setRosters([]));
+    loadChannels();
+    loadLate();
+  }, [loadChannels, loadLate]);
 
-  if (!can('attendance')) {
-    return <RestrictedGate />;
-  }
+  useEffect(() => { loadEvents(); loadStats(); }, [loadEvents, loadStats]);
 
-  const flash = (text, ok = true) => { setMsg({ text, ok }); setTimeout(() => setMsg(null), 4000); };
+  const channel = useMemo(
+    () => channels.find((c) => c.id === configuredId) || null,
+    [channels, configuredId],
+  );
+
+  const sortedStats = useMemo(() => {
+    const dir = statDir === 'asc' ? 1 : -1;
+    return [...stats.members].sort((a, b) => {
+      if (statSort === 'name') return a.display_name.localeCompare(b.display_name) * dir;
+      return ((a[statSort] || 0) - (b[statSort] || 0)) * dir;
+    });
+  }, [stats.members, statSort, statDir]);
+
+  // Every hook is above this line on purpose. It used to sit higher up, which
+  // made the hook count depend on a capability check — legal only for as long
+  // as nobody's permissions changed mid-session.
+  if (!can('attendance')) return <RestrictedGate />;
 
   const backfillNames = async () => {
     setBackfilling(true);
@@ -113,16 +139,20 @@ export default function Attendance() {
     }
   };
 
-  const snap = () => {
-    if (!selectedChannel) return;
-    axios.get(`/api/admin/voice-channels/${selectedChannel}/members`)
-      .then((res) => {
-        const members = res.data.members || [];
-        if (members.length === 0) { flash('No one is in that channel right now.', false); return; }
-        setSnapped(members);
-        flash(`Snapped ${members.length} member${members.length === 1 ? '' : 's'}.`);
-      })
-      .catch(() => flash('Could not read voice channel.', false));
+  const snap = async () => {
+    if (!configuredId) return;
+    setSnapping(true);
+    try {
+      const res = await axios.get(`/api/admin/voice-channels/${configuredId}/members`);
+      const members = res.data.members || [];
+      if (members.length === 0) { flash('No one is in that channel right now.', false); return; }
+      setSnapped(members);
+      flash(`Snapped ${members.length} member${members.length === 1 ? '' : 's'}.`);
+    } catch {
+      flash('Could not read that voice channel.', false);
+    } finally {
+      setSnapping(false);
+    }
   };
 
   const removeSnapped = (id) => setSnapped((prev) => prev.filter((m) => m.id !== id));
@@ -135,14 +165,20 @@ export default function Attendance() {
 
   const save = async () => {
     if (!title.trim()) { flash('Give this event a title.', false); return; }
-    if (snapped.length === 0) { flash('Snap a voice channel first.', false); return; }
+    if (snapped.length === 0) { flash('Snap the voice channel first.', false); return; }
     setSaving(true); setError('');
     try {
       const res = await axios.post('/api/admin/events', {
         title, event_date: eventDate || null, event_schedule_id: eventScheduleId || null, attendees: snapped,
+        // 'auto' means omit the field entirely, which is what tells the server
+        // to look for the roster built for this night. Sending null instead
+        // would read as "deliberately no party".
+        ...(rosterId === 'auto' ? {} : { roster_id: rosterId || null }),
       });
       flash(`Saved — ${res.data.attendees} attendees logged.`);
-      setSnapped([]); setTitle(''); setEventDate(''); setEventScheduleId('');
+      // Back to tonight, not blank — the same reason the initial value isn't
+      // blank, and logging two events on one night is the common case.
+      setSnapped([]); setTitle(''); setEventDate(todayInGuildTz()); setEventScheduleId(''); setRosterId('auto');
       loadEvents(); loadStats();
     } catch (err) {
       flash(err.response?.data?.error || 'Could not save event.', false);
@@ -156,7 +192,6 @@ export default function Attendance() {
     try {
       await axios.delete(`/api/admin/events/${id}`);
       setEvents((prev) => prev.filter((e) => e.id !== id));
-      if (expanded === id) { setExpanded(null); setDetail((d) => { const n = { ...d }; delete n[id]; return n; }); }
       flash('Event deleted.');
       loadStats();
     } catch (err) {
@@ -164,28 +199,25 @@ export default function Attendance() {
     }
   };
 
-  const toggleEvent = async (id) => {
-    if (expanded === id) { setExpanded(null); return; }
-    setExpanded(id);
-    if (detail[id]) return;
+  const decide = async (req, status) => {
+    setDeciding(req.id);
     try {
-      const res = await axios.get(`/api/admin/events/${id}`);
-      // absences is best-effort server-side (needs a dated event and Discord),
-      // so it may be null even when attendees loaded fine.
-      setDetail((d) => ({ ...d, [id]: { attendees: res.data.attendees || [], absences: res.data.absences || null } }));
-    } catch {
-      flash('Could not load attendees.', false);
-      setExpanded(null);
+      await axios.patch(`/api/admin/attendance/late-requests/${req.id}`, { status });
+      flash(status === 'approved'
+        ? `${req.display_name} added to ${req.event?.title || 'that event'}.`
+        : `Declined ${req.display_name}'s request.`);
+      setLateRequests((prev) => prev.filter((r) => r.id !== req.id));
+      // An approval writes an attendance row, so the counts on screen are stale.
+      if (status === 'approved') { loadEvents(); loadStats(); }
+    } catch (err) {
+      flash(err.response?.data?.error || 'Could not record that decision.', false);
+      // A 409 means someone else decided it — refetch rather than leave a
+      // button that will keep failing.
+      if (err.response?.status === 409) loadLate();
+    } finally {
+      setDeciding('');
     }
   };
-
-  const sortedStats = useMemo(() => {
-    const dir = statDir === 'asc' ? 1 : -1;
-    return [...stats.members].sort((a, b) => {
-      if (statSort === 'name') return a.display_name.localeCompare(b.display_name) * dir;
-      return ((a[statSort] || 0) - (b[statSort] || 0)) * dir;
-    });
-  }, [stats.members, statSort, statDir]);
 
   const toggleStatSort = (key) => {
     if (statSort === key) setStatDir((d) => (d === 'desc' ? 'asc' : 'desc'));
@@ -195,7 +227,7 @@ export default function Attendance() {
   return (
     <div className="max-w-6xl mx-auto px-6 py-12">
       <div className="flex items-center justify-between gap-4 flex-wrap mb-6">
-        <p className="text-sm text-ash">Snap a voice channel to log who showed up. Set a title and date, then save.</p>
+        <p className="text-sm text-ash">Snap the attendance channel to log who showed up. Set a title and date, then save.</p>
         <button
           onClick={backfillNames} disabled={backfilling}
           title="Re-check past attendance records against mapped display names"
@@ -210,65 +242,18 @@ export default function Attendance() {
       )}
       {error && <div className="mb-6 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
 
-      {/* ── Snap section ──────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-14">
-        <div className="lg:col-span-2">
-          <div className="flex flex-wrap items-end gap-3 mb-5">
-            <div className="flex-1 min-w-[180px]">
-              <label className="eyebrow text-[10px] text-ash block mb-2">Voice channel</label>
-              <div className="flex gap-2">
-                <select
-                  value={selectedChannel} onChange={(e) => setSelectedChannel(e.target.value)}
-                  className="flex-1 bg-panel border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
-                >
-                  <option value="">— select channel —</option>
-                  {channels.map((ch) => (
-                    <option key={ch.id} value={ch.id}>
-                      {ch.name} ({ch.memberCount} in channel)
-                    </option>
-                  ))}
-                </select>
-                <button onClick={loadChannels} className="p-2.5 text-ash hover:text-brass" title="Refresh channels">
-                  <RefreshCw className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-            <button
-              onClick={snap} disabled={!selectedChannel}
-              className="inline-flex items-center gap-2 px-6 py-2.5 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              <Camera className="w-4 h-4" /> Snap
-            </button>
-          </div>
-
-          {snapped.length > 0 && (
-            <div className="panel rounded-lg p-4">
-              <div className="eyebrow text-[10px] text-brass mb-3 flex items-center gap-2">
-                <Users className="w-3.5 h-3.5" /> Snapped ({snapped.length})
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {snapped.map((m) => (
-                  <div key={m.id} className="inline-flex items-center gap-2 bg-hall border border-line rounded-full pl-1.5 pr-2.5 py-1">
-                    {m.avatar
-                      ? <img src={m.avatar} alt="" className="w-5 h-5 rounded-full border border-line" />
-                      : <span className="w-5 h-5 rounded-full bg-panelup border border-line flex items-center justify-center text-[9px] text-brass">{(m.name || '?')[0].toUpperCase()}</span>}
-                    <span className="text-sm text-bone">{m.name}</span>
-                    <button onClick={() => removeSnapped(m.id)} className="text-ash hover:text-oxblood" title="Remove">
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="space-y-4">
-          <div>
+      {/* ── Capture ───────────────────────────────────────────────────
+          One row across the top. Logging a night is the only thing on this
+          page that is a *task* rather than a reading, and it is the same four
+          fields every week — a row keeps it to one glance and leaves the whole
+          page below it for the record. */}
+      <div className="panel rounded-lg p-4 mb-12">
+        <div className="flex flex-wrap items-end gap-3">
+          <div className="flex-1 min-w-[190px]">
             <label className="eyebrow text-[10px] text-ash block mb-2">Scheduled event</label>
             <select
               value={eventScheduleId} onChange={(e) => selectScheduleEvent(e.target.value)}
-              className="w-full bg-panel border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
+              className="w-full bg-hall border border-line rounded-lg px-3 py-2.5 text-bone focus:outline-none focus:border-brass"
             >
               <option value="">— custom / none —</option>
               {/* Labelled by the night it belongs to: an after-midnight event
@@ -283,195 +268,273 @@ export default function Attendance() {
               ))}
             </select>
           </div>
-          <div>
+          <div className="flex-1 min-w-[190px]">
             <label className="eyebrow text-[10px] text-ash block mb-2">Event title</label>
             <input
               value={title} onChange={(e) => setTitle(e.target.value)}
               placeholder="e.g. Archboss — Morokai"
-              className="w-full bg-panel border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
+              className="w-full bg-hall border border-line rounded-lg px-3 py-2.5 text-bone focus:outline-none focus:border-brass"
             />
           </div>
-          <div>
-            {/* Defaults to the guild night, not the calendar day. Left empty an
-                officer would naturally type the calendar date of an
-                after-midnight event, and the LOA and signup lookups — both
-                keyed on the night — would silently find nothing. */}
-            <label className="eyebrow text-[10px] text-ash block mb-2">Event date</label>
+          <div className="w-[150px]">
+            <label className="eyebrow text-[10px] text-ash block mb-2">Date</label>
             <input
               type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)}
-              className="w-full bg-panel border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
+              className="w-full bg-hall border border-line rounded-lg px-3 py-2.5 text-bone focus:outline-none focus:border-brass"
             />
           </div>
+          <div className="flex-1 min-w-[180px]">
+            <label className="eyebrow text-[10px] text-ash block mb-2">Party fielded</label>
+            <select
+              value={rosterId} onChange={(e) => setRosterId(e.target.value)}
+              className="w-full bg-hall border border-line rounded-lg px-3 py-2.5 text-bone focus:outline-none focus:border-brass"
+            >
+              <option value="auto">— match this night —</option>
+              <option value="">— no party —</option>
+              {rosters.map((r) => (
+                <option key={r.id} value={r.id}>{r.name}{r.event_date ? ` (${r.event_date})` : ''}</option>
+              ))}
+            </select>
+          </div>
+          <button
+            onClick={snap} disabled={!configuredId || snapping}
+            className="inline-flex items-center gap-2 px-5 py-2.5 border border-brass/50 text-brass hover:bg-panelup rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {snapping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />} Snap
+          </button>
           <button
             onClick={save} disabled={saving || snapped.length === 0}
-            className="w-full px-6 py-3 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="px-5 py-2.5 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            {saving ? 'Saving…' : `Save event (${snapped.length} attendees)`}
+            {saving ? 'Saving…' : `Save${snapped.length ? ` (${snapped.length})` : ''}`}
           </button>
         </div>
+
+        {/* Which channel Snap will read, and — when it can't — what to do about
+            it. The picker moved to Guild Settings, so a blank here is a config
+            problem with a fix, not a dropdown someone forgot to touch. */}
+        <div className="mt-3 text-xs">
+          {!configuredId ? (
+            <span className="inline-flex items-center gap-1.5 text-brassbright">
+              <AlertTriangle className="w-3.5 h-3.5" />
+              No attendance voice channel set —{' '}
+              <Link to="/admin/settings" className="underline hover:text-brass">choose one in Guild Settings</Link>.
+            </span>
+          ) : channel ? (
+            <span className="inline-flex items-center gap-1.5 text-ash">
+              <Volume2 className="w-3.5 h-3.5 text-brass" />
+              Snapping <span className="text-bone">{channel.name}</span> · {channel.memberCount} in channel now
+              <span className="text-ash/50">·</span>
+              <Link to="/admin/settings" className="hover:text-brass">change</Link>
+            </span>
+          ) : channels.length === 0 ? (
+            // No voice channels at all is a different fault from one missing
+            // one, and it has a different fix — the bot is offline or can't
+            // see the category. Naming the right one saves an officer editing
+            // a setting that was never wrong.
+            <span className="inline-flex items-center gap-1.5 text-brassbright">
+              <AlertTriangle className="w-3.5 h-3.5" />
+              The bot can’t see any voice channels — check it’s online and has permission to view them.
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 text-brassbright">
+              <AlertTriangle className="w-3.5 h-3.5" />
+              The configured channel isn’t one the bot can see —{' '}
+              <Link to="/admin/settings" className="underline hover:text-brass">pick another in Guild Settings</Link>.
+            </span>
+          )}
+          <span className="text-ash/50 block mt-1">
+            A copy of the party is stored on the event, so editing the saved party later won’t change this record.
+          </span>
+        </div>
+
+        {snapped.length > 0 && (
+          <div className="mt-4 pt-4 border-t border-line">
+            <div className="eyebrow text-[10px] text-brass mb-3 flex items-center gap-2">
+              <Users className="w-3.5 h-3.5" /> Snapped ({snapped.length})
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {snapped.map((m) => (
+                <div key={m.id} className="inline-flex items-center gap-2 bg-hall border border-line rounded-full pl-1.5 pr-2.5 py-1">
+                  {m.avatar
+                    ? <img src={m.avatar} alt="" className="w-5 h-5 rounded-full border border-line" />
+                    : <span className="w-5 h-5 rounded-full bg-panelup border border-line flex items-center justify-center text-[9px] text-brass">{(m.name || '?')[0].toUpperCase()}</span>}
+                  <span className="text-sm text-bone">{m.name}</span>
+                  <button onClick={() => removeSnapped(m.id)} className="text-ash hover:text-oxblood" title="Remove">
+                    <Trash2 className="w-3 h-3" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
 
-      {/* ── Past events + Attendance sidebar ─────────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8">
-        {/* Event list */}
-        <div>
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="font-display text-2xl text-bone tracking-[0.08em]">Past Events</h2>
-            <button onClick={loadEvents} className="inline-flex items-center gap-2 text-sm text-ash hover:text-brass">
-              <RefreshCw className="w-4 h-4" />
-            </button>
-          </div>
+      {/* ── Late attendance queue ─────────────────────────────────── */}
+      {/* Hidden entirely when empty. A permanent "0 pending" panel above the
+          part of the page officers actually use is a cost paid on every visit
+          for information that matters on a few of them. */}
+      {lateRequests.length > 0 && (
+        <div className="mb-12">
+          <h2 className="font-display text-2xl text-bone tracking-[0.08em] flex items-center gap-3">
+            <Inbox className="w-5 h-5 text-brass" />
+            Late attendance
+            <span className="text-sm font-sans text-brass">{lateRequests.length} waiting</span>
+          </h2>
           <div className="rule-fade mb-6" />
-
-          {loadingEvents ? (
-            <div className="py-16 text-center text-ash">Reading the rolls…</div>
-          ) : events.length === 0 ? (
-            <div className="py-16 text-center text-ash">No events logged yet.</div>
-          ) : (
-            <div className="panel rounded-lg divide-y divide-line">
-              {events.map((ev) => {
-                const isOpen = expanded === ev.id;
-                const info = detail[ev.id];
-                const attendees = info?.attendees;
-                const absences = info?.absences;
-                return (
-                  <div key={ev.id}>
-                    <button
-                      onClick={() => toggleEvent(ev.id)}
-                      className="w-full flex items-center gap-4 px-5 py-4 text-left hover:bg-panelup transition-colors"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <div className="font-medium text-bone truncate">{ev.title}</div>
-                        <div className="flex items-center gap-3 text-xs text-ash mt-1">
-                          <span className="inline-flex items-center gap-1">
-                            <CalendarDays className="w-3 h-3" />
-                            {ev.event_date ? new Date(ev.event_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'No date'}
-                          </span>
-                          <span className="inline-flex items-center gap-1">
-                            <Users className="w-3 h-3" /> {ev.attendees}
-                          </span>
-                        </div>
-                      </div>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); deleteEvent(ev.id); }}
-                        className="text-ash hover:text-oxblood shrink-0 p-1" title="Delete event"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                      <ChevronDown className={`w-4 h-4 text-ash shrink-0 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
-                    </button>
-
-                    {isOpen && (
-                      <div className="px-5 pb-4 space-y-4">
-                        {!attendees ? (
-                          <div className="py-4 text-center text-ash"><Loader2 className="w-4 h-4 animate-spin inline mr-2" />Loading…</div>
-                        ) : (
-                          <>
-                            {attendees.length === 0 ? (
-                              <div className="py-4 text-center text-ash">No attendees recorded.</div>
-                            ) : (
-                              <NameGroup label={`Attended (${attendees.length})`} tone="text-ash">
-                                {attendees.map((a) => {
-                                  // Present without a signup. Only meaningful
-                                  // when a signup existed for this night —
-                                  // walkInIds is absent otherwise, so nobody
-                                  // gets marked on older events.
-                                  const walkIn = absences?.walkInIds?.includes(String(a.discord_id));
-                                  return (
-                                    <NameChip key={a.id} title={walkIn ? 'Turned up without signing up' : undefined}>
-                                      {a.display_name}
-                                      {walkIn && <span className="text-[10px] text-brass">walk-in</span>}
-                                    </NameChip>
-                                  );
-                                })}
-                              </NameGroup>
-                            )}
-
-                            {/* Absences are only computable for a dated event,
-                                and only worth showing when someone is missing.
-                                Ordered worst-first: the people who said they
-                                were coming and didn't are the conversation
-                                worth having, and they'd otherwise be buried in
-                                'absent' next to everyone who never answered. */}
-                            {absences?.noShows?.length > 0 && (
-                              <NameGroup label={`Signed up, didn't show (${absences.noShows.length})`} tone="text-oxblood">
-                                {absences.noShows.map((m) => (
-                                  <NameChip key={m.discord_id} title={loaReason(m.loa)} className="border-oxblood/60 text-bone">
-                                    {m.display_name}
-                                  </NameChip>
-                                ))}
-                              </NameGroup>
-                            )}
-                            {absences?.unexcused.length > 0 && (
-                              <NameGroup label={`Absent — no LOA filed (${absences.unexcused.length})`} tone="text-oxblood">
-                                {absences.unexcused.map((m) => (
-                                  <NameChip key={m.discord_id} className="border-oxblood/40 text-bone">
-                                    {m.display_name}
-                                  </NameChip>
-                                ))}
-                              </NameGroup>
-                            )}
-                            {absences?.excused.length > 0 && (
-                              <NameGroup label={`Excused — LOA on file (${absences.excused.length})`} tone="text-brass">
-                                {absences.excused.map((m) => (
-                                  <NameChip key={m.discord_id} title={loaReason(m.loa)} className="border-brass/30 text-brass">
-                                    {m.display_name}
-                                  </NameChip>
-                                ))}
-                              </NameGroup>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    )}
+          <div className="panel rounded-lg divide-y divide-line">
+            {lateRequests.map((r) => (
+              <div key={r.id} className="flex items-center gap-4 px-5 py-3 flex-wrap">
+                <div className="min-w-0 flex-1">
+                  <div className="text-bone">
+                    <span className="font-medium">{r.display_name}</span>
+                    <span className="text-ash"> — {r.event?.title || 'an event that no longer exists'}</span>
+                    {r.event?.event_date && <span className="text-ash text-xs"> · {r.event.event_date}</span>}
                   </div>
-                );
-              })}
-            </div>
+                  {r.reason && <div className="text-sm text-ash mt-0.5 italic">“{r.reason}”</div>}
+                  <div className="text-xs text-ash/60 mt-0.5">Asked {fmtDatetime(r.requested_at)}</div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={() => decide(r, 'approved')} disabled={deciding === r.id}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-emerald-400/40 text-emerald-400 hover:bg-panelup transition-colors disabled:opacity-40"
+                  >
+                    {deciding === r.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />} Approve
+                  </button>
+                  <button
+                    onClick={() => decide(r, 'denied')} disabled={deciding === r.id}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-line text-ash hover:text-oxblood transition-colors disabled:opacity-40"
+                  >
+                    <X className="w-3.5 h-3.5" /> Deny
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── The record ────────────────────────────────────────────── */}
+      {/* One set of window tabs above both panels, because one window governs
+          both: the rate is "attended / events in this window", and the list
+          beside it is those same events. Two filters would let the denominator
+          disagree with the list explaining it. */}
+      <div className="flex items-center justify-between gap-4 mb-2">
+        <h2 className="font-display text-2xl text-bone tracking-[0.08em]">Roster Attendance</h2>
+        <button onClick={() => { loadEvents(); loadStats(); }} className="inline-flex items-center gap-2 text-sm text-ash hover:text-brass" title="Refresh">
+          <RefreshCw className="w-4 h-4" />
+        </button>
+      </div>
+      <div className="rule-fade mb-4" />
+
+      <Tabs
+        variant="flat" active={window_} onChange={setWindow_}
+        items={WINDOWS.map((w) => ({
+          // Only the active tab can carry a count — the others' totals aren't
+          // loaded, and a guessed number is worse than none.
+          key: w.key,
+          label: w.key === window_ ? `${w.label} (${events.length})` : w.label,
+        }))}
+      />
+
+      <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8">
+        {/* Rate per player */}
+        <div>
+          <div className="flex items-center gap-2 text-xs text-ash mb-3">
+            <BarChart3 className="w-3.5 h-3.5 text-brass" />
+            {/* The window is named here, not only in the tab, because a
+                percentage read out of context is assumed to be all-time. */}
+            {stats.totalEvents} event{stats.totalEvents === 1 ? '' : 's'} · {WINDOW_LABEL[window_]}
+          </div>
+
+          {loadingStats ? (
+            <div className="py-16 text-center text-ash"><Loader2 className="w-5 h-5 animate-spin inline" /></div>
+          ) : sortedStats.length === 0 ? (
+            <div className="py-16 text-center text-ash">No attendance in this window.</div>
+          ) : (
+            <Table maxHeight="max-h-[720px]" minWidth="min-w-[420px]">
+              <Thead sticky>
+                <th className="p-4 font-normal w-10 text-right">#</th>
+                <SortableTh label="Member" sortKey="name" activeKey={statSort} dir={statDir} onSort={toggleStatSort} />
+                <SortableTh label="Attended" sortKey="attended" activeKey={statSort} dir={statDir} onSort={toggleStatSort} align="right" />
+                <th className="p-4 font-normal w-[34%]">Rate</th>
+                <SortableTh label="%" sortKey="rate" activeKey={statSort} dir={statDir} onSort={toggleStatSort} align="right" />
+              </Thead>
+              <tbody>
+                {sortedStats.map((m, i) => (
+                  <Tr key={m.discord_id}>
+                    <td className="p-4 text-right font-mono text-xs text-ash/60">{i + 1}</td>
+                    <td className="p-4 text-bone">{m.display_name}</td>
+                    <td className="p-4 text-right font-mono text-xs text-ash whitespace-nowrap">
+                      {m.attended}<span className="text-ash/40">/{stats.totalEvents}</span>
+                    </td>
+                    {/* The bar is the reason this table earns the width the
+                        old sidebar didn't have: sixty rows of numbers hide the
+                        shape of the guild, and a bar shows the drop-off. */}
+                    <td className="p-4">
+                      <div className="h-1.5 rounded-full bg-hall overflow-hidden">
+                        <div
+                          className={`h-full rounded-full ${m.rate >= 75 ? 'bg-emerald-400/70' : m.rate >= 40 ? 'bg-brass' : 'bg-oxblood'}`}
+                          style={{ width: `${Math.min(100, m.rate)}%` }}
+                        />
+                      </div>
+                    </td>
+                    <td className={`p-4 text-right font-mono text-xs ${m.rate >= 75 ? 'text-emerald-400' : m.rate >= 40 ? 'text-brassbright' : 'text-oxblood'}`}>
+                      {m.rate}%
+                    </td>
+                  </Tr>
+                ))}
+              </tbody>
+            </Table>
           )}
         </div>
 
-        {/* Attendance rate sidebar */}
+        {/* Past events */}
         <aside className="lg:sticky lg:top-20 self-start">
-          <div className="panel rounded-lg p-4">
-            <div className="eyebrow text-[10px] text-brass flex items-center gap-2 mb-1">
-              <BarChart3 className="w-3.5 h-3.5" /> Attendance Rate
-            </div>
-            <div className="text-xs text-ash mb-4">
-              {stats.totalEvents} event{stats.totalEvents === 1 ? '' : 's'} tracked
-            </div>
-
-            {loadingStats ? (
-              <div className="py-8 text-center text-ash"><Loader2 className="w-4 h-4 animate-spin inline" /></div>
-            ) : sortedStats.length === 0 ? (
-              <p className="text-ash text-sm py-4">No attendance data yet.</p>
-            ) : (
-              <>
-                <div className="flex items-center gap-1 text-[10px] eyebrow text-ash mb-2 px-1">
-                  <button onClick={() => toggleStatSort('name')} className="flex-1 text-left hover:text-bone flex items-center gap-1">
-                    Member {statSort === 'name' && (statDir === 'asc' ? <ArrowUp className="w-2.5 h-2.5 text-brass" /> : <ArrowDown className="w-2.5 h-2.5 text-brass" />)}
-                  </button>
-                  <button onClick={() => toggleStatSort('attended')} className="w-10 text-right hover:text-bone flex items-center justify-end gap-0.5">
-                    # {statSort === 'attended' && (statDir === 'asc' ? <ArrowUp className="w-2.5 h-2.5 text-brass" /> : <ArrowDown className="w-2.5 h-2.5 text-brass" />)}
-                  </button>
-                  <button onClick={() => toggleStatSort('rate')} className="w-12 text-right hover:text-bone flex items-center justify-end gap-0.5">
-                    Rate {statSort === 'rate' && (statDir === 'asc' ? <ArrowUp className="w-2.5 h-2.5 text-brass" /> : <ArrowDown className="w-2.5 h-2.5 text-brass" />)}
-                  </button>
-                </div>
-                <div className="space-y-1 max-h-[560px] overflow-auto pr-1">
-                  {sortedStats.map((m) => (
-                    <div key={m.discord_id} className="flex items-center gap-2 px-1 py-1.5 rounded hover:bg-panelup transition-colors">
-                      <span className="text-sm text-bone truncate flex-1">{m.display_name}</span>
-                      <span className="font-mono text-xs text-ash w-10 text-right shrink-0">{m.attended}/{stats.totalEvents}</span>
-                      <span className={`font-mono text-xs w-12 text-right shrink-0 ${m.rate >= 75 ? 'text-emerald-400' : m.rate >= 40 ? 'text-brassbright' : 'text-oxblood'}`}>
-                        {m.rate}%
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
+          <div className="eyebrow text-[10px] text-brass flex items-center gap-2 mb-3">
+            <CalendarDays className="w-3.5 h-3.5" /> Past Events
           </div>
+
+          {loadingEvents ? (
+            <div className="py-8 text-center text-ash"><Loader2 className="w-4 h-4 animate-spin inline" /></div>
+          ) : events.length === 0 ? (
+            <p className="text-ash text-sm py-4">
+              {window_ === 'all' ? 'No events logged yet.' : `Nothing logged in the ${WINDOW_LABEL[window_]}.`}
+            </p>
+          ) : (
+            <div className="panel rounded-lg divide-y divide-line max-h-[720px] overflow-auto">
+              {events.map((ev) => (
+                <div key={ev.id} className="flex items-center gap-2 px-4 py-3 hover:bg-panelup transition-colors">
+                  {/* Straight to the night's own page. This used to expand in
+                      place; a logged night is a page's worth of table, party
+                      and detail, and it was never going to fit under a row. */}
+                  <Link to={`/attendance/${ev.id}`} className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-bone truncate hover:text-brass transition-colors">{ev.title}</div>
+                    <div className="flex items-center gap-3 text-xs text-ash mt-1">
+                      <span className="inline-flex items-center gap-1">
+                        <CalendarDays className="w-3 h-3" />
+                        {ev.event_date ? new Date(ev.event_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'No date'}
+                      </span>
+                      <span className="inline-flex items-center gap-1">
+                        <Users className="w-3 h-3" /> {ev.attendees}
+                      </span>
+                      {ev.has_party && (
+                        <span className="inline-flex items-center gap-1 text-brass/70" title="A party was recorded for this night">
+                          <Swords className="w-3 h-3" />
+                        </span>
+                      )}
+                    </div>
+                  </Link>
+                  <button
+                    onClick={() => deleteEvent(ev.id)}
+                    className="text-ash hover:text-oxblood shrink-0 p-1" title="Delete event"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </aside>
       </div>
     </div>
