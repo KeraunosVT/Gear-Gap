@@ -19,7 +19,13 @@
 -- join would make last month's event silently start displaying this month's
 -- party, and there would be no way to notice. A record of what happened is not
 -- a live view of configuration.
-alter table events add column if not exists roster_id uuid references rosters (id) on delete set null;
+--
+-- TEXT, not uuid. `rosters` predates the tracked migrations (see the header of
+-- 001) and its primary key is text, even though admin.js fills it with
+-- crypto.randomUUID(). Declaring this uuid is refused outright — "Key columns
+-- roster_id and id are of incompatible types" — so the reference matches the
+-- type that is actually there rather than the one the values look like.
+alter table events add column if not exists roster_id text references rosters (id) on delete set null;
 alter table events add column if not exists party_layout jsonb;
 
 -- ── HOW AN ATTENDANCE ROW GOT HERE ──────────────────────────────────────────
@@ -99,7 +105,8 @@ create or replace function save_event(
   p_event_date date,
   p_event_schedule_id uuid,
   p_attendees jsonb,
-  p_roster_id uuid default null,
+  -- text, matching events.roster_id and rosters.id — see the note above.
+  p_roster_id text default null,
   p_party_layout jsonb default null
 ) returns int
 language plpgsql
