@@ -1,4 +1,5 @@
 const axios = require('axios');
+const STAT_SCALES = require('../shared/statScales.json');
 
 const BASE = 'https://questlog.gg/throne-and-liberty/api/trpc';
 const DELAY = 300;
@@ -68,6 +69,39 @@ async function fetchPotentialDetail(id) {
   return data?.result?.data || null;
 }
 
+// ── Stat values are stored in fixed-point, not in display units ─────────────
+//
+// questlog serves the game's internal numbers and publishes no formatting for
+// them, so a few stats come back scaled by a constant. `skill_cooldown_modifier
+// 250` is 2.5% Cooldown Speed; `hp_regen 40000` is 40 Health Regen. Printed
+// raw, both are wrong by two or three orders of magnitude — and wrong in the
+// direction that makes a potential look far better than it is.
+//
+// The divisors are in shared/statScales.json so the import and ItemTooltip
+// can't drift apart: one writes the number into a stored description, the other
+// renders the same stat live from item data, and a divisor fixed in only one of
+// them would show two different figures for one stat.
+//
+// A stat that isn't in the table is flat and prints as-is — Hit Chance, Max
+// Health and the defenses are genuinely the numbers they say. Deliberately an
+// explicit id list rather than a "_modifier means percent" rule: an unmapped
+// stat printing raw is a visibly odd number someone reports, whereas a pattern
+// that guesses wrong is a plausible-looking number nobody catches.
+//
+// Not yet mapped, for want of a confirmed divisor: block chance (no such key
+// appears anywhere in questlog's item data — if it surfaces, it is /100 like
+// its siblings), move_speed_modifier, and stamina_regen.
+function fmtStatValue(statId, value) {
+  // Guarded before coercion: Number(null) is 0, and a potential described as
+  // "+0%" reads as a real, useless roll rather than as data we failed to read.
+  if (value === null || value === undefined) return '—';
+  const n = Number(value);
+  if (!Number.isFinite(n)) return String(value);
+  const scale = STAT_SCALES[statId];
+  if (!scale) return n.toLocaleString('en-US');
+  return (n / scale.divisor).toLocaleString('en-US', { maximumFractionDigits: 2 }) + scale.suffix;
+}
+
 // The effect, as one line of prose for the description box.
 //
 // The two kinds need different handling. For skill potentials (180 of the 192)
@@ -78,20 +112,15 @@ async function fetchPotentialDetail(id) {
 // For the 12 stat potentials the description is just the stat's display name
 // repeated ("Hit Chance", "Max Health"), which says nothing the name didn't; the
 // number in `value` is the entire effect and has to be appended or the box
-// reads as a tautology.
-//
-// Those numbers are questlog's raw game values, printed unscaled. questlog
-// exposes no display formatting for them, and picking a divisor would be
-// guessing at a number officers will make decisions on — the same raw figures
-// already appear in ItemTooltip's stat rows, so this is at least consistent
-// with what the app shows elsewhere.
+// reads as a tautology. A stat potential's `id` IS the stat id, which is what
+// makes the scale lookup below a direct hit rather than a name match.
 function potentialEffect(detail) {
   if (!detail) return null;
   const text = String(detail.description || '').trim();
   if (detail.kind !== 'stat') return text || null;
   if (detail.value === null || detail.value === undefined) return text || null;
   const sign = Number(detail.value) < 0 ? '' : '+';
-  return `${text || detail.name} ${sign}${Number(detail.value).toLocaleString('en-US')}`;
+  return `${text || detail.name} ${sign}${fmtStatValue(detail.id, detail.value)}`;
 }
 
 // Small on purpose, like trimDetail: rolledBy lists every item that can roll the

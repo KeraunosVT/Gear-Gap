@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react';
+import STAT_SCALES from '../../../shared/statScales.json';
 
 const SUPABASE_ASSETS = 'https://yukrxjxaedioymfpaseu.supabase.co/storage/v1/object/public/assets';
 const ICON_BG = `${SUPABASE_ASSETS}/loot-icons/bgs/BG_ItemGrade_04.webp`;
@@ -25,9 +26,25 @@ const STAT_LABELS = {
   min: 'Min Damage', max: 'Max Damage',
 };
 
-function fmtStat(key, val) {
-  const label = STAT_LABELS[key] || key.replace(/_/g, ' ');
-  return { label, value: typeof val === 'number' ? val.toLocaleString() : String(val) };
+// questlog serves the game's internal numbers, and a few stats are fixed-point:
+// `skill_cooldown_modifier 210` means 2.1% Cooldown Speed, `hp_regen 110250`
+// means 110.25 Health Regen. The divisors live in shared/statScales.json, read
+// here and by the potentials import, which bakes the same numbers into stored
+// descriptions — one table so a tooltip and a description can't disagree about
+// what one stat is worth. Anything not in the table is flat and prints as-is.
+function fmtStatValue(key, val) {
+  // Guarded before coercion: Number(null) is 0, so a missing value would
+  // otherwise render as a confident "0%" rather than as absent.
+  if (val === null || val === undefined) return '—';
+  const n = Number(val);
+  if (!Number.isFinite(n)) return String(val);
+  const scale = STAT_SCALES[key];
+  if (!scale) return n.toLocaleString();
+  return (n / scale.divisor).toLocaleString(undefined, { maximumFractionDigits: 2 }) + scale.suffix;
+}
+
+function statLabel(key) {
+  return STAT_LABELS[key] || key.replace(/_/g, ' ');
 }
 
 export function gradeStyle(grade) {
@@ -176,8 +193,11 @@ function StatBlock({ stats, minLvl, maxLvl }) {
   hiRows.forEach((r) => { hiMap[r.key] = r.value; });
   const allKeys = [...new Set([...Object.keys(loMap), ...Object.keys(hiMap)])];
 
+  // Keyed by stat id, not label: "Attack Range" and "Attack Speed" each label
+  // two different stat ids, which as a React key collide into one row.
   const rows = allKeys.map((key) => ({
-    label: STAT_LABELS[key] || key.replace(/_/g, ' '),
+    key,
+    label: statLabel(key),
     lo: loMap[key] ?? null,
     hi: hiMap[key] ?? null,
   }));
@@ -186,12 +206,12 @@ function StatBlock({ stats, minLvl, maxLvl }) {
   return (
     <div className="space-y-1">
       {rows.map((r) => (
-        <div key={r.label} className="flex justify-between text-[11px]">
+        <div key={r.key} className="flex justify-between text-[11px]">
           <span className="text-ash">{r.label}</span>
           <span className="text-bone font-mono">
             {r.lo != null && r.hi != null && r.lo !== r.hi
-              ? `${Number(r.lo).toLocaleString()} – ${Number(r.hi).toLocaleString()}`
-              : Number(r.hi ?? r.lo).toLocaleString()}
+              ? `${fmtStatValue(r.key, r.lo)} – ${fmtStatValue(r.key, r.hi)}`
+              : fmtStatValue(r.key, r.hi ?? r.lo)}
           </span>
         </div>
       ))}
@@ -206,22 +226,19 @@ function ExtraStatBlock({ stats, minLvl, maxLvl }) {
 
   const rows = [];
   allKeys.forEach((key) => {
-    const lo = minStats[key];
-    const hi = maxStats[key];
-    const s = fmtStat(key, hi ?? lo);
-    rows.push({ label: s.label, lo, hi });
+    rows.push({ key, label: statLabel(key), lo: minStats[key], hi: maxStats[key] });
   });
 
   if (rows.length === 0) return null;
   return (
     <div className="space-y-1">
       {rows.map((r) => (
-        <div key={r.label} className="flex justify-between text-[11px]">
+        <div key={r.key} className="flex justify-between text-[11px]">
           <span className="text-ash">{r.label}</span>
           <span className="text-emerald-400 font-mono">
             +{r.lo != null && r.hi != null && r.lo !== r.hi
-              ? `${Number(r.lo).toLocaleString()} – ${Number(r.hi).toLocaleString()}`
-              : Number(r.hi ?? r.lo).toLocaleString()}
+              ? `${fmtStatValue(r.key, r.lo)} – ${fmtStatValue(r.key, r.hi)}`
+              : fmtStatValue(r.key, r.hi ?? r.lo)}
           </span>
         </div>
       ))}
