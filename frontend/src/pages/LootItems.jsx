@@ -124,10 +124,16 @@ export default function LootItems() {
               >
                 {importing ? 'Syncing…' : 'Sync Item Database'}
               </button>
-              <span className="text-ash text-xs">{importing ? 'This may take a few minutes' : 'Pull latest Epic+ items from game data'}</span>
+              <span className="text-ash text-xs">{importing ? 'This may take a few minutes' : 'Pull latest Epic+ items and gear potentials from game data'}</span>
               {importResult && (
                 <span className="text-emerald-400 text-xs">
-                  {importResult.imported} new, {importResult.skipped || 0} existing ({(importResult.duration_ms / 1000).toFixed(0)}s)
+                  {importResult.imported} new, {importResult.skipped || 0} existing
+                  {/* Counted apart from items. Potentials are a fixed set of 192
+                      that lands whole on the first sync and then reports 192
+                      existing forever — folded into one number it reads as the
+                      item sync having quietly changed size. */}
+                  {importResult.potentials?.imported > 0 && `, ${importResult.potentials.imported} potentials`}
+                  {' '}({(importResult.duration_ms / 1000).toFixed(0)}s)
                 </span>
               )}
             </div>
@@ -168,12 +174,20 @@ export default function LootItems() {
               <div className="space-y-1 max-h-[300px] overflow-auto">
                 {qlResults.map((it) => {
                   const g = it.grade >= 51 ? 'text-amber-400' : it.grade >= 41 ? 'text-purple-400' : 'text-bone';
+                  // Potentials and items share this table and this search box.
+                  // They're ungraded, so they'd otherwise be a plain white row
+                  // with a bare "armor" under it and no way to tell which of the
+                  // two you're about to add to the catalog.
+                  const isPotential = it.main_category === 'potential';
                   return (
                     <div key={it.id} className="flex items-center gap-2 bg-hall border border-line rounded-lg px-3 py-2">
                       {it.icon && <img src={it.icon} alt="" className="w-8 h-8 rounded border border-line object-cover shrink-0" />}
                       <div className="flex-1 min-w-0">
-                        <div className={`text-sm truncate ${g}`}>{it.name}</div>
-                        <div className="text-[10px] text-ash">{it.sub_category}</div>
+                        <div className={`text-sm truncate ${isPotential ? 'text-sky-300' : g}`}>{it.name}</div>
+                        <div className="text-[10px] text-ash truncate">
+                          {isPotential ? `Potential · ${it.sub_category || 'any'}` : it.sub_category}
+                          {isPotential && it.description && <span className="text-ash/60"> — {it.description}</span>}
+                        </div>
                       </div>
                       <button
                         onClick={() => {
