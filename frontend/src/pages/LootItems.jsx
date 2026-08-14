@@ -133,6 +133,10 @@ export default function LootItems() {
                       existing forever — folded into one number it reads as the
                       item sync having quietly changed size. */}
                   {importResult.potentials?.imported > 0 && `, ${importResult.potentials.imported} potentials`}
+                  {/* Only shown when it did something. After the first sync
+                      rewrites every description, this is 0 forever, and a
+                      permanent "0 rewritten" is noise. */}
+                  {importResult.rebuilt?.updated > 0 && `, ${importResult.rebuilt.updated} descriptions rewritten`}
                   {' '}({(importResult.duration_ms / 1000).toFixed(0)}s)
                 </span>
               )}

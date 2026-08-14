@@ -1,5 +1,5 @@
 const axios = require('axios');
-const STAT_SCALES = require('../shared/statScales.json');
+const STATS = require('../shared/stats.json');
 
 const BASE = 'https://questlog.gg/throne-and-liberty/api/trpc';
 const DELAY = 300;
@@ -75,31 +75,55 @@ async function fetchPotentialDetail(id) {
 // them, so a few stats come back scaled by a constant. `skill_cooldown_modifier
 // 250` is 2.5% Cooldown Speed; `hp_regen 40000` is 40 Health Regen. Printed
 // raw, both are wrong by two or three orders of magnitude — and wrong in the
-// direction that makes a potential look far better than it is.
+// direction that makes an item look far better than it is.
 //
-// The divisors are in shared/statScales.json so the import and ItemTooltip
-// can't drift apart: one writes the number into a stored description, the other
-// renders the same stat live from item data, and a divisor fixed in only one of
-// them would show two different figures for one stat.
+// Labels and divisors both live in shared/stats.json so this file and
+// ItemTooltip can't drift apart: this one writes stat names and numbers into a
+// stored description, the other renders the same stats live from item data, and
+// either fixed in only one place would show two different figures — or two
+// different names — for one stat.
 //
-// A stat that isn't in the table is flat and prints as-is — Hit Chance, Max
-// Health and the defenses are genuinely the numbers they say. Deliberately an
-// explicit id list rather than a "_modifier means percent" rule: an unmapped
-// stat printing raw is a visibly odd number someone reports, whereas a pattern
-// that guesses wrong is a plausible-looking number nobody catches.
+// A stat with no divisor is flat and prints as-is — Hit Chance, Max Health and
+// the defenses are genuinely the numbers they say. Deliberately an explicit id
+// list rather than a "_modifier means percent" rule: an unmapped stat printing
+// raw is a visibly odd number someone reports, whereas a pattern that guesses
+// wrong is a plausible-looking number nobody catches.
 //
-// Not yet mapped, for want of a confirmed divisor: block chance (no such key
+// Not mapped, for want of a confirmed divisor: block chance (no such key
 // appears anywhere in questlog's item data — if it surfaces, it is /100 like
 // its siblings), move_speed_modifier, and stamina_regen.
+function statLabel(statId) {
+  return STATS[statId]?.label || String(statId || '').replace(/_/g, ' ');
+}
+
 function fmtStatValue(statId, value) {
-  // Guarded before coercion: Number(null) is 0, and a potential described as
-  // "+0%" reads as a real, useless roll rather than as data we failed to read.
+  // Guarded before coercion: Number(null) is 0, and an item described as "+0%"
+  // reads as a real, useless roll rather than as data we failed to read.
   if (value === null || value === undefined) return '—';
   const n = Number(value);
   if (!Number.isFinite(n)) return String(value);
-  const scale = STAT_SCALES[statId];
-  if (!scale) return n.toLocaleString('en-US');
-  return (n / scale.divisor).toLocaleString('en-US', { maximumFractionDigits: 2 }) + scale.suffix;
+  const scale = STATS[statId];
+  if (!scale || !scale.divisor) return n.toLocaleString('en-US');
+  return (n / scale.divisor).toLocaleString('en-US', { maximumFractionDigits: 2 }) + (scale.suffix || '');
+}
+
+// questlog's item descriptions carry inline markup — the equip rule on a Heroic
+// weapon arrives as `<span style="color: #F54451">Up to 1 Heroic weapon can be
+// equipped.</span>`. Nothing downstream renders HTML (the tooltip puts the
+// description in a <p> as text, which is the right call for third-party
+// content), so the tags were being shown to members verbatim.
+function stripHtml(text) {
+  if (!text) return null;
+  return String(text)
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&#0?39;/g, "'")
+    .replace(/&amp;/g, '&')
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim() || null;
 }
 
 // The effect, as one line of prose for the description box.
@@ -162,11 +186,79 @@ function trimDetail(d) {
   if (!d) return null;
   return {
     itemStats: d.itemStats || null,
+    // The next three are vestigial: questlog serves an empty array for
+    // itemTraits and nothing at all for the two abilities. What they were meant
+    // to hold now lives inside itemStats as .traits, .uniqueTraits and
+    // .resonance. Kept so the shape of already-imported rows doesn't change.
     itemTraits: d.itemTraits || null,
     resonance: d.resonance || null,
     passiveAbility: d.passiveAbility || null,
     activeAbility: d.activeAbility || null,
+    // The flavour text, kept apart from the description we build. Without it a
+    // rebuild would have to recover the flavour by unpicking it from the
+    // description it was already folded into, and would double the stat summary
+    // every time it ran.
+    flavour: stripHtml(d.description),
   };
+}
+
+// The highest level present. Epic gear is keyed 21..50 and Legendary gear is
+// keyed 75 — questlog's levels are enhancement levels, not one fixed pair, so
+// the max has to be read off the data. Assuming a pair is what made the tooltip
+// show no stats at all for every Legendary item.
+function topLevel(byLevel) {
+  const levels = Object.keys(byLevel || {}).map(Number).filter(Number.isFinite);
+  return levels.length ? String(Math.max(...levels)) : null;
+}
+
+// What a piece of gear actually does, as one line for the description box.
+//
+// Gear needs the opposite treatment to potentials. A potential's description
+// was a tautology and its effect was one number; an item's description is
+// flavour ("A longbow made with Shaikal's intense darkness…") or an equip rule
+// ("Identical rings cannot be equipped at the same time.") and never mentions a
+// single stat. So the summary is built from itemStats and the flavour is kept
+// underneath it — the equip rules in particular are the sort of thing an
+// officer needs and nothing else in the app records.
+//
+// Fully-enhanced values, because that is the number people compare gear on.
+//
+// Deliberately NOT included: traits, uniqueTraits and resonance. Those are the
+// pool of things an item *might* roll, four tiers deep and ten stats wide —
+// listing them would read as a description of what the item has, which is the
+// one thing they aren't.
+function itemEffect(detail) {
+  if (!detail) return null;
+  const stats = detail.itemStats || {};
+  const parts = [];
+
+  const mainLevel = topLevel(stats.main);
+  const main = mainLevel ? stats.main[mainLevel] : null;
+  if (main) {
+    // Weapon damage arrives as a min/max pair under the hand that swings it.
+    ['mainhand', 'offhand', 'shield'].forEach((slot) => {
+      const dmg = main[slot];
+      if (!dmg || (dmg.min == null && dmg.max == null)) return;
+      const id = dmg.statId || slot;
+      parts.push(dmg.min != null && dmg.max != null && dmg.min !== dmg.max
+        ? `${statLabel(id)} ${fmtStatValue(id, dmg.min)}–${fmtStatValue(id, dmg.max)}`
+        : `${statLabel(id)} ${fmtStatValue(id, dmg.max ?? dmg.min)}`);
+    });
+    // Armor values, and the weapon's own range/speed, are plain stat maps.
+    [main.armor, main.extra].forEach((group) => {
+      Object.entries(group || {}).forEach(([id, v]) => {
+        if (typeof v === 'number') parts.push(`${statLabel(id)} ${fmtStatValue(id, v)}`);
+      });
+    });
+  }
+
+  const extraLevel = topLevel(stats.extra);
+  Object.entries(stats.extra?.[extraLevel] || {}).forEach(([id, v]) => {
+    if (typeof v === 'number') parts.push(`${statLabel(id)} +${fmtStatValue(id, v)}`);
+  });
+
+  const flavour = detail.flavour === undefined ? stripHtml(detail.description) : detail.flavour;
+  return [parts.join(' · ') || null, flavour].filter(Boolean).join('\n\n') || null;
 }
 
 // Paged deliberately. PostgREST caps an unbounded select at 1000 rows, and the
@@ -183,6 +275,61 @@ async function existingIdSet(supabase) {
     (data || []).forEach((r) => ids.add(r.id));
     if (!data || data.length < PAGE) return ids;
   }
+}
+
+// Rebuild descriptions for gear already in the table, from the itemStats each
+// row already carries. No network at all — the sync skips items it has, so
+// without this the effect summaries would only ever appear on gear questlog
+// added after today, and a catalog built over the past year would keep its
+// flavour text forever.
+//
+// Idempotent by way of data.flavour: the first pass moves the stored flavour
+// text there and writes `summary + flavour` to the description; every pass
+// after that rebuilds from the same two inputs and finds nothing to change, so
+// only genuine changes cost a write.
+//
+// It does NOT touch loot_items. Those descriptions are hand-editable on the
+// Loot Items page and an officer's wording is not ours to overwrite; re-linking
+// an item to questlog is the deliberate way to pull a fresh one.
+async function rebuildItemDescriptions(supabase, errors) {
+  let updated = 0;
+  let scanned = 0;
+  const PAGE = 500;
+
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase.from('questlog_items')
+      .select('id, description, data')
+      .neq('main_category', POTENTIAL_CATEGORY)
+      .range(from, from + PAGE - 1);
+    if (error) throw new Error(`Could not read items: ${error.message}`);
+
+    for (const row of data || []) {
+      scanned++;
+      try {
+        const stored = row.data || {};
+        if (!stored.itemStats) continue;
+
+        // Rows imported before this change have no data.flavour, and their
+        // description IS the flavour — that is the one and only chance to
+        // recover it, so it gets written back on this pass.
+        const flavour = stored.flavour === undefined ? stripHtml(row.description) : stored.flavour;
+        const next = itemEffect({ itemStats: stored.itemStats, flavour });
+        if (next === row.description && stored.flavour !== undefined) continue;
+
+        const { error: upErr } = await supabase.from('questlog_items')
+          .update({ description: next, data: { ...stored, flavour } })
+          .eq('id', row.id);
+        if (upErr) throw new Error(upErr.message);
+        updated++;
+      } catch (err) {
+        errors.push(`Rebuild ${row.id}: ${err.message}`);
+      }
+    }
+
+    if (!data || data.length < PAGE) break;
+  }
+
+  return { scanned, updated };
 }
 
 // Potentials, into the same table. Kept in its own function and its own
@@ -271,7 +418,7 @@ module.exports = async function runImport(supabase) {
         id: it.id,
         name: it.name,
         icon,
-        description: detail?.description || null,
+        description: itemEffect(detail),
         grade: it.grade,
         main_category: it._mainCategory,
         sub_category: it.subCategory,
@@ -283,6 +430,13 @@ module.exports = async function runImport(supabase) {
     }
   }
 
+  let rebuilt = { scanned: 0, updated: 0 };
+  try {
+    rebuilt = await rebuildItemDescriptions(supabase, errors);
+  } catch (err) {
+    errors.push(`Failed to rebuild descriptions: ${err.message}`);
+  }
+
   let potentials = { imported: 0, skipped: 0 };
   try {
     potentials = await importPotentials(supabase, errors);
@@ -290,7 +444,7 @@ module.exports = async function runImport(supabase) {
     errors.push(`Failed to import potentials: ${err.message}`);
   }
 
-  return { imported, skipped, potentials, errors, duration_ms: Date.now() - start };
+  return { imported, skipped, rebuilt, potentials, errors, duration_ms: Date.now() - start };
 };
 
 // Exported so the potentials pass can be run on its own. The item sync takes

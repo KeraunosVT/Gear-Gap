@@ -20,7 +20,7 @@ A guild-management web app for a *Throne & Liberty* guild, built around Discord:
 - **Loot Council** — see wishlist demand, award items, track Lucent and archboss-shard grants per member
 - **Parties** — drag-and-drop party builder with roles, saved rosters, posts directly to Discord. Each roster is saved against the date/event it's for, so reopening it re-checks LOA for that occasion and reports what changed since — who has filed since you built it, and who's since cancelled. The posted image lists who's on leave underneath the parties, so members can see they were accounted for
 - **Gear Levels / Merge Names** — guild-wide gear-level leaderboard, marking which rows were measured with Heroic items excluded and opening any stored equipment window to check a number against the picture; reconcile OCR-misread in-game names to the right player
-- **Admin** — match/screenshot ingestion, member role management, event schedule management, and a one-click **Sync Item Database** pulling reference data from Questlog: Epic+ gear, plus all 192 gear potentials with their effect written into the description, so "Ensnaring Arrow Lv +1" carries what it actually does into the item tooltip. Stat potentials get their number converted out of the game's fixed-point (`skill_cooldown_modifier 250` → `Cooldown Speed +2.5%`) using the divisors in [`shared/statScales.json`](shared/statScales.json) — the same table the item tooltip reads, so a stored description and a live tooltip can't disagree about what one stat is worth
+- **Admin** — match/screenshot ingestion, member role management, event schedule management, and a one-click **Sync Item Database** pulling reference data from Questlog: Epic+ gear plus all 192 gear potentials, each with **what it actually does written into its description** — `Attack Power 207–385 · Attack Range 3.5 m · Strength +18` for a weapon, `Ensnaring Arrow's skill level increases by 1.` for a potential. Questlog's own item description is flavour text and never names a stat, so it's kept underneath the summary rather than replaced — the equip rules in it ("Identical rings cannot be equipped at the same time") are the sort of thing nothing else in the app records. See [Stat units](#stat-units)
 
 **Discord bot**
 - `/elitetimer`, `/elitetimers` — report and check elite boss respawn timers
@@ -133,6 +133,16 @@ Two consequences worth knowing:
 - An LOA whose end time is earlier than its start is read as crossing midnight, so *"out 11 PM–1 AM"* is a valid window.
 
 To check which day each event is filed under: `node scripts/dumpEventSchedule.js` (read-only).
+
+### Stat units
+
+Questlog serves the game's internal numbers, and several stats are fixed-point: `skill_cooldown_modifier: 250` means **2.5%** Cooldown Speed, `hp_regen: 110250` means **110.25** Health Regen, `attack_range_main_hand: 1600` means **16 m**. Printed raw they're wrong by two or three orders of magnitude, and wrong in the direction that makes gear look better than it is.
+
+Display names and divisors both live in [`shared/stats.json`](shared/stats.json), read by [`backend/questlogImport.js`](backend/questlogImport.js) — which bakes them into stored item descriptions — and by [`frontend/src/components/ItemTooltip.jsx`](frontend/src/components/ItemTooltip.jsx), which renders the same stats live. **One table on purpose:** fix a divisor in only one of them and a stored description and a live tooltip will quote two different figures for one stat.
+
+A stat with no `divisor` is flat and prints as-is; Hit Chance, Max Health and the defenses genuinely are the numbers they say. The table is an explicit list of stat ids rather than a "`_modifier` means percent" rule — an unmapped stat printing raw is a visibly odd number someone reports, whereas a pattern that guesses wrong is a plausible-looking number nobody catches. Unmapped for want of a confirmed divisor: **block chance** (no such key appears anywhere in Questlog's item data), `move_speed_modifier` and `stamina_regen`.
+
+Descriptions are rebuilt from stored data on every sync, so correcting a divisor here and re-syncing fixes every item already in the table without re-fetching anything. It never touches `loot_items` descriptions — those are hand-editable and an officer's wording isn't the sync's to overwrite; re-linking an item to Questlog is the deliberate way to pull a fresh one.
 
 ### Weapon legend (optional, improves screenshot accuracy)
 

@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import STAT_SCALES from '../../../shared/statScales.json';
+import STATS from '../../../shared/stats.json';
 
 const SUPABASE_ASSETS = 'https://yukrxjxaedioymfpaseu.supabase.co/storage/v1/object/public/assets';
 const ICON_BG = `${SUPABASE_ASSETS}/loot-icons/bgs/BG_ItemGrade_04.webp`;
@@ -12,39 +12,27 @@ const GRADE = {
   51: { label: 'Legendary', color: 'text-amber-400',  border: 'border-amber-500/50',  bg: 'bg-amber-500/10', iconBg: true },
 };
 
-const STAT_LABELS = {
-  str: 'Strength', dex: 'Dexterity', int: 'Intelligence', per: 'Perception', wis: 'Wisdom',
-  hp_max: 'Max HP', cost_max: 'Max Mana', hp_regen: 'HP Regen', cost_regen: 'Mana Regen',
-  all_accuracy: 'Accuracy', all_critical_attack: 'Critical Hit', all_double_attack: 'Double Attack',
-  attack_speed_modifier: 'Attack Speed', skill_cooldown_modifier: 'Cooldown Speed',
-  stun_accuracy: 'Stun Accuracy', bind_accuracy: 'Bind Accuracy', weaken_accuracy: 'Weaken Accuracy',
-  collide_amplification: 'Collision Amp', skill_power_amplification: 'Skill Power',
-  buff_given_duration_modifier: 'Buff Duration', magic_armor: 'Magic Defense',
-  physical_armor: 'Physical Defense', attack_range: 'Attack Range',
-  attack_range_main_hand: 'Attack Range', attack_speed_main_hand: 'Attack Speed',
-  off_hand_attack_chance: 'Off-Hand Chance', min_damage: 'Min Damage', max_damage: 'Max Damage',
-  min: 'Min Damage', max: 'Max Damage',
-};
-
-// questlog serves the game's internal numbers, and a few stats are fixed-point:
-// `skill_cooldown_modifier 210` means 2.1% Cooldown Speed, `hp_regen 110250`
-// means 110.25 Health Regen. The divisors live in shared/statScales.json, read
-// here and by the potentials import, which bakes the same numbers into stored
-// descriptions — one table so a tooltip and a description can't disagree about
-// what one stat is worth. Anything not in the table is flat and prints as-is.
+// Names and units both come from shared/stats.json, read here and by the
+// questlog import, which bakes the same names and numbers into stored item
+// descriptions — one table, so a tooltip and a description can't disagree about
+// what a stat is called or what it's worth.
+//
+// A few stats are fixed-point: `skill_cooldown_modifier 210` means 2.1%
+// Cooldown Speed, `hp_regen 110250` means 110.25 Health Regen. Anything with no
+// divisor is flat and prints as-is.
 function fmtStatValue(key, val) {
   // Guarded before coercion: Number(null) is 0, so a missing value would
   // otherwise render as a confident "0%" rather than as absent.
   if (val === null || val === undefined) return '—';
   const n = Number(val);
   if (!Number.isFinite(n)) return String(val);
-  const scale = STAT_SCALES[key];
-  if (!scale) return n.toLocaleString();
-  return (n / scale.divisor).toLocaleString(undefined, { maximumFractionDigits: 2 }) + scale.suffix;
+  const scale = STATS[key];
+  if (!scale || !scale.divisor) return n.toLocaleString();
+  return (n / scale.divisor).toLocaleString(undefined, { maximumFractionDigits: 2 }) + (scale.suffix || '');
 }
 
 function statLabel(key) {
-  return STAT_LABELS[key] || key.replace(/_/g, ' ');
+  return STATS[key]?.label || String(key || '').replace(/_/g, ' ');
 }
 
 export function gradeStyle(grade) {
@@ -93,10 +81,19 @@ export default function ItemTooltip({ item, children }) {
   );
 }
 
+// questlog keys stats by enhancement level, and the levels differ by grade:
+// Epic gear runs 21–50, Legendary gear is a single entry at 75. These were
+// hardcoded to '21' and '50', so every Legendary item looked up two levels it
+// doesn't have and rendered no stats whatsoever — the exact items anyone opens
+// a tooltip to look at. Read off the data instead.
+function levelBounds(byLevel) {
+  const levels = Object.keys(byLevel || {}).map(Number).filter(Number.isFinite);
+  if (levels.length === 0) return { minLvl: null, maxLvl: null };
+  return { minLvl: String(Math.min(...levels)), maxLvl: String(Math.max(...levels)) };
+}
+
 function TooltipContent({ item, g }) {
   const qd = item.questlog_data;
-  const maxLvl = '50';
-  const minLvl = '21';
 
   const mainStats = qd?.itemStats?.main;
   const extraStats = qd?.itemStats?.extra;
@@ -119,17 +116,18 @@ function TooltipContent({ item, g }) {
         </div>
       </div>
 
-      {/* Main stats */}
+      {/* Main stats. Bounds read per block — main and extra are keyed
+          independently and there's no guarantee they span the same levels. */}
       {mainStats && (
         <div className="px-4 py-2.5 border-t border-line/50">
-          <StatBlock stats={mainStats} minLvl={minLvl} maxLvl={maxLvl} />
+          <StatBlock stats={mainStats} {...levelBounds(mainStats)} />
         </div>
       )}
 
       {/* Extra stats */}
       {extraStats && (
         <div className="px-4 py-2.5 border-t border-line/50">
-          <ExtraStatBlock stats={extraStats} minLvl={minLvl} maxLvl={maxLvl} />
+          <ExtraStatBlock stats={extraStats} {...levelBounds(extraStats)} />
         </div>
       )}
 
