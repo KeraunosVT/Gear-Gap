@@ -385,13 +385,27 @@ module.exports = function createLoa(supabase, identities = null) {
       }));
     },
 
+    // Returns the whole entry alongside the message id. The row is about to
+    // stop existing, so this is the last moment anything can describe what was
+    // cancelled — and the LOA-cancelled notice has nothing to say without it.
+    // Read before the delete for the same reason.
     async cancel(id, discordId, isAdmin) {
-      const { data: entry } = await supabase.from('loa_entries').select('discord_id, discord_message_id').eq('id', id).single();
+      const { data: entry } = await supabase.from('loa_entries').select('*').eq('id', id).single();
       if (!entry) throw httpError(404, 'LOA not found.');
       if (entry.discord_id !== discordId && !isAdmin) throw httpError(403, 'You can only cancel your own LOA.');
       const { error } = await supabase.from('loa_entries').delete().eq('id', id);
       if (error) throw httpError(500, 'Failed to cancel LOA.');
-      return { messageId: entry.discord_message_id || null };
+
+      // Best-effort, and never fatal: the LOA is already gone, and a missing
+      // event name costs the notice a few words rather than the whole notice.
+      let eventName = null;
+      if (entry.event_schedule_id) {
+        const { data: ev } = await supabase.from('event_schedule')
+          .select('name').eq('id', entry.event_schedule_id).single();
+        eventName = ev?.name || null;
+      }
+
+      return { messageId: entry.discord_message_id || null, entry: { ...entry, event_name: eventName } };
     },
   };
 };

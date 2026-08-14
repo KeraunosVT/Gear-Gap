@@ -38,6 +38,9 @@ const signupChannelId = () => guildConfig.signupChannelId();
 // The voice channel /attendance snaps when the officer names none and isn't
 // sitting in one themselves.
 const attendanceVoiceChannelId = () => guildConfig.get().attendance_voice_channel_id;
+// Who gets DMed when someone cancels an LOA. Null means nobody, which is what
+// this did before migration 018.
+const loaNotifyDiscordId = () => guildConfig.get().loa_notify_discord_id;
 // Same officer role list auth.js uses to gate the website's admin area, so
 // "officer" means the same thing in Discord as it does on the site.
 const adminRoleIds = () => guildConfig.get().admin_role_ids;
@@ -430,6 +433,56 @@ async function deleteLoaMessage(messageId) {
   }
 }
 
+// DMs one person when an LOA is cancelled.
+//
+// This exists because cancelling is the only LOA event that leaves no trace.
+// Filing one posts to the LOA channel; cancelling *deletes* that post — the
+// evidence is removed rather than added to — so anyone planning a night around
+// who's out has no way to notice that someone came back. A DM is the point: it
+// lands with the one person keeping track, which a channel post doesn't.
+//
+// Best-effort throughout, and never awaited by its callers. The LOA is already
+// gone by the time this runs; a closed DM or an offline bot must not turn a
+// successful cancellation into an error the member sees.
+async function notifyLoaCancelled(entry, actor) {
+  const target = loaNotifyDiscordId();
+  if (!ready || !client || !target || !entry) return;
+
+  // No point telling someone what they just did themselves.
+  if (actor?.id && String(actor.id) === String(target)) return;
+
+  // Same wording as the original announcement, so the notice reads as the
+  // undoing of a specific post rather than as a separate kind of event.
+  const summary = loaAnnouncement({
+    type: entry.type,
+    displayName: entry.display_name || 'Someone',
+    eventName: entry.event_name,
+    eventDate: entry.event_date,
+    startDate: entry.start_date,
+    endDate: entry.end_date,
+    dayOfWeek: entry.day_of_week,
+    startTime: entry.start_time,
+    endTime: entry.end_time,
+  }).replace(/^📋 /, '');
+
+  // Who cancelled it, but only when that isn't the member themselves —
+  // "cancelled by an officer" is the part worth knowing, and saying "cancelled
+  // by Sam" under Sam's own LOA is noise.
+  const byOther = actor?.id && String(actor.id) !== String(entry.discord_id);
+  const lines = [
+    `🚫 **LOA cancelled** — was: ${summary}`,
+    byOther ? `Cancelled by **${actor.name || actor.id}**.` : null,
+    entry.reason ? `Original reason: ${String(entry.reason).slice(0, 300)}` : null,
+  ].filter(Boolean);
+
+  try {
+    const user = await client.users.fetch(String(target));
+    await user.send(lines.join('\n'));
+  } catch (err) {
+    console.warn(`LOA cancellation DM to ${target} failed:`, err.message);
+  }
+}
+
 async function handleLoa(interaction) {
   const sub = interaction.options.getSubcommand();
   if (sub === 'event') return handleLoaEvent(interaction);
@@ -573,9 +626,15 @@ async function handleLoaCancel(interaction) {
     // Officers can cancel anyone's LOA from Discord (matches the website,
     // where the LOA Board's cancel button shows for admins on any entry);
     // everyone else can only cancel their own, enforced in loa.cancel().
-    const { messageId } = await loa.cancel(id, interaction.user.id, isAdminMember(interaction));
+    const { messageId, entry } = await loa.cancel(id, interaction.user.id, isAdminMember(interaction));
     await interaction.editReply('Cancelled ✅');
     await deleteLoaMessage(messageId);
+    // Not awaited: the cancellation is done and the member has been told, so a
+    // slow or closed DM shouldn't sit in front of either.
+    notifyLoaCancelled(entry, {
+      id: interaction.user.id,
+      name: interaction.member?.displayName || interaction.user.username,
+    }).catch(() => {});
   } catch (err) {
     await interaction.editReply(err.message || 'Something went wrong cancelling that LOA.');
   }
@@ -1208,6 +1267,7 @@ module.exports = {
   getVoiceMembers,
   announceLoaEntry,
   deleteLoaMessage,
+  notifyLoaCancelled,
   notifyAttendance,
   announceSignup,
   refreshSignupMessage,

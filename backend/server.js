@@ -552,9 +552,14 @@ app.post('/api/loa', async (req, res) => {
 app.delete('/api/loa/:id', async (req, res) => {
   if (!loa) return res.status(503).json({ error: 'Database not configured.' });
   try {
-    const { messageId } = await loa.cancel(req.params.id, req.user.id, userHas(req.user, 'loa.admin'));
+    const { messageId, entry } = await loa.cancel(req.params.id, req.user.id, userHas(req.user, 'loa.admin'));
     res.json({ ok: true });
     gateway.deleteLoaMessage(messageId);
+    // After the response and never awaited, like the announcement on submit:
+    // the LOA is already gone, so a slow Discord must not make a successful
+    // cancellation look like it failed.
+    gateway.notifyLoaCancelled(entry, { id: req.user.id, name: req.user.username })
+      .catch((err) => console.error('LOA cancellation notice error:', err.message));
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }

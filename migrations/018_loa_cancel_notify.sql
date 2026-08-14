@@ -1,0 +1,21 @@
+-- 018_loa_cancel_notify.sql — who gets told when an LOA is cancelled.
+--
+-- Cancellations are the one LOA event with no trace. Filing an LOA posts to the
+-- LOA channel; cancelling it *deletes* that post (deleteLoaMessage), so someone
+-- who is planning a night around who's out has no way to notice that someone
+-- came back — the evidence is removed rather than added to.
+--
+-- This is a Discord user id, not a role: the point is a DM landing with one
+-- person who is actually keeping track, which a channel post doesn't achieve.
+-- Null (the default) means nobody is notified, which is exactly the behaviour
+-- every deployment has today.
+--
+-- In guild_config rather than an environment variable for the same reason as
+-- everything else in migration 014 — the person keeping track changes, and
+-- changing who gets the DM should not need a redeploy. It's picked from the
+-- member list on the Guild Settings page, so nobody has to go hunting for a
+-- snowflake by hand.
+--
+-- Safe to re-run. Run this in the Supabase SQL editor.
+
+alter table guild_config add column if not exists loa_notify_discord_id text;

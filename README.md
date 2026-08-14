@@ -10,7 +10,7 @@ A guild-management web app for a *Throne & Liberty* guild, built around Discord:
 - **Archboss Shards** — track how many of each archboss shard type you need, plus a weapon wishlist
 - **Gear Level** — upload a gear screenshot, parsed automatically (Gemini). Two kinds: the small **Equipment Level popup** (fast, four numbers, counts everything), or the **full equipment window**, which reads each item individually and leaves Heroic-tier pieces out of the totals — the popup's own "Max Weapon Lv." always counts a Heroic weapon and never says which item produced the number, so there's nothing to subtract afterwards. The window screenshot is stored and visible to you and to officers, with every item listed and the excluded ones struck through
 - **My Classes** — rank up to 3 classes per mode so officers can plan parties around your build
-- **Leave of Absence** — submit LOA for a single event, a date range, or recurring days (pick more than one at once); optionally scope any of these to a time window (e.g. "I can make the 6pm event but I'm out after that," or "out 7–8pm, back after") — also via `/loa` in Discord
+- **Leave of Absence** — submit LOA for a single event, a date range, or recurring days (pick more than one at once); optionally scope any of these to a time window (e.g. "I can make the 6pm event but I'm out after that," or "out 7–8pm, back after") — also via `/loa` in Discord. Cancelling one deletes its announcement, so a nominated member can be [DMed](#guild-settings-adminsettings) when it happens: coming back otherwise *removes* evidence rather than adding it, and nobody planning a night would notice
 - **My Attendance** — every night attendance was taken in the last 30 days and whether you were counted. If the snapshot missed you, ask an officer to add you — for 24 hours after attendance was taken, from the site or via `/attendance-late`. Nobody writes their own attendance; a member asks, an officer decides, and you get a DM either way
 
 **For officers**
@@ -92,6 +92,7 @@ Everything below used to be an environment variable or a file in the repo, and c
 | Roster roles | `DISCORD_MEMBER_ROLE_IDS` | Who appears in parties, attendance and reminders |
 | Roster / LOA / Announce / Signup channels | `DISCORD_*_CHANNEL_ID` | Blank = that feature posts nowhere |
 | Attendance voice channel | *(new)* | The one channel the bot **reads** rather than posts to |
+| LOA cancellation notice | *(new)* | DMs one member whenever anyone cancels an LOA. Blank = nobody, which is what every deployment did before migration 018 |
 
 **Those environment variables are no longer read.** Setting `DISCORD_LOA_CHANNEL_ID` today does nothing; leaving stale ones in `.env` is harmless but misleading, so delete them once you have migrated.
 

@@ -160,15 +160,20 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
   router.get('/settings', async (req, res) => {
     if (!guildSettings) return res.status(503).json({ error: 'Database not configured.' });
     try {
-      const [settings, roles] = await Promise.all([
+      const [settings, roles, members] = await Promise.all([
         guildSettings.load(),
         listRoles().catch((err) => { console.error('settings listRoles failed:', err.message); return []; }),
+        // For the LOA-cancellation picker, so nobody has to hunt down a
+        // snowflake by hand. Soft-failed like roles: not being able to list
+        // members is a reason to type an id, not a reason the page won't load.
+        listMembers().catch((err) => { console.error('settings listMembers failed:', err.message); return []; }),
       ]);
       const channels = gateway.listTextChannels();
       const voiceChannels = gateway.listVoiceChannels();
       res.json({
         settings,
         roles,
+        members,
         channels,
         voice_channels: voiceChannels,
         bot_online: Boolean(channels.length || voiceChannels.length),

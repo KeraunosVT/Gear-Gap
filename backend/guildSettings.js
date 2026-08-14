@@ -25,7 +25,7 @@ const EDITABLE = [
   'timezone', 'day_start',
   'admin_role_ids', 'allowed_role_ids', 'member_role_ids',
   'roster_channel_id', 'loa_channel_id', 'announce_channel_id', 'signup_channel_id',
-  'attendance_voice_channel_id',
+  'attendance_voice_channel_id', 'loa_notify_discord_id',
 ];
 
 function httpError(status, message) {
@@ -51,6 +51,17 @@ function channelId(v, label) {
   const s = String(v ?? '').trim();
   if (!s) return null;
   if (!SNOWFLAKE.test(s)) throw httpError(400, `${label}: not a Discord channel id — ${s}`);
+  return s;
+}
+
+// Blank means nobody is notified. Deliberately not checked against the member
+// list: someone can legitimately be off the roster, or the bot can be down when
+// the form is saved, and refusing the save in either case would be worse than
+// a DM that quietly fails.
+function userId(v, label) {
+  const s = String(v ?? '').trim();
+  if (!s) return null;
+  if (!SNOWFLAKE.test(s)) throw httpError(400, `${label}: not a Discord user id — ${s}`);
   return s;
 }
 
@@ -203,6 +214,8 @@ module.exports = function createGuildSettings(supabase) {
         // the same validator; the difference is which list the picker offers,
         // which is the route's job, not this one's.
         attendance_voice_channel_id: channelId(b.attendance_voice_channel_id, 'Attendance voice channel'),
+        // A member, not a channel — the one setting here that names a person.
+        loa_notify_discord_id: userId(b.loa_notify_discord_id, 'LOA cancellation notice'),
       };
 
       const priorAliases = Array.isArray(before.aliases) ? before.aliases.filter(Boolean) : [];

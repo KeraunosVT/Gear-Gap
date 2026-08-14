@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
-import { Save, ShieldAlert, Hash, Clock, Plus, X, Loader2, AlertTriangle, Volume2 } from 'lucide-react';
+import { Save, ShieldAlert, Hash, Clock, Plus, X, Loader2, AlertTriangle, Volume2, Bell } from 'lucide-react';
 import { useAuth } from '../auth';
 import RestrictedGate from '../components/ui/RestrictedGate';
 import { PageShell } from '../components/ui/PageShell';
@@ -115,6 +115,9 @@ export default function GuildSettings() {
   // every other picker on this page names one it POSTS into. One combined list
   // would let a guild point its LOA announcements at a voice channel.
   const [voiceChannels, setVoiceChannels] = useState([]);
+  // The roster, only so one setting on this page can name a person instead of
+  // a role or a channel.
+  const [members, setMembers] = useState([]);
   const [botOnline, setBotOnline] = useState(true);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -128,6 +131,7 @@ export default function GuildSettings() {
         setForm(res.data.settings);
         setOriginal(res.data.settings);
         setRoles(res.data.roles || []);
+        setMembers(res.data.members || []);
         setChannels(res.data.channels || []);
         setVoiceChannels(res.data.voice_channels || []);
         setBotOnline(Boolean(res.data.bot_online));
@@ -353,6 +357,31 @@ export default function GuildSettings() {
                 </option>
               )}
               {voiceChannels.map((c) => <option key={c.id} value={c.id}>🔊 {c.name}</option>)}
+            </select>
+          </Field>
+
+          {/* A person, not a channel — the only setting on this page that names
+              one. It's here rather than in its own section because it belongs
+              with the LOA channel above it: that channel is where LOAs are
+              announced, and this is who hears about the ones that get taken
+              back down. */}
+          <Field label={<span className="flex items-center gap-1.5"><Bell className="w-3 h-3" /> LOA cancellation notice</span>}
+            hint="DMed whenever anyone cancels an LOA. Cancelling deletes the LOA channel post, so there's otherwise nothing to notice — a member coming back removes evidence instead of adding it. Leave as “nobody” to send nothing.">
+            <select value={form.loa_notify_discord_id || ''}
+              onChange={(e) => set('loa_notify_discord_id', e.target.value || null)}
+              className={`${inputClass} md:w-1/2`}>
+              <option value="">— nobody —</option>
+              {/* Same reason as the channel pickers: a stored id the bot can't
+                  see has to stay selectable, or saving while Discord is
+                  unreachable — or after this person leaves the roster —
+                  silently switches the notices off. */}
+              {form.loa_notify_discord_id
+                && !members.some((m) => m.id === form.loa_notify_discord_id) && (
+                <option value={form.loa_notify_discord_id}>
+                  {form.loa_notify_discord_id} (not visible to the bot)
+                </option>
+              )}
+              {members.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
             </select>
           </Field>
         </section>
