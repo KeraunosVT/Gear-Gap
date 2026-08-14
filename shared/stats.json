@@ -19,6 +19,7 @@
   "min_damage": { "label": "Min Damage" },
   "max_damage": { "label": "Max Damage" },
   "off_hand_attack_chance": { "label": "Off-Hand Chance" },
+  "shield_block_chance": { "label": "Block Chance", "divisor": 100, "suffix": "%" },
 
   "attack_range": { "label": "Attack Range", "divisor": 100, "suffix": " m" },
   "attack_range_main_hand": { "label": "Attack Range", "divisor": 100, "suffix": " m" },
