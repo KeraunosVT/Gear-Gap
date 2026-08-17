@@ -13,15 +13,17 @@ import { fmtDatetime } from '../timeUtils';
 const MAX_LEVEL = 80;
 const isMaxed = (e) => e.weapon === MAX_LEVEL && e.armor === MAX_LEVEL && e.accessory === MAX_LEVEL;
 
-// Which screenshot produced a member's row. Nothing writes 'window' any more —
-// the equipment-window upload stores the image and sets no level — but rows
-// written before that change still carry it, and they were measured by a
-// different rule (Heroic items excluded from the maxima). Marking them is the
-// cheapest honest way to say two rows here aren't scored the same; an unmarked
-// row is the long-standing default and needs no explaining.
+// Which upload produced a member's row. Nothing writes 'window' any more — a
+// Gear Screenshot Upload stores the image and sets no level — but rows written
+// before that change still carry it, and they were measured by a different rule
+// (Heroic items excluded from the maxima). Marking them is the cheapest honest
+// way to say two rows here aren't scored the same; an unmarked row is the
+// long-standing default and needs no explaining.
+//
+// The keys are the stored source values, untouched by the label rename.
 const SOURCE_NOTE = {
-  popup: 'From the Equipment Level popup — Heroic items counted',
-  window: 'From an older equipment-window upload, back when it set levels — Heroic items excluded',
+  popup: 'From a Watermark Upload — Heroic items counted',
+  window: 'From an older gear screenshot upload, back when it set levels — Heroic items excluded',
 };
 
 const COLUMNS = [
@@ -139,13 +141,13 @@ export default function GearLevels() {
               <span className="text-sm text-ash">
                 <span className="text-bone font-mono">{counts.levels}</span> submitted
               </span>
-              {/* Now a separate number from the one above, because filing an
-                  equipment window no longer produces a gear level. "12
+              {/* Now a separate number from the one above, because a Gear
+                  Screenshot Upload no longer produces a gear level. "12
                   submitted" alone would leave an officer chasing members who
                   had in fact uploaded something. */}
-              <span className="text-sm text-ash inline-flex items-center gap-1.5" title="Members with an equipment window screenshot on file">
+              <span className="text-sm text-ash inline-flex items-center gap-1.5" title="Members with a gear screenshot on file">
                 <ImageIcon className="w-3.5 h-3.5" />
-                <span className="text-bone font-mono">{counts.screenshots}</span> screenshot{counts.screenshots === 1 ? '' : 's'}
+                <span className="text-bone font-mono">{counts.screenshots}</span> gear screenshot{counts.screenshots === 1 ? '' : 's'}
               </span>
             </>
           )}
@@ -180,11 +182,11 @@ export default function GearLevels() {
                         {e.excluded_count > 0 ? `−${e.excluded_count}` : 'window'}
                       </span>
                     )}
-                    {/* Why every level on this row is a dash: they sent an
-                        equipment screenshot, which no longer produces a level.
+                    {/* Why every level on this row is a dash: they sent a Gear
+                        Screenshot Upload, which no longer produces a level.
                         Without this the row reads as a failed submission. */}
                     {!e.average && e.has_screenshot && (
-                      <span title="Equipment screenshot on file, but no Equipment Level popup submitted — nothing sets their level"
+                      <span title="Gear screenshot on file, but no Watermark Upload submitted — nothing sets their level"
                         className="inline-flex items-center gap-1 text-[10px] eyebrow border border-line rounded-full px-1.5 py-0.5 text-ash">
                         <ImageIcon className="w-2.5 h-2.5" /> screenshot only
                       </span>
@@ -201,7 +203,7 @@ export default function GearLevels() {
                     {/* Only offered when there is one — a button that reliably
                         says "nothing on file" is a button people stop trusting. */}
                     {e.has_screenshot && (
-                      <button onClick={() => openShot(e)} className="text-ash hover:text-brass" title="View their equipment window">
+                      <button onClick={() => openShot(e)} className="text-ash hover:text-brass" title="View their gear screenshot">
                         <ImageIcon className="w-3.5 h-3.5" />
                       </button>
                     )}
@@ -242,7 +244,7 @@ export default function GearLevels() {
 
       {shotMember && (
         <Modal onClose={() => setShotMember(null)} maxWidth="max-w-3xl" scrollable>
-          <div className="eyebrow text-brass text-[11px] mb-3">Equipment Window</div>
+          <div className="eyebrow text-brass text-[11px] mb-3">Gear Screenshot</div>
           <h2 className="font-display text-xl text-bone tracking-[0.06em] mb-1">{shotMember.display_name || 'Member'}</h2>
           {shot?.submitted_at && <p className="text-ash text-xs mb-4">Uploaded {fmtDatetime(shot.submitted_at)}</p>}
 
@@ -251,7 +253,7 @@ export default function GearLevels() {
           ) : shotError ? (
             <p className="text-bone text-sm px-4 py-2.5 rounded-lg border border-oxblood/50 bg-oxblooddeep/20">{shotError}</p>
           ) : !shot ? (
-            <p className="text-ash text-sm">No equipment window on file.</p>
+            <p className="text-ash text-sm">No gear screenshot on file.</p>
           ) : (
             <div className="space-y-4">
               {/* Nothing is read out of this image any more — no item table, no
@@ -262,7 +264,7 @@ export default function GearLevels() {
                   the transcription over the thing it transcribed. */}
               {shot.image_url ? (
                 <a href={shot.image_url} target="_blank" rel="noreferrer">
-                  <img src={shot.image_url} alt={`${shotMember.display_name || 'Member'}'s equipment window`}
+                  <img src={shot.image_url} alt={`${shotMember.display_name || 'Member'}'s gear screenshot`}
                     className="max-w-full rounded-lg border border-line hover:border-brass/50 transition-colors" />
                 </a>
               ) : (
