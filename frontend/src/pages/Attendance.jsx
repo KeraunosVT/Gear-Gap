@@ -33,6 +33,10 @@ export default function Attendance() {
   const [channels, setChannels] = useState([]);
   const [configuredId, setConfiguredId] = useState(null);
   const [snapped, setSnapped] = useState([]);
+  // Ids an officer has deliberately taken off the snap. Refresh merges the
+  // channel back in, so without this every refresh would resurrect the person
+  // they just removed — and they'd have to remove them again after each one.
+  const [removed, setRemoved] = useState(() => new Set());
   const [schedule, setSchedule] = useState([]);
   const [eventScheduleId, setEventScheduleId] = useState('');
   const [title, setTitle] = useState('');
@@ -43,6 +47,7 @@ export default function Attendance() {
   const [rosters, setRosters] = useState([]);
   const [rosterId, setRosterId] = useState('auto');
   const [snapping, setSnapping] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [msg, setMsg] = useState(null);
@@ -147,6 +152,9 @@ export default function Attendance() {
       const members = res.data.members || [];
       if (members.length === 0) { flash('No one is in that channel right now.', false); return; }
       setSnapped(members);
+      // A fresh snap starts a fresh list, so past removals stop applying.
+      setRemoved(new Set());
+      loadChannels();
       flash(`Snapped ${members.length} member${members.length === 1 ? '' : 's'}.`);
     } catch {
       flash('Could not read that voice channel.', false);
@@ -155,7 +163,38 @@ export default function Attendance() {
     }
   };
 
-  const removeSnapped = (id) => setSnapped((prev) => prev.filter((m) => m.id !== id));
+  // Re-read the channel without throwing away the snap. Anyone who joined since
+  // is added; anyone already on the list stays, including people who have since
+  // left — they were there, which is the whole point of snapping early. A plain
+  // re-Snap can't do this: it replaces the list, so it drops the people who left
+  // and undoes every manual removal.
+  const refreshSnap = async () => {
+    if (!configuredId) return;
+    setRefreshing(true);
+    try {
+      const res = await axios.get(`/api/admin/voice-channels/${configuredId}/members`);
+      const inChannel = res.data.members || [];
+      loadChannels(); // keeps the "N in channel now" line honest too
+      if (snapped.length === 0) {
+        flash(`${inChannel.length} in channel now — press Snap to capture them.`);
+        return;
+      }
+      const known = new Set(snapped.map((m) => m.id));
+      const added = inChannel.filter((m) => !known.has(m.id) && !removed.has(m.id));
+      if (added.length === 0) { flash('No one new in the channel.'); return; }
+      setSnapped((prev) => [...prev, ...added]);
+      flash(`Added ${added.length} — ${snapped.length + added.length} snapped.`);
+    } catch {
+      flash('Could not read that voice channel.', false);
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  const removeSnapped = (id) => {
+    setSnapped((prev) => prev.filter((m) => m.id !== id));
+    setRemoved((prev) => new Set(prev).add(id));
+  };
 
   const selectScheduleEvent = (id) => {
     setEventScheduleId(id);
@@ -178,7 +217,8 @@ export default function Attendance() {
       flash(`Saved — ${res.data.attendees} attendees logged.`);
       // Back to tonight, not blank — the same reason the initial value isn't
       // blank, and logging two events on one night is the common case.
-      setSnapped([]); setTitle(''); setEventDate(todayInGuildTz()); setEventScheduleId(''); setRosterId('auto');
+      setSnapped([]); setRemoved(new Set());
+      setTitle(''); setEventDate(todayInGuildTz()); setEventScheduleId(''); setRosterId('auto');
       loadEvents(); loadStats();
     } catch (err) {
       flash(err.response?.data?.error || 'Could not save event.', false);
@@ -325,6 +365,20 @@ export default function Attendance() {
               <Volume2 className="w-3.5 h-3.5 text-brass" />
               Snapping <span className="text-bone">{channel.name}</span> · {channel.memberCount} in channel now
               <span className="text-ash/50">·</span>
+              {/* Sits on the count it updates. Both readings of "refresh" land
+                  here: the number goes live again, and latecomers join the snap
+                  without disturbing what's already on it. */}
+              <button
+                onClick={refreshSnap} disabled={refreshing || snapping}
+                title={snapped.length > 0
+                  ? 'Re-read the channel — adds anyone who joined since the snap, keeps everyone already on it'
+                  : 'Re-read the channel to update the count'}
+                className="inline-flex items-center gap-1 hover:text-brass transition-colors disabled:opacity-40"
+              >
+                <RefreshCw className={`w-3 h-3 ${refreshing ? 'animate-spin' : ''}`} />
+                {refreshing ? 'refreshing…' : 'refresh'}
+              </button>
+              <span className="text-ash/50">·</span>
               <Link to="/admin/settings" className="hover:text-brass">change</Link>
             </span>
           ) : channels.length === 0 ? (
@@ -352,6 +406,13 @@ export default function Attendance() {
           <div className="mt-4 pt-4 border-t border-line">
             <div className="eyebrow text-[10px] text-brass mb-3 flex items-center gap-2">
               <Users className="w-3.5 h-3.5" /> Snapped ({snapped.length})
+              {/* Says why refresh isn't bringing someone back — otherwise a
+                  removal that keeps holding looks like the refresh missing them. */}
+              {removed.size > 0 && (
+                <span className="text-ash/60 normal-case tracking-normal">
+                  · {removed.size} removed, and refresh won’t re-add them
+                </span>
+              )}
             </div>
             <div className="flex flex-wrap gap-2">
               {snapped.map((m) => (
