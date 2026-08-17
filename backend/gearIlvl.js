@@ -37,167 +37,21 @@ const RESPONSE_SCHEMA = {
 };
 
 // ── THE FULL EQUIPMENT WINDOW ───────────────────────────────────────────────
-// A different screenshot and a different job. The popup above prints four
-// numbers the game has already computed; this reads every equipped item so the
-// three maxima can be recomputed with Heroic-tier items left out — which the
-// popup's own "Max Weapon Lv." line cannot be talked out of including.
+// Stored, not read. This used to run its own Gemini pass over every equipped
+// item and recompute the three maxima with Heroic-tier gear excluded, then
+// overwrite the member's gear level with the result.
 //
-// The model is asked for the tier VERBATIM and for a category per item, rather
-// than being asked to do the filtering or the arithmetic itself. Two reasons:
-// a model that returns one wrong number gives no way to see where it went
-// wrong, and the exclusion rule is a guild policy that will change without the
-// screenshot format changing. Both live in JS below, where they can be read.
-const WINDOW_PROMPT = `This is a screenshot of the character equipment window from
-Throne and Liberty, showing every item the character has equipped.
-
-For EACH equipped item visible in the window, report:
-- "slot": the equipment slot label as shown (e.g. "Main Weapon", "Head", "Necklace").
-  If the slot isn't labelled, describe it briefly.
-- "name": the item's name as printed.
-- "category": exactly one of "weapon", "armor", "accessory".
-    weapon    = held weapons (main hand, off hand, secondary weapon sets)
-    armor     = worn body pieces (head, chest, legs, hands, feet, cloak, and similar)
-    accessory = jewellery and trinkets (necklace, earrings, rings, belts, bracelets, and similar)
-- "tier": the item's rarity/grade EXACTLY as the game labels or colours it —
-  for example "Common", "Uncommon", "Rare", "Epic", "Heroic", "Legendary".
-  Report what you actually see. Do not translate it into another word, do not
-  guess from the item name, and do not normalise the capitalisation.
-- "level": the item's level as a number. This is the per-item level shown on or
-  beside the item, NOT the character level and NOT any combat-power total.
-
-Rules:
-- Report every equipped item once. Skip empty slots entirely.
-- If an item's level is not legible, omit that item rather than guessing a number.
-- Do not compute any averages or maximums. Return only the items.
-
-Return ONLY a JSON object of the shape:
-{ "items": [ { "slot": "...", "name": "...", "category": "...", "tier": "...", "level": <number> } ] }`;
-
-const WINDOW_SCHEMA = {
-  type: Type.OBJECT,
-  properties: {
-    items: {
-      type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          slot: { type: Type.STRING },
-          name: { type: Type.STRING },
-          category: { type: Type.STRING },
-          tier: { type: Type.STRING },
-          level: { type: Type.NUMBER },
-        },
-        required: ['slot', 'name', 'category', 'tier', 'level'],
-      },
-    },
-  },
-  required: ['items'],
-};
-
-// The tiers that don't count toward a gear level, lowercased for comparison.
+// It no longer reads anything. Two measurements writing one gear level meant
+// the number changed meaning depending on which upload a member happened to do
+// last, and the per-item parse — dozens of names, tiers and levels off one
+// image — was wrong often enough that the number it produced couldn't be
+// trusted without opening the screenshot anyway. So the screenshot is now the
+// whole point of this path: it is kept as evidence, and the Equipment Level
+// popup is the single thing that sets a gear level.
 //
-// "Heroic" is the guild's rule; "orange" is here because that is what people
-// call it in chat and a model asked to report what it sees will sometimes
-// answer with the colour rather than the grade. Matching both means the rule
-// survives that without anyone noticing a gap.
-//
-// Anything NOT in this set counts, so a tier the model words unexpectedly is
-// included rather than silently dropped — the failure that leaves a member's
-// level too low is louder than the one that leaves it too high, and both are
-// visible in the item list either way.
-const EXCLUDED_TIERS = new Set(['heroic', 'orange']);
-
-const CATEGORIES = ['weapon', 'armor', 'accessory'];
-
-const isExcluded = (tier) => EXCLUDED_TIERS.has(String(tier || '').trim().toLowerCase());
-
-// Normalise one parsed item, or null if it isn't usable. A row with no legible
-// level is dropped here rather than counted as zero, which would drag a
-// category's maximum down only if every other item were also missing — the kind
-// of bug that shows up as one member being mysteriously low.
-function normaliseItem(raw) {
-  const level = Number(raw?.level);
-  if (!Number.isFinite(level) || level <= 0) return null;
-  const category = String(raw?.category || '').trim().toLowerCase();
-  return {
-    slot: String(raw?.slot || '').slice(0, 60) || 'Unknown',
-    name: String(raw?.name || '').slice(0, 120) || 'Unknown item',
-    category: CATEGORIES.includes(category) ? category : 'other',
-    tier: String(raw?.tier || '').slice(0, 40) || 'Unknown',
-    level: Math.round(level),
-    excluded: isExcluded(raw?.tier),
-  };
-}
-
-// Highest non-excluded level per category, plus the average of the three.
-//
-// A category with nothing left after exclusion comes back NULL, not 0. Zero
-// would render as a real level and average in as one; null says "there is no
-// countable item here", which is the truth and is what the page reports.
-//
-// The average is the mean of whichever categories have a value, matching how
-// the game's own Equipment Lv. relates to its three maxima. Rounded, because
-// every level on screen is an integer and a 71.67 would invite the question of
-// which item produced the fraction.
-function summarise(items) {
-  const out = { weapon: null, armor: null, accessory: null, average: null };
-  CATEGORIES.forEach((cat) => {
-    const levels = items.filter((i) => i.category === cat && !i.excluded).map((i) => i.level);
-    if (levels.length) out[cat] = Math.max(...levels);
-  });
-  const present = CATEGORIES.map((c) => out[c]).filter((v) => v !== null);
-  if (present.length) out.average = Math.round(present.reduce((a, b) => a + b, 0) / present.length);
-  return out;
-}
-
-async function parseGearWindow(buffer, mimeType) {
-  if (!GEMINI_API_KEY) {
-    throw new Error('GEMINI_API_KEY is not set — gear reading is unavailable.');
-  }
-
-  const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-  const response = await ai.models.generateContent({
-    model: GEMINI_MODEL,
-    contents: [{
-      role: 'user',
-      parts: [
-        { text: WINDOW_PROMPT },
-        { inlineData: { mimeType, data: buffer.toString('base64') } },
-      ],
-    }],
-    config: { responseMimeType: 'application/json', responseSchema: WINDOW_SCHEMA, temperature: 0 },
-  });
-
-  let parsed;
-  try {
-    parsed = JSON.parse(response.text);
-  } catch {
-    throw new Error('Gemini did not return valid JSON. Try a clearer screenshot.');
-  }
-
-  const items = (Array.isArray(parsed.items) ? parsed.items : [])
-    .map(normaliseItem)
-    .filter(Boolean)
-    .sort((a, b) => CATEGORIES.indexOf(a.category) - CATEGORIES.indexOf(b.category) || b.level - a.level);
-
-  if (!items.length) {
-    throw new Error("Couldn't read any equipped items from that screenshot. Make sure the whole equipment window is visible, including each item's level.");
-  }
-
-  const summary = summarise(items);
-  if (summary.average === null) {
-    // Every item read was excluded. Refusing is better than storing a member's
-    // gear level as "nothing" — far more likely they screenshotted a Heroic
-    // loadout page than that they genuinely have no countable gear.
-    throw new Error(`Every item read from that screenshot was ${[...EXCLUDED_TIERS].join('/')} tier, so there is no gear level to record.`);
-  }
-
-  return {
-    items,
-    ...summary,
-    excludedCount: items.filter((i) => i.excluded).length,
-  };
-}
+// The parse columns on gear_screenshots (items/weapon/armor/accessory/average/
+// excluded_count) are left in place for rows written before this change, and
+// are explicitly cleared on re-upload — see submitWindow.
 
 // Read a screenshot and return { weapon, armor, accessory, average }. weapon/
 // armor/accessory are each read directly off the window's "Max ___ Lv." line;
@@ -248,18 +102,17 @@ const EXT_BY_MIME = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'we
 module.exports = function createGearIlvl(supabase) {
   return {
     parseGearScreenshot,
-    parseGearWindow,
 
     // A new submission replaces whatever this member had on file before —
     // except maxed_at, which is set once (the first time weapon/armor/
     // accessory all hit MAX_LEVEL) and then left alone on every later
     // resubmission, so members at the cap keep the order they actually
     // achieved it in rather than being reshuffled by later screenshots.
-    // `source` records WHICH screenshot produced these numbers — 'popup'
-    // includes Heroic items, 'window' excludes them. Both write here so the
-    // leaderboard and the profile keep reading one row, but they are not the
-    // same measurement and the column is what stops them being compared as if
-    // they were.
+    // The Equipment Level popup is now the ONLY caller — the equipment-window
+    // upload stopped writing gear levels. `source` stays because rows written
+    // before that change are still marked 'window', and they were measured by a
+    // different rule (Heroic excluded); the leaderboard would otherwise compare
+    // them as if they weren't. Nothing writes 'window' any more.
     async submit(discordId, displayName, extracted, source = 'popup') {
       const isMaxed = extracted.weapon === MAX_LEVEL && extracted.armor === MAX_LEVEL && extracted.accessory === MAX_LEVEL;
       const row = {
@@ -291,15 +144,13 @@ module.exports = function createGearIlvl(supabase) {
     },
 
     // ── THE FULL EQUIPMENT WINDOW ─────────────────────────────────────────────
-    // Store the image, record what was read out of it, and update the member's
-    // gear level from the non-Heroic items.
+    // Store the image. That is the entire job — nothing here reads the picture,
+    // and nothing here touches the member's gear level.
     //
     // Ordering is deliberate: the image goes up FIRST, and a failure there
-    // aborts before anything is written. The alternative — record the numbers,
-    // then try to store the picture — produces rows claiming to be backed by a
-    // screenshot that isn't there, and the whole point of this path is that the
-    // number can be checked against the image.
-    async submitWindow(discordId, displayName, buffer, mimeType, extracted) {
+    // aborts before the row is written, so no row ever claims to be backed by a
+    // screenshot that isn't in the bucket.
+    async submitWindow(discordId, displayName, buffer, mimeType) {
       const ext = EXT_BY_MIME[mimeType] || 'png';
       // Keyed on discord_id alone, with upsert: one screenshot per member,
       // replaced each time. A timestamped path would accumulate a copy per
@@ -327,24 +178,27 @@ module.exports = function createGearIlvl(supabase) {
         discord_id: discordId,
         display_name: displayName || null,
         storage_path: storagePath,
-        items: extracted.items,
-        weapon: extracted.weapon,
-        armor: extracted.armor,
-        accessory: extracted.accessory,
-        average: extracted.average,
-        excluded_count: extracted.excludedCount,
         submitted_at: new Date().toISOString(),
+        // Cleared, not omitted. An upsert leaves columns it doesn't mention
+        // alone on the conflict branch, so a member who uploaded back when this
+        // path still parsed would keep the OLD parse sitting beside their NEW
+        // image — numbers describing a screenshot that is no longer there.
+        items: [],
+        weapon: null,
+        armor: null,
+        accessory: null,
+        average: null,
+        excluded_count: 0,
       }, { onConflict: 'discord_id' });
       if (error) {
         console.error('gear_screenshots upsert failed:', error.message);
-        throw new Error('Could not save what was read from that screenshot.');
+        throw new Error('Could not save that screenshot.');
       }
 
-      const entry = await this.submit(discordId, displayName, extracted, 'window');
-      return { entry, items: extracted.items, excludedCount: extracted.excludedCount };
+      return { storagePath };
     },
 
-    // The parsed record plus a short-lived signed URL for the image itself.
+    // The stored screenshot row plus a short-lived signed URL for the image.
     //
     // Signed rather than public, and minted per request rather than stored: the
     // bucket is private (migrations/016), so this URL is the only way to see the
@@ -358,8 +212,8 @@ module.exports = function createGearIlvl(supabase) {
 
       const { data: signed } = await supabase.storage.from(BUCKET)
         .createSignedUrl(data.storage_path, SIGNED_URL_SECONDS);
-      // A missing file is worth returning the parse for anyway — the numbers
-      // and the item list are still the answer to most questions.
+      // A missing file still returns the row — when it was submitted is worth
+      // knowing, and a null image_url is what tells the page to say so.
       return { ...data, image_url: signed?.signedUrl || null };
     },
 
@@ -386,7 +240,3 @@ module.exports = function createGearIlvl(supabase) {
 
 // Exposed directly too, for the standalone CLI test script (no supabase needed).
 module.exports.parseGearScreenshot = parseGearScreenshot;
-module.exports.parseGearWindow = parseGearWindow;
-// The exclusion rule, exported so the CLI test and the page can name the same
-// tiers rather than each hardcoding a list that drifts from this one.
-module.exports.EXCLUDED_TIERS = EXCLUDED_TIERS;

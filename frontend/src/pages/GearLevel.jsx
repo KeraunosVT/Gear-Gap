@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import {
-  UploadCloud, Loader2, Check, Sword, Shield, Gem, BarChart3, Image as ImageIcon, EyeOff,
+  UploadCloud, Loader2, Check, Sword, Shield, Gem, BarChart3, Image as ImageIcon,
 } from 'lucide-react';
 import { PageShell } from '../components/ui/PageShell';
 import StatTile from '../components/ui/StatTile';
@@ -9,21 +9,21 @@ import Tabs from '../components/ui/Tabs';
 import { useFlash } from '../components/ui/useFlash';
 import Toast from '../components/ui/Toast';
 
-// ── TWO SCREENSHOTS, TWO DIFFERENT ANSWERS ──────────────────────────────────
-// The Equipment Level popup is four numbers the game has already worked out. It
-// is quick, and for anyone with no Heroic gear it is correct.
+// ── TWO UPLOADS, ONE OF WHICH IS READ ───────────────────────────────────────
+// The Equipment Level popup is four numbers the game has already worked out.
+// Reading it is the only thing that sets a gear level.
 //
-// The full equipment window is every item, read individually, so the maxima can
-// be recomputed with Heroic-tier items left out. The popup cannot do that — its
-// "Max Weapon Lv." counts the Heroic weapon and never says which item produced
-// the number, so there is nothing to subtract afterwards.
-//
-// Both write the same gear level, and the page says which one produced the
-// figure currently on file, because they do not mean the same thing.
+// The full equipment window is filed, not read. It used to be parsed item by
+// item so the maxima could be recomputed with Heroic gear excluded, and that
+// result overwrote the member's level — which meant the same column meant two
+// different things depending on which upload came last, off a per-item parse
+// too unreliable to trust without opening the image anyway. Now the image is
+// simply kept, for an officer to look at.
 
 const SOURCE_LABEL = {
   popup: 'Equipment Level popup — includes Heroic items',
-  window: 'Equipment window — Heroic items excluded',
+  // Only on rows written before the equipment window stopped setting levels.
+  window: 'An older equipment-window upload — Heroic items excluded',
 };
 
 function Dropzone({ onFile, busy, busyLabel, children }) {
@@ -50,7 +50,10 @@ export default function GearLevel() {
   const [uploading, setUploading] = useState('');
   const [error, setError] = useState('');
   const [msg, flash] = useFlash();
-  const [tab, setTab] = useState('window');
+  // The popup leads: it is the upload that sets your gear level, so it is the
+  // one someone landing here needs. The equipment window is a second, optional
+  // thing you send afterwards.
+  const [tab, setTab] = useState('popup');
 
   const load = () => {
     setLoading(true);
@@ -84,8 +87,9 @@ export default function GearLevel() {
   return (
     <PageShell maxWidth="max-w-3xl">
       <p className="text-sm text-ash mb-5">
-        Upload a gear screenshot to record your levels. The full equipment window is the one to use if you
-        have Heroic gear — it reads each item and leaves Heroic-tier pieces out of the total.
+        Upload the <span className="text-bone">Equipment Level popup</span> to record your levels — that&apos;s the one
+        that gets read. You can also file a shot of your full equipment window so officers can see the gear
+        behind the numbers; nothing is read out of it.
       </p>
 
       <Toast msg={msg} />
@@ -99,28 +103,16 @@ export default function GearLevel() {
               Uploading is the only thing anyone comes to this page to DO;
               the levels underneath are the result of having done it. The
               tabs govern which upload, not which record — the record below
-              is the same either way. */}
+              is the same either way. Popup first: it is the one that sets a
+              level, and the tab order is the only thing on the page that says
+              which of the two matters more. */}
           <Tabs
             variant="flat" active={tab} onChange={setTab}
             items={[
-              { key: 'window', label: 'Equipment window' },
               { key: 'popup', label: 'Equipment Level popup' },
+              { key: 'window', label: 'Equipment window' },
             ]}
           />
-
-          {tab === 'window' && (
-            <div className="space-y-3">
-              <Dropzone onFile={(f) => post('/api/gear-screenshot', f, 'window', 'Gear screenshot read and saved.')}
-                busy={uploading === 'window'} busyLabel="Reading every item…">
-                Click to upload your full equipment window
-              </Dropzone>
-              <p className="text-ash/60 text-xs">
-                Open your character&apos;s equipment window with every slot and item level visible, then screenshot the
-                whole thing. Heroic-tier items are skipped when working out your levels. Your screenshot is visible to
-                you and to officers.
-              </p>
-            </div>
-          )}
 
           {tab === 'popup' && (
             <div className="space-y-3">
@@ -129,8 +121,23 @@ export default function GearLevel() {
                 Click to upload the Equipment Level popup
               </Dropzone>
               <p className="text-ash/60 text-xs">
-                The small in-game popup showing Equipment Lv. / Max Weapon / Max Armor / Max Accessory. Faster, but it
-                counts Heroic items — use the equipment window if you have any.
+                The small in-game popup showing Equipment Lv. / Max Weapon / Max Armor / Max Accessory. The four numbers
+                on it become your gear level, Heroic items and all — the game counts them and there is no way to read
+                the popup without them.
+              </p>
+            </div>
+          )}
+
+          {tab === 'window' && (
+            <div className="space-y-3">
+              <Dropzone onFile={(f) => post('/api/gear-screenshot', f, 'window', 'Equipment screenshot saved.')}
+                busy={uploading === 'window'} busyLabel="Saving screenshot…">
+                Click to file a shot of your full equipment window
+              </Dropzone>
+              <p className="text-ash/60 text-xs">
+                Kept on file for officers to look at — <span className="text-ash">nothing is read out of it and it
+                won&apos;t change your gear level</span>. Open your equipment window with every slot and item level
+                visible and screenshot the whole thing. Visible to you and to officers.
               </p>
             </div>
           )}
@@ -159,30 +166,20 @@ export default function GearLevel() {
               </p>
             </>
           ) : (
-            <div className="panel rounded-lg p-8 text-center text-ash">Nothing on file yet — upload a screenshot above.</div>
+            // Specific about WHICH upload, because filing an equipment window
+            // no longer produces a level — "upload a screenshot" to someone who
+            // just uploaded one reads as their upload having failed.
+            <div className="panel rounded-lg p-8 text-center text-ash">
+              No gear level on file yet — upload the Equipment Level popup above.
+            </div>
           )}
 
           {shot && (
             <div className="mt-8 space-y-3">
-              {/* The per-item breakdown used to sit here and is deliberately
-                  gone. Item names and slots come back subtly wrong often
-                  enough — there are far too many of them — that the table read
-                  as a list of mistakes rather than as an explanation, and a
-                  wrong detail beside a right number makes people doubt the
-                  number.
-
-                  The screenshot itself is the ground truth. The only parsed
-                  fact kept is the count of excluded items, which doesn't depend
-                  on reading any name correctly. (The full parse is still
-                  stored — worth having when diagnosing a number that looks
-                  wrong.) */}
-              {shot.excluded_count > 0 && (
-                <p className="text-xs text-brass inline-flex items-center gap-1.5">
-                  <EyeOff className="w-3 h-3" />
-                  {shot.excluded_count} Heroic item{shot.excluded_count === 1 ? '' : 's'} not counted toward these levels
-                </p>
-              )}
-
+              {/* Just the image. The per-item breakdown that used to sit here
+                  went first — item names and slots came back subtly wrong often
+                  enough that it read as a list of mistakes — and the parse
+                  behind it has now gone too. The screenshot is the record. */}
               {shot.image_url && (
                 <div>
                   <div className="eyebrow text-[10px] text-brass mb-2 flex items-center gap-2">
@@ -197,9 +194,10 @@ export default function GearLevel() {
             </div>
           )}
 
-          {entry?.submitted_at && (
+          {(entry?.submitted_at || shot) && (
             <p className="text-ash/60 text-xs mt-8 text-center inline-flex items-center gap-1.5 justify-center w-full">
-              <Check className="w-3.5 h-3.5" /> A new upload of either kind replaces what you had on file.
+              <Check className="w-3.5 h-3.5" /> Re-uploading replaces what you had — the two are kept separately, so
+              sending one doesn&apos;t clear the other.
             </p>
           )}
         </>

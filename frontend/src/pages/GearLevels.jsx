@@ -13,14 +13,15 @@ import { fmtDatetime } from '../timeUtils';
 const MAX_LEVEL = 80;
 const isMaxed = (e) => e.weapon === MAX_LEVEL && e.armor === MAX_LEVEL && e.accessory === MAX_LEVEL;
 
-// Which screenshot produced a member's row. These are not the same measurement
-// — the popup's maxima count Heroic items and the window's don't — so two rows
-// sitting next to each other can be scored by different rules. Marking the
-// window rows is the cheapest honest way to say so; an unmarked row is the
-// long-standing default and needs no explaining.
+// Which screenshot produced a member's row. Nothing writes 'window' any more —
+// the equipment-window upload stores the image and sets no level — but rows
+// written before that change still carry it, and they were measured by a
+// different rule (Heroic items excluded from the maxima). Marking them is the
+// cheapest honest way to say two rows here aren't scored the same; an unmarked
+// row is the long-standing default and needs no explaining.
 const SOURCE_NOTE = {
   popup: 'From the Equipment Level popup — Heroic items counted',
-  window: 'From the full equipment window — Heroic items excluded',
+  window: 'From an older equipment-window upload, back when it set levels — Heroic items excluded',
 };
 
 const COLUMNS = [
@@ -72,10 +73,23 @@ export default function GearLevels() {
     });
   }, [entries, filter, sortKey, sortDir]);
 
+  // Over members who actually have a level, not every row. A member with only
+  // an equipment screenshot on file has no level at all, and counting them as a
+  // zero would pull the guild average down by a member who never claimed one.
+  const levelled = useMemo(() => entries.filter((e) => Number(e.average) > 0), [entries]);
   const guildAverage = useMemo(() => {
-    if (entries.length === 0) return 0;
-    return entries.reduce((sum, e) => sum + (Number(e.average) || 0), 0) / entries.length;
-  }, [entries]);
+    if (levelled.length === 0) return 0;
+    return levelled.reduce((sum, e) => sum + Number(e.average), 0) / levelled.length;
+  }, [levelled]);
+
+  // Both counts run over the rows on screen, so they narrow with the search box
+  // rather than sitting there contradicting a filtered table. They overlap on
+  // purpose — most members send both — so they're labelled as two separate
+  // questions ("who has a level", "who filed a picture") and never summed.
+  const counts = useMemo(() => ({
+    levels: rows.filter((r) => Number(r.average) > 0).length,
+    screenshots: rows.filter((r) => r.has_screenshot).length,
+  }), [rows]);
 
   const [historyMember, setHistoryMember] = useState(null);
   const [historyEntries, setHistoryEntries] = useState([]);
@@ -122,7 +136,17 @@ export default function GearLevels() {
           {!loading && !error && (
             <>
               <span className="text-sm text-ash">Guild average <span className="text-brassbright font-mono">{guildAverage.toLocaleString(undefined, { maximumFractionDigits: 1 })}</span></span>
-              <span className="text-sm text-ash">{rows.length} submitted</span>
+              <span className="text-sm text-ash">
+                <span className="text-bone font-mono">{counts.levels}</span> submitted
+              </span>
+              {/* Now a separate number from the one above, because filing an
+                  equipment window no longer produces a gear level. "12
+                  submitted" alone would leave an officer chasing members who
+                  had in fact uploaded something. */}
+              <span className="text-sm text-ash inline-flex items-center gap-1.5" title="Members with an equipment window screenshot on file">
+                <ImageIcon className="w-3.5 h-3.5" />
+                <span className="text-bone font-mono">{counts.screenshots}</span> screenshot{counts.screenshots === 1 ? '' : 's'}
+              </span>
             </>
           )}
           <button onClick={load} className="inline-flex items-center gap-2 text-sm text-ash hover:text-brass"><RefreshCw className="w-4 h-4" /></button>
@@ -154,6 +178,15 @@ export default function GearLevels() {
                         className="inline-flex items-center gap-1 text-[10px] eyebrow border border-brass/40 rounded-full px-1.5 py-0.5 text-brass">
                         <EyeOff className="w-2.5 h-2.5" />
                         {e.excluded_count > 0 ? `−${e.excluded_count}` : 'window'}
+                      </span>
+                    )}
+                    {/* Why every level on this row is a dash: they sent an
+                        equipment screenshot, which no longer produces a level.
+                        Without this the row reads as a failed submission. */}
+                    {!e.average && e.has_screenshot && (
+                      <span title="Equipment screenshot on file, but no Equipment Level popup submitted — nothing sets their level"
+                        className="inline-flex items-center gap-1 text-[10px] eyebrow border border-line rounded-full px-1.5 py-0.5 text-ash">
+                        <ImageIcon className="w-2.5 h-2.5" /> screenshot only
                       </span>
                     )}
                   </span>
@@ -221,32 +254,19 @@ export default function GearLevels() {
             <p className="text-ash text-sm">No equipment window on file.</p>
           ) : (
             <div className="space-y-4">
-              {shot.excluded_count > 0 && (
-                <p className="text-brass text-xs inline-flex items-center gap-1.5">
-                  <EyeOff className="w-3 h-3" />
-                  {shot.excluded_count} Heroic item{shot.excluded_count === 1 ? '' : 's'} excluded from these levels
-                </p>
-              )}
-
-              {/* The per-item table that used to sit here is deliberately
-                  gone, for the same reason it went from the member's page:
-                  item names and slots come back subtly wrong often enough that
-                  the table read as a list of mistakes, and a wrong detail
-                  beside a right number makes officers doubt the number.
-
-                  The screenshot below IS the verification — it is the original
-                  picture, not a transcription of it, so "why is their weapon 68
-                  when I know they have a 74" is answered by looking at it. The
-                  full parse is still stored if a number ever needs digging
-                  into properly. */}
-
+              {/* Nothing is read out of this image any more — no item table, no
+                  numbers, not even a count of excluded pieces. The picture IS
+                  the record: it is the original, not a transcription of it, so
+                  "do they really have a 74 weapon" is answered by looking. A
+                  parse sitting beside it only ever invited officers to trust
+                  the transcription over the thing it transcribed. */}
               {shot.image_url ? (
                 <a href={shot.image_url} target="_blank" rel="noreferrer">
                   <img src={shot.image_url} alt={`${shotMember.display_name || 'Member'}'s equipment window`}
                     className="max-w-full rounded-lg border border-line hover:border-brass/50 transition-colors" />
                 </a>
               ) : (
-                <p className="text-ash text-xs">The stored image is missing — only the parsed items are on file.</p>
+                <p className="text-ash text-xs">The stored image is missing — there is nothing else on file for it.</p>
               )}
             </div>
           )}

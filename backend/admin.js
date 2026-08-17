@@ -247,14 +247,15 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
   // ── Gear item levels (admin-only comparison table) ───────────────────────────
   router.get('/gear-ilvl', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-    // The third query is ids only: the leaderboard needs to know WHETHER each
-    // member has a stored equipment window so it can offer the button, and
-    // nothing more. Selecting the parsed item lists here would ship a full
-    // inventory per member to render one icon.
+    // The third query is deliberately thin: the leaderboard needs to know
+    // WHETHER each member has a stored equipment window so it can offer the
+    // button, and when it arrived. Selecting the parsed item lists (still on
+    // pre-existing rows) would ship a full inventory per member to render one
+    // icon.
     const [{ data, error }, ids, { data: shots }] = await Promise.all([
       supabase.from('gear_levels').select('*'),
       identities.load(),
-      supabase.from('gear_screenshots').select('discord_id, excluded_count'),
+      supabase.from('gear_screenshots').select('discord_id, display_name, excluded_count, submitted_at'),
     ]);
     if (error) return res.status(500).json({ error: 'Failed to load gear levels.' });
     const shotBy = new Map((shots || []).map((s) => [String(s.discord_id), s]));
@@ -264,6 +265,28 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
       has_screenshot: shotBy.has(String(e.discord_id)),
       excluded_count: shotBy.get(String(e.discord_id))?.excluded_count ?? 0,
     }));
+
+    // Uploading an equipment window no longer creates a gear level, so a member
+    // can have a screenshot on file and no row above. They still belong in this
+    // table: it is the only place an officer can open that screenshot, and
+    // leaving them out would make an uploaded image unreachable. Levels come
+    // through as null, which the page renders as a dash — the honest answer to
+    // "what is their gear level" for someone who never sent the popup.
+    const levelled = new Set((data || []).map((e) => String(e.discord_id)));
+    (shots || []).forEach((s) => {
+      const id = String(s.discord_id);
+      if (levelled.has(id)) return;
+      entries.push({
+        discord_id: id,
+        display_name: ids.displayNameFor(id, s.display_name),
+        weapon: null, armor: null, accessory: null, average: null,
+        maxed_at: null, source: null,
+        submitted_at: s.submitted_at,
+        has_screenshot: true,
+        excluded_count: s.excluded_count ?? 0,
+      });
+    });
+
     res.json({ entries });
   });
 

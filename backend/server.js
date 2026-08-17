@@ -255,13 +255,13 @@ app.post('/api/gear-ilvl', gearSubmitLimiter, gearUpload.single('image'), async 
 });
 
 // ── MEMBERS AREA: Full equipment window ──────────────────────────────────────
-// The other half of gear reporting. The popup above hands us four numbers the
-// game already computed; this reads every equipped item so the maxima can be
-// recomputed with Heroic-tier gear excluded — which the popup's own
-// "Max Weapon Lv." line always includes and can't be talked out of.
+// Stored as evidence, never read. Nothing on this path parses the image or
+// touches the member's gear level — the Equipment Level popup above is the only
+// thing that sets one. See the note at the top of gearIlvl.js for why.
 //
-// Same per-member hourly limiter as the popup: this call costs a Gemini request
-// and a storage write, and it is the more expensive of the two.
+// Still behind the same per-member hourly limiter as the popup. It no longer
+// costs a Gemini request, but it does write a file to the bucket, and an
+// unmetered image upload is worth rate-limiting on its own.
 app.post('/api/gear-screenshot', gearSubmitLimiter, gearUpload.single('image'), async (req, res) => {
   if (!gearIlvl) return res.status(503).json({ error: 'Database not configured.' });
   if (!req.file) return res.status(400).json({ error: 'Screenshot required.' });
@@ -269,25 +269,20 @@ app.post('/api/gear-screenshot', gearSubmitLimiter, gearUpload.single('image'), 
     return res.status(415).json({ error: 'Please upload an image file (PNG or JPG screenshot).' });
   }
   try {
-    const extracted = await gearIlvl.parseGearWindow(req.file.buffer, req.file.mimetype);
     // Always the session's own id. A member uploads their own gear; an officer
     // correcting someone else's does it by asking them to re-upload, because a
     // screenshot attributed to the wrong person is worse than a missing one.
     const out = await gearIlvl.submitWindow(
-      req.user.id, req.user.username, req.file.buffer, req.file.mimetype, extracted,
+      req.user.id, req.user.username, req.file.buffer, req.file.mimetype,
     );
     res.json(out);
   } catch (err) {
     console.error('Gear screenshot submit error:', err.message);
-    // The parse failures here are written to be read by the member ("make sure
-    // the whole window is visible"), so the message travels rather than being
-    // flattened into a generic one.
-    res.status(err.status || 500).json({ error: err.message || 'Could not read that screenshot.' });
+    res.status(err.status || 500).json({ error: err.message || 'Could not save that screenshot.' });
   }
 });
 
-// A member's own stored screenshot, its item breakdown, and a short-lived
-// signed URL for the image.
+// A member's own stored screenshot and a short-lived signed URL for the image.
 app.get('/api/gear-screenshot/mine', async (req, res) => {
   if (!gearIlvl) return res.status(503).json({ error: 'Database not configured.' });
   res.json({ screenshot: await gearIlvl.screenshotFor(req.user.id) });

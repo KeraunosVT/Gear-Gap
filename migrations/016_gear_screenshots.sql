@@ -1,7 +1,21 @@
--- 016_gear_screenshots.sql — store the full equipment window, and read gear
--- levels out of it with Heroic-tier items excluded.
+-- 016_gear_screenshots.sql — store the full equipment window.
 --
 -- Run this in the Supabase SQL editor.
+--
+-- ── SUPERSEDED IN PART, AND STILL REQUIRED ──────────────────────────────────
+-- This migration originally also read gear levels out of the stored window with
+-- Heroic-tier items excluded. That reading has since been removed: the
+-- equipment window is filed as evidence and parsed no more, and the Equipment
+-- Level popup is the only thing that sets a gear level.
+--
+-- Everything below still needs to run — the table and the private bucket are
+-- what hold the screenshot. What changed is only which columns get filled:
+-- items/weapon/armor/accessory/average/excluded_count are written NULL/empty on
+-- every new upload (and explicitly cleared on re-upload, so a row can't keep an
+-- old parse beside a new image). They are kept, not dropped, because rows
+-- written before the change still carry a real parse worth being able to look
+-- at. The 'window' value on gear_levels.source is likewise historical: nothing
+-- writes it any more, but rows that have it were measured by the old rule.
 --
 -- ── WHY THIS EXISTS ALONGSIDE THE POPUP UPLOAD ──────────────────────────────
 -- The existing upload reads the small "Equipment Level" popup and trusts the
