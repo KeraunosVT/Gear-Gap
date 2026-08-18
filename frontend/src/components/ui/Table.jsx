@@ -19,12 +19,18 @@ export function Thead({ sticky, children }) {
   );
 }
 
+// 'center' is here for the stat tables on the War Record page, whose numeric
+// columns are centred rather than right-aligned. The arrow rides inside the
+// inline-flex span, so it stays beside the label under any of the three.
+const ALIGN = { left: 'text-left', center: 'text-center', right: 'text-right' };
+
 export function SortableTh({ label, sortKey, activeKey, dir, onSort, align = 'left', dense = false, className = '' }) {
   const active = activeKey === sortKey;
   return (
     <th
-      className={`${dense ? 'p-2.5' : 'p-4'} font-normal cursor-pointer hover:text-bone select-none ${align === 'right' ? 'text-right' : 'text-left'} ${className}`}
+      className={`${dense ? 'p-2.5' : 'p-4'} font-normal cursor-pointer hover:text-bone select-none ${ALIGN[align] || ALIGN.left} ${className}`}
       onClick={() => onSort(sortKey)}
+      aria-sort={active ? (dir === 'desc' ? 'descending' : 'ascending') : 'none'}
     >
       <span className="inline-flex items-center gap-1">
         {label}

@@ -1,5 +1,5 @@
 import { Sword, Target, Heart, Users, ShieldAlert, Pencil, Trash2, Share2, Map as MapIcon } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../auth';
@@ -7,7 +7,7 @@ import weaponToClass from '../../../shared/weaponClasses.json';
 import ErrorState from '../components/ui/ErrorState';
 import EmptyState from '../components/ui/EmptyState';
 import { PageShell } from '../components/ui/PageShell';
-import { Table, Thead, Tr } from '../components/ui/Table';
+import { Table, Thead, SortableTh, Tr } from '../components/ui/Table';
 import { useFlash } from '../components/ui/useFlash';
 import Toast from '../components/ui/Toast';
 
@@ -21,6 +21,64 @@ function getClassName(weapon1, weapon2) {
   if (weaponToClass[key]) return weaponToClass[key];
   return `${w1} ${w2}`.trim();
 }
+
+// ── SORTING, SHARED BY THE TWO TABLES ON THIS PAGE ──────────────────────────
+// Starts with NO column selected, so what loads is the order the server sent —
+// the roster in rank order, the maps most-played first. Both of those are
+// meaningful defaults that a forced initial sort would quietly discard, and an
+// unsorted start also means nobody's bookmarked view changes under them.
+//
+// `textKeys` decides which way a column opens: names read best A–Z, numbers
+// best highest-first, and having to click twice to get the obvious direction is
+// the thing that makes sortable headers feel broken.
+function useSort(textKeys = []) {
+  const [key, setKey] = useState(null);
+  const [dir, setDir] = useState('desc');
+  const sortBy = (k) => {
+    if (k === key) setDir((d) => (d === 'desc' ? 'asc' : 'desc'));
+    else { setKey(k); setDir(textKeys.includes(k) ? 'asc' : 'desc'); }
+  };
+  return { key, dir, sortBy };
+}
+
+// `value(row, key)` so a column can be sorted by something it doesn't store —
+// the roster's Class is computed from two weapon fields and exists nowhere on
+// the row. Strings compare with localeCompare, everything else numerically;
+// a missing number sorts as 0 rather than NaN, which would scatter those rows
+// unpredictably instead of grouping them at one end.
+function sortRows(rows, key, dir, value) {
+  if (!key) return rows;
+  const sign = dir === 'asc' ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    const va = value(a, key);
+    const vb = value(b, key);
+    if (typeof va === 'string' || typeof vb === 'string') {
+      return String(va ?? '').localeCompare(String(vb ?? '')) * sign;
+    }
+    return ((Number(va) || 0) - (Number(vb) || 0)) * sign;
+  });
+}
+
+const MAP_COLUMNS = [
+  { key: 'map', label: 'Map', align: 'left' },
+  { key: 'played', label: 'Played', align: 'center' },
+  { key: 'wins', label: 'Wins', align: 'center' },
+  { key: 'losses', label: 'Losses', align: 'center' },
+  { key: 'draws', label: 'Draws', align: 'center' },
+  { key: 'winPct', label: 'Win %', align: 'center' },
+];
+
+const ROSTER_COLUMNS = [
+  { key: 'rank', label: 'Rank', align: 'left' },
+  { key: 'class', label: 'Class', align: 'left' },
+  { key: 'guild_name', label: 'Guild', align: 'left' },
+  { key: 'player_name', label: 'Player', align: 'left' },
+  { key: 'kills', label: 'Kills', align: 'center' },
+  { key: 'assists', label: 'Assists', align: 'center' },
+  { key: 'damage_dealt', label: 'Dmg Dealt', align: 'center' },
+  { key: 'damage_taken', label: 'Dmg Taken', align: 'center' },
+  { key: 'healing', label: 'Healing', align: 'center' },
+];
 
 export default function MatchStats() {
   const { user, can } = useAuth();
@@ -118,6 +176,25 @@ export default function MatchStats() {
     }
   };
 
+  // Two independent sorts — sorting the roster shouldn't disturb the map table
+  // above it, and vice versa.
+  const mapSort = useSort(['map']);
+  const rosterSort = useSort(['class', 'guild_name', 'player_name']);
+
+  const sortedMapStats = useMemo(
+    () => sortRows(mapStats, mapSort.key, mapSort.dir, (r, k) => r[k]),
+    [mapStats, mapSort.key, mapSort.dir],
+  );
+
+  // Only the table is sorted. The Top 10 cards and the delete confirmation read
+  // `players` directly and must keep doing so — they have their own orderings,
+  // and a count doesn't care about any of them.
+  const sortedPlayers = useMemo(
+    () => sortRows(players, rosterSort.key, rosterSort.dir,
+      (p, k) => (k === 'class' ? getClassName(p.weapon_1, p.weapon_2) : p[k])),
+    [players, rosterSort.key, rosterSort.dir],
+  );
+
   const topKills = [...players].sort((a, b) => (b.kills || 0) - (a.kills || 0)).slice(0, 10);
   const topDamage = [...players].sort((a, b) => (b.damage_dealt || 0) - (a.damage_dealt || 0)).slice(0, 10);
   const topDamageTaken = [...players].sort((a, b) => (b.damage_taken || 0) - (a.damage_taken || 0)).slice(0, 10);
@@ -153,15 +230,15 @@ export default function MatchStats() {
           </h3>
           <Table minWidth="min-w-[480px]">
             <Thead>
-              <th className="text-left p-2.5 font-normal">Map</th>
-              <th className="text-center p-2.5 font-normal">Played</th>
-              <th className="text-center p-2.5 font-normal">Wins</th>
-              <th className="text-center p-2.5 font-normal">Losses</th>
-              <th className="text-center p-2.5 font-normal">Draws</th>
-              <th className="text-center p-2.5 font-normal">Win %</th>
+              {MAP_COLUMNS.map((c) => (
+                <SortableTh
+                  key={c.key} label={c.label} sortKey={c.key} align={c.align} dense
+                  activeKey={mapSort.key} dir={mapSort.dir} onSort={mapSort.sortBy}
+                />
+              ))}
             </Thead>
             <tbody className="font-mono">
-              {mapStats.map((s) => (
+              {sortedMapStats.map((s) => (
                 <tr key={s.map} className="border-b border-line/60 last:border-0">
                   <td className="p-2.5 font-sans font-medium text-brassbright">{s.map}</td>
                   <td className="p-2.5 text-center text-bone">{s.played}</td>
@@ -307,19 +384,19 @@ export default function MatchStats() {
             </h3>
             <Table maxHeight="max-h-[620px]" minWidth="min-w-[900px]">
               <Thead sticky>
-                <th className="text-left p-2.5 font-normal">Rank</th>
-                <th className="text-left p-2.5 font-normal">Class</th>
-                <th className="text-left p-2.5 font-normal">Guild</th>
-                <th className="text-left p-2.5 font-normal">Player</th>
-                <th className="text-center p-2.5 font-normal">Kills</th>
-                <th className="text-center p-2.5 font-normal">Assists</th>
-                <th className="text-center p-2.5 font-normal">Dmg Dealt</th>
-                <th className="text-center p-2.5 font-normal">Dmg Taken</th>
-                <th className="text-center p-2.5 font-normal">Healing</th>
+                {ROSTER_COLUMNS.map((c) => (
+                  <SortableTh
+                    key={c.key} label={c.label} sortKey={c.key} align={c.align} dense
+                    activeKey={rosterSort.key} dir={rosterSort.dir} onSort={rosterSort.sortBy}
+                  />
+                ))}
               </Thead>
               <tbody className="font-mono">
-                {players.map((p, i) => (
-                  <Tr key={i}>
+                {/* Keyed on the player, not the index — with a sortable table an
+                    index key would tie a row to its POSITION, so re-sorting
+                    would reshuffle content through the same row elements. */}
+                {sortedPlayers.map((p, i) => (
+                  <Tr key={`${p.player_name}-${p.rank ?? i}`}>
                     <td className="p-2.5 text-brass">{p.rank}</td>
                     <td className="p-2.5 font-sans font-medium text-brassbright">{getClassName(p.weapon_1, p.weapon_2)}</td>
                     <td className="p-2.5 font-sans text-ash">{p.guild_name}</td>
