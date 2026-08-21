@@ -58,7 +58,10 @@ export default function Home() {
       // win/draw/loss strip counts, so fetching both was a wasted round trip.
       const [statsRes, matchesRes] = await Promise.all([
         axios.get('/api/stats/summary'),
-        axios.get('/api/matches/recent?limit=20'),
+        // enrich=1 because EngagementRow falls back to winningGuild /
+        // killDifference for rows with no stored result. The War Record page
+        // asks for the same endpoint without it and skips that whole read.
+        axios.get('/api/matches/recent?limit=20&enrich=1'),
       ]);
       setStats(statsRes.data);
       const last10 = matchesRes.data || [];

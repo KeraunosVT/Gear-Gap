@@ -75,6 +75,14 @@ npm test     # from the repo root
 
 The suite is deliberately narrow. It covers the logic where a mistake produces a **plausible wrong answer** rather than an error — row-cap paging, and the guild-night comparisons. Rendering and routing aren't tested and don't need to be; a broken page is obvious the moment you look at it, while a truncated read is not.
 
+### Player profiles and the guild filter
+
+A profile shows every match row under any of that player's names, then splits ours from everyone else's **in JS**. It used to filter `.in('guild_name', aliases)` in the query, so a row recorded under a spelling the alias list didn't carry — a misread scoreboard, an old guild name, a night subbing elsewhere — simply wasn't in the result, and the profile came back short with nothing saying why.
+
+Excluded rows are now counted and named on the page, so recognising one of the spellings as yours and adding it to the aliases in Guild Settings folds those matches back in.
+
+Note that two different definitions of "our guild" are in play. Everything reading `guildAliases()` follows `guild_config` and updates the moment Guild Settings is saved. The Roster's all-time table and the dashboard tiles come from `get_player_stats()` / `get_stats_summary()`, both called with **no arguments**, so their guild list is baked into the SQL and does not. If the two ever disagree about a member's match count, that mismatch is the first place to look.
+
 ### Reading a table that grows
 
 Use [`fetchAll`](backend/pagedRead.js) for any read of a table with no natural bound. PostgREST caps an unbounded `select()` at `max-rows` (1,000 by default) and returns the truncated set **with no error** — so the read starts silently wrong the day the table crosses that line, and the tables it bit here were the ones where wrongness is least visible: absences that stop counting, awards that stop being recognised, attendance rates computed from a partial numerator.

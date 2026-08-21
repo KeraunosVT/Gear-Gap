@@ -1021,20 +1021,41 @@ app.get('/api/matches/recent', async (req, res) => {
     if (error) throw error;
     if (!matches || matches.length === 0) return res.json([]);
 
-    // Single query for every player row across all matches (no N+1)
-    const matchIds = matches.map(m => m.id);
-    const { data: allPlayers, error: pError } = await supabase
-      .from('player_match_stats')
-      .select('match_id, guild_name, team_color, kills, damage_dealt, healing')
-      .in('match_id', matchIds);
-
-    if (pError) throw pError;
-
-    // Group player rows by match_id in memory
+    // ── PER-MATCH TOTALS ARE OPT-IN ─────────────────────────────────────────
+    // kills/damage/healing/killDifference/winningGuild mean reading every
+    // player row of every listed match — at ?limit=500 that is tens of
+    // thousands of rows. The War Record page asks for 500 and uses none of
+    // them: it only needs id, title, date and map to fill its dropdown. So it
+    // was fetching a thousand rows (the cap; the rest were silently dropped)
+    // and throwing all of them away on every page load.
+    //
+    // Only the dashboard needs them, and only as a fallback for rows with no
+    // stored `result`. It asks with ?enrich=1.
+    const enrich = req.query.enrich === '1' || req.query.enrich === 'true';
     const playersByMatch = {};
-    (allPlayers || []).forEach(p => {
-      (playersByMatch[p.match_id] ||= []).push(p);
-    });
+
+    if (enrich) {
+      // Paged. 20 matches is already ~2,000 rows, so the unpaged version was
+      // truncating past roughly the tenth match — and a truncated match gets
+      // zero kills on both sides, which reads as a draw rather than as missing
+      // data. No guild filter: the enemy team's kills are half of the
+      // comparison, so this deliberately reads both sides.
+      const matchIds = matches.map((m) => m.id);
+      const allPlayers = await fetchAll(
+        () => supabase
+          .from('player_match_stats')
+          .select('match_id, guild_name, team_color, kills, damage_dealt, healing')
+          .in('match_id', matchIds)
+          .order('id'),
+        { label: 'player_match_stats' },
+      );
+      allPlayers.forEach((p) => { (playersByMatch[p.match_id] ||= []).push(p); });
+    }
+
+    // Without ?enrich=1 the rows go back as they are. Omitted rather than
+    // zeroed: absent says "not computed", whereas `kills: 0` says "nobody
+    // killed anybody", and a caller can't tell the second from a real draw.
+    if (!enrich) return res.json(matches);
 
     const enriched = matches.map(match => {
       const players = playersByMatch[match.id] || [];
