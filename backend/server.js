@@ -26,6 +26,7 @@ const createGearIlvl = require('./gearIlvl');
 const createIdentities = require('./identities');
 const createLoa = require('./loa');
 const { fetchAll } = require('./pagedRead');
+const { aggregatePlayerRows } = require('./playerStats');
 const createEventSignups = require('./eventSignups');
 const createAuditLog = require('./auditLog');
 const guildConfig = require('./guildConfig');
@@ -881,57 +882,38 @@ app.get('/api/player/:name', async (req, res) => {
     }
     const gearEntry = discordId && gearIlvl ? await gearIlvl.forMember(discordId) : null;
 
-    // Pull every match row for those names (our guild only).
+    // Every match row under any of this player's names, REGARDLESS of guild —
+    // the guild split happens below, in JS, so it can be reported instead of
+    // silently applied.
+    //
+    // It used to filter `.in('guild_name', guildNames)` in the query, which is
+    // why profiles looked short: a row whose scoreboard guild name is a
+    // spelling the alias list doesn't carry (OCR variance, a rename, a night
+    // subbing elsewhere) simply vanished, with nothing anywhere saying so.
+    //
+    // Paged, too. One player rarely passes 1,000 rows, but this is no longer
+    // scoped to one guild and the cap truncates without erroring.
+    //
+    // Explicit constraint name, not just "!inner" — player_match_stats has
+    // picked up a second (oddly-named, likely stale) foreign key to
+    // wargame_matches on match_id, so PostgREST can no longer infer which
+    // relationship to embed and errors with "more than one relationship
+    // was found" on a bare wargame_matches!inner(...).
     const guildNames = Object.keys(guildAliases());
-    const { data: rows, error: rErr } = await supabase
-      .from('player_match_stats')
-      // Explicit constraint name, not just "!inner" — player_match_stats has
-      // picked up a second (oddly-named, likely stale) foreign key to
-      // wargame_matches on match_id, so PostgREST can no longer infer which
-      // relationship to embed and errors with "more than one relationship
-      // was found" on a bare wargame_matches!inner(...).
-      .select('*, wargame_matches!player_match_stats_match_id_fkey(id, title, match_date)')
-      .in('player_name', names)
-      .in('guild_name', guildNames);
-    if (rErr) throw rErr;
-    if (!rows || rows.length === 0) return res.status(404).json({ error: 'Player not found.' });
+    const guildSet = new Set(guildNames);
+    const allRows = await fetchAll(
+      () => supabase
+        .from('player_match_stats')
+        .select('*, wargame_matches!player_match_stats_match_id_fkey(id, title, match_date)')
+        .in('player_name', names)
+        .order('id'),
+      { label: 'player_match_stats' },
+    );
+    if (allRows.length === 0) return res.status(404).json({ error: 'Player not found.' });
 
-    // Aggregate totals.
-    let kills = 0, assists = 0, damage_dealt = 0, damage_taken = 0, healing = 0;
-    const classCount = {};
-    const matches = [];
-
-    rows.forEach((r) => {
-      kills += Number(r.kills) || 0;
-      assists += Number(r.assists) || 0;
-      damage_dealt += Number(r.damage_dealt) || 0;
-      damage_taken += Number(r.damage_taken) || 0;
-      healing += Number(r.healing) || 0;
-
-      const cls = getClassNameBackend(r.weapon_1, r.weapon_2);
-      classCount[cls] = (classCount[cls] || 0) + 1;
-
-      matches.push({
-        match_id: r.wargame_matches.id,
-        title: r.wargame_matches.title,
-        match_date: r.wargame_matches.match_date,
-        rank: r.rank,
-        weapon_1: r.weapon_1,
-        weapon_2: r.weapon_2,
-        kills: Number(r.kills) || 0,
-        assists: Number(r.assists) || 0,
-        damage_dealt: Number(r.damage_dealt) || 0,
-        damage_taken: Number(r.damage_taken) || 0,
-        healing: Number(r.healing) || 0,
-      });
-    });
-
-    matches.sort((a, b) => new Date(b.match_date || 0) - new Date(a.match_date || 0));
-
-    const total = matches.length;
-    const classBreakdown = Object.entries(classCount)
-      .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => b.count - a.count);
+    // The split, the totals and the excluded tally all live in playerStats so
+    // they can be tested — see the note at the top of that module.
+    const stats = aggregatePlayerRows(allRows, guildSet, getClassNameBackend);
 
     // ── Attendance and loot ─────────────────────────────────────────────────
     // Both hang off the Discord id, so an unmapped player has neither — a name
@@ -945,14 +927,7 @@ app.get('/api/player/:name', async (req, res) => {
       aliases: names.length > 1 ? names.filter((n) => n.toLowerCase() !== displayName.toLowerCase()) : [],
       attendance,
       loot,
-      matches: total,
-      kills, assists, damage_dealt, damage_taken, healing,
-      avg_kills: total ? kills / total : 0,
-      avg_assists: total ? assists / total : 0,
-      avg_damage: total ? damage_dealt / total : 0,
-      avg_healing: total ? healing / total : 0,
-      classBreakdown,
-      matchHistory: matches,
+      ...stats,
       gear: gearEntry ? {
         weapon: gearEntry.weapon, armor: gearEntry.armor,
         accessory: gearEntry.accessory, average: gearEntry.average,

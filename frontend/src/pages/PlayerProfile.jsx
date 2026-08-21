@@ -86,11 +86,19 @@ export default function PlayerProfile() {
       </div>
 
       {/* Summary cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-10">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-4">
         {ledger.map((item) => (
           <StatTile key={item.label} icon={item.icon} value={item.value} label={item.label} />
         ))}
       </div>
+
+      {/* What the numbers above leave out. Normally absent — when it isn't, a
+          short history explains itself instead of just looking wrong. The guild
+          case is self-service: recognise one of these as us, add it to the
+          aliases, and those matches fold back in. */}
+      <ExcludedNote excluded={p.excluded} />
+
+      <div className="mb-10" />
 
       {/* Averages + Class breakdown */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-14">
@@ -207,6 +215,47 @@ export default function PlayerProfile() {
 }
 
 /* ── Performance Trends ──────────────────────────────────────── */
+
+// Matches this player has that the totals above don't count. Renders nothing
+// in the normal case, which is why it's safe to sit directly under the tiles.
+function ExcludedNote({ excluded }) {
+  const others = excluded?.other_guilds || [];
+  const orphaned = excluded?.orphaned || 0;
+  if (others.length === 0 && orphaned === 0) return null;
+
+  const total = others.reduce((n, o) => n + o.matches, 0);
+
+  return (
+    <div className="mb-6 px-5 py-3 rounded-lg border border-brass/30 bg-panel text-sm">
+      {total > 0 && (
+        <>
+          <div className="text-bone">
+            <span className="font-mono text-brassbright">{total}</span> further match{total === 1 ? '' : 'es'} under
+            {' '}{others.length === 1 ? 'a guild name' : 'guild names'} the guild doesn&apos;t claim, not counted above:
+          </div>
+          <div className="flex flex-wrap gap-2 mt-2">
+            {others.map((o) => (
+              <span key={o.guild_name} className="inline-flex items-center gap-1.5 bg-hall border border-line rounded-full px-3 py-1">
+                <span className="text-bone">{o.guild_name}</span>
+                <span className="font-mono text-ash">{o.matches}</span>
+              </span>
+            ))}
+          </div>
+          <div className="text-ash/70 text-xs mt-2">
+            If one of those is us — a misread scoreboard, or an old name — add it to the guild aliases in{' '}
+            <Link to="/admin/settings" className="text-brass hover:text-brassbright underline underline-offset-2">Guild Settings</Link>
+            {' '}and those matches count from then on.
+          </div>
+        </>
+      )}
+      {orphaned > 0 && (
+        <div className={`text-ash/70 text-xs ${total > 0 ? 'mt-2' : ''}`}>
+          {orphaned} row{orphaned === 1 ? '' : 's'} skipped — the match record they belong to is missing.
+        </div>
+      )}
+    </div>
+  );
+}
 
 function rollingAvg(values, window = 3) {
   return values.map((_, i) => {
