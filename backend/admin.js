@@ -10,6 +10,7 @@ const createLoa = require('./loa');
 const { todayInGuildTz } = createLoa;
 const createAttendance = require('./attendance');
 const createEventSignups = require('./eventSignups');
+const { fetchAll } = require('./pagedRead');
 const SHARDS = require('../shared/shards.json');
 const guildConfig = require('./guildConfig');
 const createGuildSettings = require('./guildSettings');
@@ -301,11 +302,24 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
   // ── Loot council: awards ────────────────────────────────────────────────────
   router.get('/loot/awards', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-    const [{ data, error }, ids] = await Promise.all([
-      supabase.from('loot_awards').select('*').order('awarded_at', { ascending: false }),
-      identities.load(),
-    ]);
-    if (error) return res.status(500).json({ error: 'Failed to load awards.' });
+    // Paged: the award ledger only grows, and past the 1,000-row cap the loot
+    // tally stops recognising older awards — so members reappear as still
+    // wanting gear they were given, which reads as a wishlist bug rather than a
+    // truncated read. `id` tiebreaks awarded_at for stable range paging.
+    let data;
+    let ids;
+    try {
+      [data, ids] = await Promise.all([
+        fetchAll(
+          () => supabase.from('loot_awards').select('*').order('awarded_at', { ascending: false }).order('id'),
+          { label: 'loot_awards' },
+        ),
+        identities.load(),
+      ]);
+    } catch (err) {
+      console.error('loot awards load error:', err.message);
+      return res.status(500).json({ error: 'Failed to load awards.' });
+    }
     const awards = (data || []).map((a) => ({
       ...a,
       display_name: ids.displayNameFor(a.discord_id, a.display_name),
@@ -359,11 +373,23 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
 
   router.get('/currency-awards', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-    const [{ data, error }, ids] = await Promise.all([
-      supabase.from('currency_awards').select('*').order('awarded_at', { ascending: false }),
-      identities.load(),
-    ]);
-    if (error) return res.status(500).json({ error: 'Failed to load currency grants.' });
+    // Paged for the same reason as the gear ledger above — and this one is
+    // read to compute totals, so a truncated list understates what a member
+    // has actually been paid.
+    let data;
+    let ids;
+    try {
+      [data, ids] = await Promise.all([
+        fetchAll(
+          () => supabase.from('currency_awards').select('*').order('awarded_at', { ascending: false }).order('id'),
+          { label: 'currency_awards' },
+        ),
+        identities.load(),
+      ]);
+    } catch (err) {
+      console.error('currency awards load error:', err.message);
+      return res.status(500).json({ error: 'Failed to load currency grants.' });
+    }
     const awards = (data || []).map((a) => ({
       ...a,
       display_name: ids.displayNameFor(a.discord_id, a.display_name),
@@ -1505,8 +1531,20 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
     const ids = await identities.load();
 
-    const { data: rows, error: rErr } = await supabase.from('event_attendance').select('id, discord_id, display_name');
-    if (rErr) return res.status(500).json({ error: 'Failed to load attendance records.' });
+    // Every attendance row ever, unfiltered — one per member per night, so it
+    // passes 1,000 within a few dozen events. Truncated, "Fix past names"
+    // silently repaired only the newest slice and reported success, which is
+    // the worst possible shape for a repair tool.
+    let rows;
+    try {
+      rows = await fetchAll(
+        () => supabase.from('event_attendance').select('id, discord_id, display_name').order('id'),
+        { label: 'event_attendance' },
+      );
+    } catch (err) {
+      console.error('attendance backfill load error:', err.message);
+      return res.status(500).json({ error: 'Failed to load attendance records.' });
+    }
 
     const toFix = (rows || []).filter((r) => {
       const mapped = ids.displayNameFor(r.discord_id);
@@ -1537,10 +1575,17 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
       // leaves attendance rows from outside it counting against a smaller total
       // — which produces rates over 100% and, worse, plausible-looking ones
       // like 95% for someone who came twice.
-      const { data: att, error: aErr } = await supabase
-        .from('event_attendance').select('discord_id, display_name')
-        .in('event_id', (evts || []).map((e) => e.id));
-      if (aErr) throw aErr;
+      // Bounded by the window on paper, but the window can be "all" — and even
+      // 30 days of a busy guild is events × attendees. This is the numerator of
+      // every attendance percentage on the page, so truncating it doesn't
+      // produce an obvious blank, it produces plausible rates that are simply
+      // too low for whoever sorts last.
+      const eventIdsForAtt = (evts || []).map((e) => e.id);
+      const att = eventIdsForAtt.length === 0 ? [] : await fetchAll(
+        () => supabase.from('event_attendance').select('discord_id, display_name')
+          .in('event_id', eventIdsForAtt).order('id'),
+        { label: 'event_attendance' },
+      );
 
       const map = {};
       (att || []).forEach((a) => {

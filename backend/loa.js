@@ -2,6 +2,7 @@
 // /api/loa routes and the /loa Discord command so both write through the
 // same validation instead of maintaining it twice.
 const guildConfig = require('./guildConfig');
+const { fetchAll } = require('./pagedRead');
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MINUTES_PER_DAY = 1440;
@@ -205,16 +206,32 @@ module.exports = function createLoa(supabase, identities = null) {
     async unavailableOn({ date, eventScheduleId = null }) {
       if (!isValidDate(date)) throw httpError(400, 'Date must be in YYYY-MM-DD format.');
       const dow = dayOfWeek(date);
-      const [{ data, error }, eventRow] = await Promise.all([
-        supabase.from('loa_entries').select(
-          'discord_id, display_name, type, event_date, event_schedule_id, start_date, end_date, day_of_week, start_time, end_time, reason',
-        ),
-        eventScheduleId
-          ? supabase.from('event_schedule').select('event_time').eq('id', eventScheduleId).single().then((r) => r.data)
-          : Promise.resolve(null),
-      ]);
-      if (error) {
-        console.error('loa.unavailableOn error:', error.message);
+      // Paged, because this reads EVERY entry and matches in JS — recurring
+      // LOAs have no date to filter on, so there is nothing to narrow by. At
+      // the 1,000-row cap it used to start dropping absences silently: someone
+      // who filed leave would be counted a no-show on the event page, left in
+      // the signup reminder sweep, and DMed asking why they hadn't answered.
+      // Ordered by id purely as a stable tiebreaker for range paging.
+      //
+      // Still started alongside the schedule lookup — this is on the party
+      // builder's and the event page's path, and the two have no dependency on
+      // each other.
+      let data;
+      let eventRow;
+      try {
+        [data, eventRow] = await Promise.all([
+          fetchAll(
+            () => supabase.from('loa_entries').select(
+              'discord_id, display_name, type, event_date, event_schedule_id, start_date, end_date, day_of_week, start_time, end_time, reason',
+            ).order('id'),
+            { label: 'loa_entries' },
+          ),
+          eventScheduleId
+            ? supabase.from('event_schedule').select('event_time').eq('id', eventScheduleId).single().then((r) => r.data)
+            : Promise.resolve(null),
+        ]);
+      } catch (err) {
+        console.error('loa.unavailableOn error:', err.message);
         throw httpError(500, 'Failed to load LOAs.');
       }
       const eventTime = eventRow?.event_time || null;
@@ -375,9 +392,22 @@ module.exports = function createLoa(supabase, identities = null) {
       return withNames(data || []);
     },
 
+    // The LOA board — everyone's entries. Paged for the same reason as
+    // unavailableOn: nothing prunes this table, so it only grows. `id` is the
+    // tiebreaker because created_at alone has ties, and range paging over a
+    // non-unique ordering can drop or repeat a row at a page boundary.
     async all(isAdmin) {
-      const { data, error } = await supabase.from('loa_entries').select('*').order('created_at', { ascending: false });
-      if (error) throw httpError(500, 'Failed to load LOAs.');
+      let data;
+      try {
+        data = await fetchAll(
+          () => supabase.from('loa_entries').select('*')
+            .order('created_at', { ascending: false }).order('id'),
+          { label: 'loa_entries' },
+        );
+      } catch (err) {
+        console.error('loa.all error:', err.message);
+        throw httpError(500, 'Failed to load LOAs.');
+      }
       return withNames((data || []).map((e) => {
         const out = { ...e };
         if (!isAdmin) delete out.reason;

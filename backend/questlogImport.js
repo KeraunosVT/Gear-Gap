@@ -1,5 +1,6 @@
 const axios = require('axios');
 const STATS = require('../shared/stats.json');
+const { fetchAll } = require('./pagedRead');
 
 const BASE = 'https://questlog.gg/throne-and-liberty/api/trpc';
 const DELAY = 300;
@@ -266,14 +267,14 @@ function itemEffect(detail) {
 // thousand, every id beyond it reads as "new", and the sync re-fetches and
 // re-uploads icons for items it already has on every run.
 async function existingIdSet(supabase) {
-  const ids = new Set();
-  const PAGE = 1000;
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await supabase.from('questlog_items')
-      .select('id').range(from, from + PAGE - 1);
-    if (error) throw new Error(`Could not read existing items: ${error.message}`);
-    (data || []).forEach((r) => ids.add(r.id));
-    if (!data || data.length < PAGE) return ids;
+  try {
+    const rows = await fetchAll(
+      () => supabase.from('questlog_items').select('id').order('id'),
+      { label: 'questlog_items' },
+    );
+    return new Set(rows.map((r) => r.id));
+  } catch (err) {
+    throw new Error(`Could not read existing items: ${err.message}`);
   }
 }
 
@@ -296,12 +297,22 @@ async function rebuildItemDescriptions(supabase, errors) {
   let scanned = 0;
   const PAGE = 500;
 
-  for (let from = 0; ; from += PAGE) {
+  // Streamed rather than run through pagedRead's fetchAll: every row carries
+  // its whole `data` jsonb, and this writes as it goes, so buffering the entire
+  // catalog in memory to save a few lines would be the worse trade.
+  //
+  // Ordered by id so range paging is stable, and it advances by rows RECEIVED
+  // and stops only on an empty page — a `length < PAGE` break would end the
+  // loop early on any project whose max-rows is set below PAGE.
+  for (let from = 0; ;) {
     const { data, error } = await supabase.from('questlog_items')
       .select('id, description, data')
       .neq('main_category', POTENTIAL_CATEGORY)
+      .order('id')
       .range(from, from + PAGE - 1);
     if (error) throw new Error(`Could not read items: ${error.message}`);
+    if (!data || data.length === 0) break;
+    from += data.length;
 
     for (const row of data || []) {
       scanned++;
@@ -325,8 +336,6 @@ async function rebuildItemDescriptions(supabase, errors) {
         errors.push(`Rebuild ${row.id}: ${err.message}`);
       }
     }
-
-    if (!data || data.length < PAGE) break;
   }
 
   return { scanned, updated };

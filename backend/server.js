@@ -25,6 +25,7 @@ const createEliteTimers = require('./eliteTimers');
 const createGearIlvl = require('./gearIlvl');
 const createIdentities = require('./identities');
 const createLoa = require('./loa');
+const { fetchAll } = require('./pagedRead');
 const createEventSignups = require('./eventSignups');
 const createAuditLog = require('./auditLog');
 const guildConfig = require('./guildConfig');
@@ -1232,20 +1233,16 @@ async function allTimeWeaponRows(supabase, guildNames) {
   return weaponInFlight;
 }
 
-async function fetchAllRows(supabase, table, columns, guildNames, matchIds) {
-  const PAGE_SIZE = 1000;
-  const all = [];
-  let from = 0;
-  for (;;) {
+// Thin wrapper over pagedRead's fetchAll, kept for its call sites' signature.
+// It used to hand-roll the loop and stop on a short page, which quietly
+// truncates on any project whose max-rows is set below the page size — see the
+// note in backend/pagedRead.js. Ordered by id so range paging is stable.
+function fetchAllRows(supabase, table, columns, guildNames, matchIds) {
+  return fetchAll(() => {
     let q = supabase.from(table).select(columns).in('guild_name', guildNames);
     if (matchIds) q = q.in('match_id', matchIds);
-    const { data, error } = await q.range(from, from + PAGE_SIZE - 1);
-    if (error) throw error;
-    all.push(...(data || []));
-    if (!data || data.length < PAGE_SIZE) break;
-    from += PAGE_SIZE;
-  }
-  return all;
+    return q.order('id');
+  }, { label: table });
 }
 
 // Backend Class Helper

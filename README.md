@@ -62,6 +62,25 @@ cd frontend && npm run dev   # Vite dev server on :5173 (set CORS_ORIGINS below)
 
 For local dev with two separate dev servers, set `CORS_ORIGINS=http://localhost:5173` in `backend/.env` so the Vite dev server can call the API.
 
+### Tests
+
+```bash
+npm test     # from the repo root
+```
+
+`node:test`, which is built into Node — no dependency, no config, no runner to install. Lives in [`backend/test/`](backend/test/) and needs no database: everything is driven through a fake Supabase.
+
+The suite is deliberately narrow. It covers the logic where a mistake produces a **plausible wrong answer** rather than an error — row-cap paging, and the guild-night comparisons. Rendering and routing aren't tested and don't need to be; a broken page is obvious the moment you look at it, while a truncated read is not.
+
+### Reading a table that grows
+
+Use [`fetchAll`](backend/pagedRead.js) for any read of a table with no natural bound. PostgREST caps an unbounded `select()` at `max-rows` (1,000 by default) and returns the truncated set **with no error** — so the read starts silently wrong the day the table crosses that line, and the tables it bit here were the ones where wrongness is least visible: absences that stop counting, awards that stop being recognised, attendance rates computed from a partial numerator.
+
+Two rules go with it:
+
+- **Order by something unique**, or add `id` as a final tiebreaker. Range pagination over an ordering with ties is not stable — rows with equal sort keys can land on either side of a page boundary between requests, so one may be skipped or read twice. Sorting in JS afterwards doesn't help; the damage happens between the requests.
+- **Never stop on a short page.** `data.length < pageSize` is correct only while `pageSize` isn't larger than the server's own cap — ask for 1,000 from a project set to 500 and the loop reads the first page as "the end". `fetchAll` advances by rows actually received and stops only on an empty page.
+
 ## Configuration
 
 Configuration is split in two. **Secrets and identity** are environment variables, read from `backend/.env` or injected by your host. **Everything an officer might want to change** — the guild's name, which channels the bot posts in, which roles mean what — lives in the database and is edited on the **Guild Settings** page.
