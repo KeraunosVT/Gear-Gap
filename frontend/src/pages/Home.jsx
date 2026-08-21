@@ -6,6 +6,7 @@ import { useGuild } from '../guild';
 import { fmtTimeEst, todayInGuildTz, eventsForGuildDay, isAfterMidnight, addDays } from '../timeUtils';
 import ErrorState from '../components/ui/ErrorState';
 import StatTile from '../components/ui/StatTile';
+import YourStanding from '../components/YourStanding';
 import ItemTooltip, { gradeStyle } from '../components/ItemTooltip';
 
 // Walks forward by guild night, not calendar day, so the 12:30am event shows
@@ -132,6 +133,12 @@ export default function Home() {
           </h1>
         </div>
       </section>
+
+      {/* Your own state before the guild's. Outside the `error` branch on
+          purpose: it reads four different endpoints, so a failure of the war
+          record shouldn't take away the one panel telling you a claim window
+          is about to close. */}
+      <YourStanding />
 
       {error ? (
         <div className="max-w-6xl mx-auto px-6 py-16">

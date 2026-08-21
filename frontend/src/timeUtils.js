@@ -79,6 +79,17 @@ export function withinLoaWindow(entry, eventTime) {
   return at < to;
 }
 
+// Does this LOA still apply on or after `today` (a guild-night YYYY-MM-DD)?
+// Recurring entries never expire — that is the point of them — so anything
+// counting "absences on file" has to treat them as permanently live rather
+// than looking for an end date they don't have.
+export function loaStillApplies(entry, today) {
+  if (entry.type === 'recurring') return true;
+  if (entry.type === 'event') return (entry.event_date || '') >= today;
+  if (entry.type === 'range') return (entry.end_date || '') >= today;
+  return false;
+}
+
 // Calendar-date arithmetic on a YYYY-MM-DD string. Anchored at noon UTC so a
 // browser in any timezone lands on the same date — midnight anchoring is one
 // DST hour away from returning the previous day.
