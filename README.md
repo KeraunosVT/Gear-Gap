@@ -155,6 +155,10 @@ Two consequences worth knowing:
 
 To check which day each event is filed under: `node scripts/dumpEventSchedule.js` (read-only).
 
+**The rule lives in two files, and a test keeps them in step.** `daySlot`, `guildDayOfWeek`, `isAfterMidnight`, `todayInGuildTz` and `withinLoaWindow` exist in both [`backend/loa.js`](backend/loa.js) and [`frontend/src/timeUtils.js`](frontend/src/timeUtils.js). [`backend/test/guildNightConformance.test.js`](backend/test/guildNightConformance.test.js) drives **both** over every half hour of the clock, every day of the week, and six LOA windows, and fails if they ever disagree — including under a changed rollover.
+
+A single `shared/guildNight.js` was tried and doesn't work. As CommonJS, `vite build` rejects it; adding `build.commonjsOptions.include` fixes the build but the **dev server serves it untransformed**, so `module.exports` reaches the browser and `npm run dev` breaks — passing in production and failing only in local dev. As ESM, the CommonJS backend can't `require()` it below Node 22.12, and this project supports Node 18+. The two also differ for a reason beyond syntax: the backend re-reads the rollover from `guild_config` on every call, while the frontend reads module state `GuildProvider` sets once — so even a shared file would keep both wrappers. If you change one implementation, run `npm test` before assuming the other agrees.
+
 ### When a page crashes
 
 Two error boundaries, in [`frontend/src/components/ErrorBoundary.jsx`](frontend/src/components/ErrorBoundary.jsx). React unmounts the entire tree when a render throws and nothing catches it — before these, one bad render blanked the whole site: no message, no nav, and no way back except knowing to reload.

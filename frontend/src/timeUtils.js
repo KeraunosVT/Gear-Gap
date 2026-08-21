@@ -56,6 +56,41 @@ export function daySlot(hhmm) {
   return mins < guildDayStartMin ? mins + MINUTES_PER_DAY : mins;
 }
 
+// Does an event at `eventTime` fall inside this LOA entry's absence window?
+// No start_time means no restriction; a start with no end is an open-ended
+// cutoff ("out from this time onward"); both is a bounded window they're back
+// after. An event with no recorded time can't be compared, so it counts as
+// covered.
+//
+// Mirrors withinLoaWindow in backend/loa.js — the two are held in step by
+// backend/test/guildNightConformance.test.js, which drives both and fails if
+// they ever disagree. Lived in EventCalendar.jsx as a third copy until it moved
+// here; it belongs beside daySlot, which is the only thing it depends on.
+export function withinLoaWindow(entry, eventTime) {
+  if (!entry.start_time || !eventTime) return true;
+  const at = daySlot(eventTime);
+  const from = daySlot(entry.start_time);
+  if (at < from) return false;
+  if (!entry.end_time) return true;
+  // An end no later than the start ran past the rollover ("out 11pm-1am"), so
+  // it closes on the next slot round rather than the current one.
+  let to = daySlot(entry.end_time);
+  if (to <= from) to += MINUTES_PER_DAY;
+  return at < to;
+}
+
+// Calendar-date arithmetic on a YYYY-MM-DD string. Anchored at noon UTC so a
+// browser in any timezone lands on the same date — midnight anchoring is one
+// DST hour away from returning the previous day.
+//
+// Was written out three separate times (eventSignups, EventCalendar, Home)
+// before landing here.
+export function addDays(dateStr, n) {
+  const d = new Date(`${dateStr}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
 // The day-of-week a scheduled event belongs to, from the calendar day and time
 // it's stored under: a 00:30 event stored on Sunday is part of Saturday night.
 export function guildDayOfWeek(dow, eventTime) {

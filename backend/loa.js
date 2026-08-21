@@ -443,6 +443,11 @@ module.exports = function createLoa(supabase, identities = null) {
 module.exports.todayInGuildTz = todayInGuildTz;
 module.exports.parseTimeOfDay = parseTimeOfDay;
 module.exports.daySlot = daySlot;
+// Exported for backend/test/guildNightConformance.test.js, which drives this
+// and the frontend's copy in timeUtils.js over the same matrix and fails if
+// they disagree. The two can't be one file — see the note in that test — so a
+// test is what keeps them honest.
+module.exports.withinLoaWindow = withinLoaWindow;
 module.exports.guildDayOfWeek = guildDayOfWeek;
 module.exports.isAfterMidnight = isAfterMidnight;
 // Accessors, not constants — the rollover and timezone are configuration now.

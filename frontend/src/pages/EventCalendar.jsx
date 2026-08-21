@@ -7,6 +7,7 @@ import {
 
 import {
   fmtTimeEst, todayInGuildTz, eventsForGuildDay, isAfterMidnight, daySlot, getGuildTz,
+  withinLoaWindow, addDays,
 } from '../timeUtils';
 import { PageShell } from '../components/ui/PageShell';
 import Button from '../components/ui/Button';
@@ -37,12 +38,6 @@ const DAY_NAME = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Frida
 // rejected by is worse than one you can't reach.
 const WEEKS_AHEAD = 4;
 
-const addDays = (dateStr, n) => {
-  const d = new Date(`${dateStr}T12:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + n);
-  return d.toISOString().slice(0, 10);
-};
-
 const dowOf = (dateStr) => new Date(`${dateStr}T12:00:00`).getDay();
 
 const shortDate = (dateStr) =>
@@ -65,27 +60,12 @@ function guildNowSlot() {
 }
 
 // ── LOA, MATCHED CLIENT-SIDE ────────────────────────────────────────────────
-// A mirror of loa.js's withinLoaWindow and the type tests in unavailableOn,
-// against the caller's OWN entries only — this never sees anyone else's, and
-// deliberately doesn't ask for them.
-//
-// Compared in guild-night slots, never as clock strings. "Out from 9pm" has to
-// cover the 12:30am event on the same night, and '00:30' < '21:00' as text says
-// the exact opposite. Getting this wrong doesn't error, it just quietly stops
-// warning the one person it exists to warn.
-function withinLoaWindow(entry, eventTime) {
-  if (!entry.start_time || !eventTime) return true;
-  const at = daySlot(eventTime);
-  const from = daySlot(entry.start_time);
-  if (at < from) return false;
-  if (!entry.end_time) return true;
-  // An end no later than the start ran past the rollover ("out 11pm–1am"), so
-  // it closes on the next slot round rather than the current one.
-  let to = daySlot(entry.end_time);
-  if (to <= from) to += 1440;
-  return at < to;
-}
-
+// The type tests from loa.js's unavailableOn, run against the caller's OWN
+// entries only — this never sees anyone else's, and deliberately doesn't ask
+// for them. The time-window half is withinLoaWindow, imported from timeUtils
+// rather than restated here: it used to be a verbatim copy of the backend's,
+// and a copy of the one rule where a mistake doesn't error, it just quietly
+// stops warning the person it exists to warn.
 function loaCovers(entry, { date, dow, scheduleId, eventTime }) {
   // An LOA scoped to one event doesn't touch the others that night; an unscoped
   // one covers everything. Same test as unavailableOn's inScope.

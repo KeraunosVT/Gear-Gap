@@ -3,20 +3,10 @@ import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { Users, Shield, Swords, Heart, CalendarDays, Clock, Package } from 'lucide-react';
 import { useGuild } from '../guild';
-import { fmtTimeEst, todayInGuildTz, eventsForGuildDay, isAfterMidnight } from '../timeUtils';
+import { fmtTimeEst, todayInGuildTz, eventsForGuildDay, isAfterMidnight, addDays } from '../timeUtils';
 import ErrorState from '../components/ui/ErrorState';
 import StatTile from '../components/ui/StatTile';
 import ItemTooltip, { gradeStyle } from '../components/ItemTooltip';
-
-// Pure calendar-date arithmetic, anchored to UTC throughout so it's immune to
-// the viewer's own browser timezone (see the LOA fmtTime bug this app used to
-// have) — only todayInGuildTz() needs to know about the guild's real timezone.
-function addDaysToDateStr(dateStr, days) {
-  const [y, m, d] = dateStr.split('-').map(Number);
-  const dt = new Date(Date.UTC(y, m - 1, d));
-  dt.setUTCDate(dt.getUTCDate() + days);
-  return dt.toISOString().slice(0, 10);
-}
 
 // Walks forward by guild night, not calendar day, so the 12:30am event shows
 // as the tail of the night it belongs to instead of that morning's first item.
@@ -26,11 +16,11 @@ function addDaysToDateStr(dateStr, days) {
 function nextOccurrences(schedule, todayStr, count = 3) {
   const out = [];
   for (let i = 0; i < 14 && out.length < count; i++) {
-    const nightStr = addDaysToDateStr(todayStr, i);
+    const nightStr = addDays(todayStr, i);
     const dow = new Date(nightStr + 'T12:00:00').getDay();
     eventsForGuildDay(schedule, dow).forEach((s) => out.push({
       ...s,
-      date: isAfterMidnight(s.event_time) ? addDaysToDateStr(nightStr, 1) : nightStr,
+      date: isAfterMidnight(s.event_time) ? addDays(nightStr, 1) : nightStr,
     }));
   }
   return out.slice(0, count);
