@@ -136,13 +136,22 @@ Two consequences worth knowing:
 
 To check which day each event is filed under: `node scripts/dumpEventSchedule.js` (read-only).
 
+### When a page crashes
+
+Two error boundaries, in [`frontend/src/components/ErrorBoundary.jsx`](frontend/src/components/ErrorBoundary.jsx). React unmounts the entire tree when a render throws and nothing catches it — before these, one bad render blanked the whole site: no message, no nav, and no way back except knowing to reload.
+
+- The **page** boundary wraps `<Outlet />`, not the shell, so a crash leaves the sidebar and topbar standing and the fallback has somewhere to send you. It clears itself when the pathname changes — a boundary holds its error forever otherwise, and clicking a sidebar link would change the route while still showing the old page's crash. The reset is driven by a `resetKey` prop rather than a `key` on the boundary: keying it on the pathname would remount it *and its children* on every navigation, including between two routes rendering the same component (`/roster/:name` to another name, `/dashboard` and `/match-stats`).
+- The **root** boundary wraps `AuthProvider`, catching the shell itself, the login screen, and anything above the Router. There is nowhere to navigate to from there, so it is fullscreen and only offers a reload.
+
+**They catch render errors only.** A rejected `axios` promise is not something React can see, which is why every page keeps its own `.catch()` and its own `<ErrorState>` — these are the floor under those, not a replacement. Reporting is `console.error` with the component stack; there is no error-collection endpoint, and the fallback deliberately imports nothing beyond React so it can't be taken down by whatever broke.
+
 ### Stat units
 
 Questlog serves the game's internal numbers, and several stats are fixed-point: `skill_cooldown_modifier: 250` means **2.5%** Cooldown Speed, `hp_regen: 110250` means **110.25** Health Regen, `attack_range_main_hand: 1600` means **16 m**. Printed raw they're wrong by two or three orders of magnitude, and wrong in the direction that makes gear look better than it is.
 
 Display names and divisors both live in [`shared/stats.json`](shared/stats.json), read by [`backend/questlogImport.js`](backend/questlogImport.js) — which bakes them into stored item descriptions — and by [`frontend/src/components/ItemTooltip.jsx`](frontend/src/components/ItemTooltip.jsx), which renders the same stats live. **One table on purpose:** fix a divisor in only one of them and a stored description and a live tooltip will quote two different figures for one stat.
 
-A stat with no `divisor` is flat and prints as-is; Hit Chance, Max Health and the defenses genuinely are the numbers they say. The table is an explicit list of stat ids rather than a "`_modifier` means percent" rule — an unmapped stat printing raw is a visibly odd number someone reports, whereas a pattern that guesses wrong is a plausible-looking number nobody catches. Unmapped for want of a confirmed divisor: **block chance** (no such key appears anywhere in Questlog's item data), `move_speed_modifier` and `stamina_regen`.
+A stat with no `divisor` is flat and prints as-is; Hit Chance, Max Health and the defenses genuinely are the numbers they say. The table is an explicit list of stat ids rather than a "`_modifier` means percent" rule — an unmapped stat printing raw is a visibly odd number someone reports, whereas a pattern that guesses wrong is a plausible-looking number nobody catches. Still unmapped for want of a confirmed divisor: `move_speed_modifier` and `stamina_regen`. (Block chance was one of these until a full census of all 894 Epic+ items turned up `shield_block_chance`, which is now mapped at /100.)
 
 Descriptions are rebuilt from stored data on every sync, so correcting a divisor here and re-syncing fixes every item already in the table without re-fetching anything. It never touches `loot_items` descriptions — those are hand-editable and an officer's wording isn't the sync's to overwrite; re-linking an item to Questlog is the deliberate way to pull a fresh one.
 

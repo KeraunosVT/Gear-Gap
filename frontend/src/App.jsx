@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Outlet } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth';
 import Sidebar, { SIDEBAR_COLLAPSE_KEY, getInitialSidebarCollapsed } from './components/Sidebar';
+import ErrorBoundary, { RouteErrorBoundary } from './components/ErrorBoundary';
 import Topbar from './components/Topbar';
 import EliteTimerBar from './components/EliteTimerBar';
 import Sigil from './components/Sigil';
@@ -51,8 +52,14 @@ function Layout() {
       <div className="flex-1 min-w-0 flex flex-col">
         <EliteTimerBar />
         <Topbar collapsed={collapsed} onToggleSidebar={toggleSidebar} />
+        {/* Wraps the page, not the shell. A crash in one page leaves the
+            sidebar and topbar standing, so the fallback has somewhere to send
+            you — and navigating away clears it, because the boundary resets on
+            the pathname. */}
         <main className="flex-1 overflow-y-auto">
-          <Outlet />
+          <RouteErrorBoundary>
+            <Outlet />
+          </RouteErrorBoundary>
         </main>
       </div>
     </div>
@@ -117,11 +124,18 @@ function Gate() {
   );
 }
 
+// The outer boundary covers what the page-level one can't reach: the shell
+// itself (Sidebar, Topbar, EliteTimerBar), the login screen, and AuthProvider.
+// A crash in any of those happens outside the Router, so there is nowhere to
+// navigate to and reload is the only offer — which is why this one is
+// fullscreen and the inner one isn't.
 function App() {
   return (
-    <AuthProvider>
-      <Gate />
-    </AuthProvider>
+    <ErrorBoundary fullscreen>
+      <AuthProvider>
+        <Gate />
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }
 
