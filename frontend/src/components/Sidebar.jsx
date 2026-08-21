@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { NavLink, Link, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, Swords, Users, Gem, Package, CalendarOff, Layers, Gauge,
+  LayoutDashboard, Swords, Users, Gem, Package, CalendarOff, CalendarRange, Layers, Gauge,
   Upload, LayoutGrid, Tag, Gavel, ClipboardCheck, ClipboardList, ScrollText, ShieldCheck, LogOut, Settings, ChevronDown,
 } from 'lucide-react';
 import Sigil from './Sigil';
@@ -21,10 +21,18 @@ export const memberLinks = [
   // Member-facing like /loa, so no `perm` — the officer controls on the page
   // gate themselves inline on 'attendance'.
   { to: '/signups', label: 'Signups', icon: ClipboardList },
+  // The week ahead including nights nobody has opened yet — the answer to
+  // "what's on Thursday", which Signups can't give.
+  { to: '/attendance/calendar', label: 'Event Calendar', icon: CalendarRange },
   // Beside Signups and LOA on purpose: those three are the whole of "will you
   // be there / were you there" from a member's side. No `perm` — reading your
   // own attendance is not an officer action.
-  { to: '/attendance', label: 'Attendance', icon: ClipboardCheck },
+  //
+  // `end` is required now that /attendance/calendar exists: without it this
+  // NavLink prefix-matches the calendar's path and two sibling items light at
+  // once. The cost is that viewing one event's page (/attendance/:id) no longer
+  // highlights anything, which is the quieter of the two wrong answers.
+  { to: '/attendance', label: 'Attendance', icon: ClipboardCheck, end: true },
   { to: '/loa', label: 'LOA', icon: CalendarOff },
   { to: '/classes', label: 'Classes', icon: Layers },
   { to: '/gear', label: 'Gear Level', icon: Gauge },

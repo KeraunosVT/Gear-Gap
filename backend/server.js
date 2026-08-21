@@ -573,6 +573,40 @@ app.get('/api/signups', async (req, res) => {
   }
 });
 
+// Sign up for a scheduled night, opening the occurrence if it doesn't exist.
+// This is what the event calendar posts to: it shows the whole schedule, so
+// most rows on it have no signup_events row behind them until someone commits.
+//
+// Open and join are ONE request on purpose. A client that opened first and
+// joined second leaves an empty occurrence behind every time the second call
+// fails — and an empty occurrence is indistinguishable from a raid call nobody
+// answered, which is a worse thing to have in the list than nothing at all.
+//
+// Registered above /api/signups/:id so the literal path can never be read as an
+// id. The target is always the caller; there is no discord_id body field here,
+// same rule as the join route below.
+app.post('/api/signups/for-event', async (req, res) => {
+  if (!signups) return res.status(503).json({ error: 'Database not configured.' });
+  const { event_schedule_id, event_date } = req.body || {};
+  try {
+    const occ = await signups.openForSchedule({
+      eventScheduleId: event_schedule_id || null,
+      eventDate: event_date,
+      openedBy: req.user.username || req.user.id,
+    });
+    const result = await signups.join({
+      id: occ.id, discordId: req.user.id, displayName: req.user.username,
+    });
+    res.json({ ...result, signup_id: occ.id, opened: occ.opened });
+    // Only ever edits a post that already exists — opening from here is quiet,
+    // so a member answering a night three weeks out announces nothing. Officers
+    // post it from the Signups page when they want the call made.
+    gateway.refreshSignupMessage(occ.id);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
 app.get('/api/signups/:id', async (req, res) => {
   if (!signups) return res.status(503).json({ error: 'Database not configured.' });
   try {

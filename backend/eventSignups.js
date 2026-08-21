@@ -23,6 +23,12 @@ const ROLE_ORDER = ['Tank', 'DPS', 'Healer'];
 // ahead a reminder can be set — just keeps the coarse SQL filter bounded.
 const REMINDER_LOOKAHEAD_DAYS = 7;
 
+// How far ahead a MEMBER may open a night nobody has opened yet. Officers have
+// no such ceiling — one opening a night six months out is doing it deliberately.
+// The event calendar's paging cap is the same number on purpose, so its arrows
+// can't reach a week whose buttons this would refuse.
+const MEMBER_OPEN_HORIZON_DAYS = 30;
+
 function httpError(status, message) {
   const err = new Error(message);
   err.status = status;
@@ -181,6 +187,43 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
         throw httpError(500, 'Failed to open signups.');
       }
       return { row: data, created: true };
+    },
+
+    // A member signing up for a scheduled night nobody has opened yet — the
+    // thing that makes the event calendar answerable, since most of the week
+    // has no signup_events row until someone commits to it.
+    //
+    // open() does the real work: it already validates the night against the
+    // schedule, and it already returns the EXISTING occurrence on a 23505
+    // rather than erroring. That second property is what keeps two members
+    // tapping the same row a second apart from producing two attendee lists.
+    //
+    // The guards added here are only the ones an officer doesn't need. An
+    // officer opening a night that has already started, or one six months out,
+    // is doing it on purpose; a member tapping a row on a calendar is not.
+    async openForSchedule({ eventScheduleId, eventDate, openedBy = null }) {
+      if (!eventScheduleId) throw httpError(400, 'Pick an event.');
+      if (!isValidDate(eventDate)) throw httpError(400, 'Date must be in YYYY-MM-DD format.');
+
+      const { data: ev } = await supabase.from('event_schedule')
+        .select('id, name, event_time').eq('id', eventScheduleId).single();
+      if (!ev) throw httpError(400, 'That scheduled event no longer exists.');
+      // No time means resolveStartsAt can't place it, so neither guard below
+      // can be evaluated — refuse rather than open something unbounded.
+      if (!ev.event_time) throw httpError(400, `${ev.name} has no start time on the schedule.`);
+
+      const startsAt = resolveStartsAt(eventDate, ev.event_time);
+      if (!startsAt) throw httpError(400, 'Could not resolve that date and time.');
+      if (startsAt.getTime() <= Date.now()) throw httpError(409, 'That event has already started.');
+      if (startsAt.getTime() - Date.now() > MEMBER_OPEN_HORIZON_DAYS * 86_400_000) {
+        throw httpError(400, `Signups can only be opened up to ${MEMBER_OPEN_HORIZON_DAYS} days ahead.`);
+      }
+
+      // Deliberately no capacity and no reminder: a member opening a night is
+      // answering for themselves, not setting up the raid. An officer adds
+      // those from the Signups page, along with the Discord post.
+      const { row, created } = await this.open({ eventDate, eventScheduleId, createdBy: openedBy });
+      return { id: row.id, opened: created };
     },
 
     get: loadEvent,

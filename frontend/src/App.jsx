@@ -28,6 +28,7 @@ import LOA from './pages/LOA';
 import Signups from './pages/Signups';
 import MyAttendance from './pages/MyAttendance';
 import EventAttendance from './pages/EventAttendance';
+import EventCalendar from './pages/EventCalendar';
 import Classes from './pages/Classes';
 import GearLevel from './pages/GearLevel';
 import GearLevels from './pages/GearLevels';
@@ -87,6 +88,10 @@ function Gate() {
           <Route path="/loa" element={<LOA />} />
           <Route path="/signups" element={<Signups />} />
           <Route path="/attendance" element={<MyAttendance />} />
+          {/* Above /attendance/:id in the file for readability only — router
+              ranking already prefers the static segment over the dynamic one,
+              so EventAttendance can never be handed id="calendar". */}
+          <Route path="/attendance/calendar" element={<EventCalendar />} />
           <Route path="/attendance/:id" element={<EventAttendance />} />
           <Route path="/classes" element={<Classes />} />
           <Route path="/gear" element={<GearLevel />} />
