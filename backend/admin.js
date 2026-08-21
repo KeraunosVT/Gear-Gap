@@ -549,6 +549,124 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     res.json({ ok: true });
   });
 
+  // ── Loot council: fairness ──────────────────────────────────────────────────
+  // "Who has shown up the most and received the least" is the question a loot
+  // council actually argues about, and until now it could only be answered from
+  // memory across three pages. All three inputs were already stored; nothing
+  // joined them.
+  //
+  // THE WINDOW GOVERNS BOTH HALVES. A 30-day attendance rate next to an all-time
+  // loot count is not a comparison, it is a way to make a long-standing member
+  // look greedy — the same trap the attendance-stats route documents about its
+  // own numerator, one step further out.
+  //
+  // Everyone on the roster appears, including members with nothing on either
+  // side. Zero-and-zero is noise, but high-attendance-and-zero is the entire
+  // point of the page and it only exists as a row if people with no awards are
+  // listed at all.
+  router.get('/loot/fairness', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    // Currency is the more sensitive half — same split as playerLoot() on the
+    // profile: an officer who runs gear awards doesn't automatically get to see
+    // what everyone has been paid. Omitted rather than zeroed, so the page can
+    // hide the columns instead of showing a wrong number.
+    const canSeeCurrency = perms.userHas(req.user, 'loot.currency');
+
+    try {
+      const { days, since } = attendanceWindow(req);
+
+      let eq = supabase.from('events').select('id');
+      if (since) eq = eq.gte('event_date', since);
+      const { data: evts, error: eErr } = await eq;
+      if (eErr) throw eErr;
+      const eventIds = (evts || []).map((e) => e.id);
+      const totalEvents = eventIds.length;
+
+      const inWindow = (q) => (since ? q.gte('awarded_at', since) : q);
+
+      const [attRows, awardRows, currencyRows, ids, discordMembers] = await Promise.all([
+        eventIds.length === 0 ? [] : fetchAll(
+          () => supabase.from('event_attendance').select('discord_id')
+            .in('event_id', eventIds).order('id'),
+          { label: 'event_attendance' },
+        ),
+        fetchAll(
+          () => inWindow(supabase.from('loot_awards').select('discord_id, priority, awarded_at')).order('id'),
+          { label: 'loot_awards' },
+        ),
+        canSeeCurrency
+          ? fetchAll(
+            () => inWindow(supabase.from('currency_awards').select('discord_id, currency, amount, awarded_at')).order('id'),
+            { label: 'currency_awards' },
+          )
+          : Promise.resolve([]),
+        identities.load(),
+        // Soft-failed: without Discord the table still works, it just falls back
+        // to whoever appears in the data rather than the full roster.
+        listMembers().catch(() => []),
+      ]);
+
+      const rows = new Map();
+      const row = (discordId) => {
+        const id = String(discordId);
+        if (!rows.has(id)) {
+          rows.set(id, {
+            discord_id: id,
+            display_name: ids.displayNameFor(id, null) || id,
+            attended: 0,
+            items: 0,
+            items_by_build: {},
+            lucent: 0,
+            shards: 0,
+          });
+        }
+        return rows.get(id);
+      };
+
+      discordMembers.forEach((m) => {
+        const r = row(m.id);
+        // The Discord nickname is only a fallback — an identity alias wins, the
+        // same precedence every other surface uses.
+        r.display_name = ids.displayNameFor(m.id, m.name) || m.name;
+      });
+      attRows.forEach((a) => { row(a.discord_id).attended += 1; });
+      awardRows.forEach((a) => {
+        const r = row(a.discord_id);
+        r.items += 1;
+        // 'Untagged' is a real bucket, not a rounding error: awards predating
+        // the priority column have no build, and hiding them would make the
+        // per-build columns disagree with the total beside them.
+        const key = a.priority || 'Untagged';
+        r.items_by_build[key] = (r.items_by_build[key] || 0) + 1;
+      });
+      currencyRows.forEach((c) => {
+        const r = row(c.discord_id);
+        if (c.currency === 'lucent') r.lucent += c.amount || 0;
+        else r.shards += c.amount || 0;
+      });
+
+      const members = [...rows.values()].map((r) => {
+        const out = {
+          ...r,
+          rate: totalEvents ? Math.round((r.attended / totalEvents) * 100) : null,
+        };
+        if (!canSeeCurrency) { delete out.lucent; delete out.shards; }
+        return out;
+      });
+
+      res.json({
+        window: days,
+        total_events: totalEvents,
+        can_see_currency: canSeeCurrency,
+        priorities: [...lootCatalog.priorities],
+        members,
+      });
+    } catch (err) {
+      console.error('Loot fairness error:', err.message);
+      res.status(500).json({ error: 'Failed to build the fairness table.' });
+    }
+  });
+
   // ── Loot council: Lucent requests ───────────────────────────────────────────
   // "Member asked for N Lucent to buy item X." Sits between the wishlist ("I
   // want this if it drops") and currency_awards ("this member was given N

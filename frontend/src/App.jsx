@@ -23,6 +23,7 @@ import Permissions from './pages/Permissions';
 import GuildSettings from './pages/GuildSettings';
 import MyProfile from './pages/MyProfile';
 import LootHistory from './pages/LootHistory';
+import LootFairness from './pages/LootFairness';
 import Attendance from './pages/Attendance';
 import PlayerProfile from './pages/PlayerProfile';
 import LOA from './pages/LOA';
@@ -110,6 +111,7 @@ function Gate() {
           <Route path="/admin/loot/currency" element={<LootCurrency />} />
           <Route path="/admin/loot/requests" element={<LootRequests />} />
           <Route path="/admin/loot/history" element={<LootHistory />} />
+          <Route path="/admin/loot/fairness" element={<LootFairness />} />
           <Route path="/admin/attendance" element={<Attendance />} />
           <Route path="/admin/gear-levels" element={<GearLevels />} />
           <Route path="/admin/permissions" element={<Permissions />} />

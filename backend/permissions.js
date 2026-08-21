@@ -76,6 +76,12 @@ const ROUTE_PERMISSIONS = [
   // items, and the whole questlog import/link family — manages the catalog, so
   // the bare prefix falls to loot.catalog and only /loot/awards is an award.
   { prefix: '/loot/awards', permission: 'loot.awards' },
+  // Needs its own rule for the same reason /loot/awards does: without it the
+  // bare '/loot' below claims it and a catalog-only officer could read who has
+  // been given what. Gated on awards rather than currency because the table is
+  // readable without the currency half — the route omits those columns for a
+  // caller who doesn't also hold loot.currency, rather than refusing outright.
+  { prefix: '/loot/fairness', permission: 'loot.awards' },
   { prefix: '/loot', permission: 'loot.catalog' },
   { prefix: '/currency-awards', permission: 'loot.currency' },
   { prefix: '/lucent-requests', permission: 'loot.requests' },

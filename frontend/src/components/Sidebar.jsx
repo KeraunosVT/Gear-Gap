@@ -52,6 +52,9 @@ export const adminLinks = [
     { to: '/admin/loot/currency', label: 'Lucent & Shards', perm: 'loot.currency' },
     { to: '/admin/loot/requests', label: 'Lucent Requests', perm: 'loot.requests' },
     { to: '/admin/loot/history', label: 'Loot History', perm: 'loot.history' },
+    // Reads awards, currency and attendance together. Gated on awards; the
+    // currency columns hide themselves for an officer without loot.currency.
+    { to: '/admin/loot/fairness', label: "Who's Owed", perm: 'loot.awards' },
   ] },
   { to: '/admin/attendance', label: 'Attendance', icon: ClipboardCheck, perm: 'attendance' },
   { to: '/admin/gear-levels', label: 'Gear Levels', icon: Gauge, perm: 'gear' },
