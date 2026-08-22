@@ -30,6 +30,7 @@ A guild-management web app for a *Throne & Liberty* guild, built around Discord:
 - `/elitetimer`, `/elitetimers` — report and check elite boss respawn timers
 - `/loa` — submit or cancel leave of absence from Discord
 - `/attendance` — snap a voice channel and log attendance for a scheduled event. Uses the channel you name, else the one you're sitting in, else the guild's configured attendance channel — so it works from a text channel once that's set
+- `/elitetimers` — the respawn board, **with a button per boss**. Tapping one reports it killed *just now* and redraws the board in place; green means the window is open, grey means the timer is still running. Tapping a grey one asks to confirm first, because a report overwrites the stored timer and a button is much easier to misclick than a typed command. `/elitetimer` is still the way to report a kill that happened earlier. The buttons carry everything they need in their `customId`, so a board left in a channel keeps working after a redeploy
 - `/attendance-late` — the one attendance command that isn't officers-only: ask to be added to a night the snapshot missed. The autocomplete *is* the 24-hour window, so a member with nothing eligible sees an empty list rather than a rejection
 - `/announce` — post a timed announcement (e.g. "get into CTA Comms") with a timestamp that renders in each viewer's own timezone
 
