@@ -9,6 +9,7 @@ import ErrorState from '../components/ui/ErrorState';
 import EmptyState from '../components/ui/EmptyState';
 import { Table, Thead, SortableTh, Tr, useSort, sortRows } from '../components/ui/Table';
 import Modal from '../components/ui/Modal';
+import PlayerGuildHistory from '../components/PlayerGuildHistory';
 import Toast from '../components/ui/Toast';
 import { useFlash } from '../components/ui/useFlash';
 
@@ -61,6 +62,7 @@ export default function GuildFeuds() {
   const [rosters, setRosters] = useState({});
   const [busy, setBusy] = useState('');
   const [msg, flash] = useFlash();
+  const [lookup, setLookup] = useState(null);
 
   const sort = useSort(['enemy_guild', 'last_met'], 'met', 'desc');
 
@@ -188,6 +190,9 @@ export default function GuildFeuds() {
       </p>
 
       <Toast msg={msg} />
+
+      <PlayerSearch onPick={(n) => setLookup(n)} />
+      {lookup && <PlayerGuildHistory name={lookup} onClose={() => setLookup(null)} />}
 
       {/* Officer-only, and only when there is something to act on. */}
       {isOfficer && merge.suggestions.length > 0 && (
@@ -333,8 +338,13 @@ function FeudRow({ row, expanded, roster, onToggle, mergedFrom, isOfficer, busy,
   return (
     <>
       <Tr className="cursor-pointer">
-        <td className="p-2.5 text-bone font-semibold" onClick={onToggle}>
-          {row.enemy_guild}
+        <td className="p-2.5 font-semibold">
+          <Link
+            to={`/war-record/feuds/${encodeURIComponent(row.enemy_guild)}`}
+            className="text-bone hover:text-brassbright transition-colors"
+          >
+            {row.enemy_guild}
+          </Link>
           {mergedFrom.length > 0 && (
             <span className="text-ash/50 text-xs ml-2" title={`Also counts: ${mergedFrom.map((a) => a.alias).join(', ')}`}>
               +{mergedFrom.length}
@@ -385,12 +395,22 @@ function FeudRow({ row, expanded, roster, onToggle, mergedFrom, isOfficer, busy,
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
-                    <div className="eyebrow text-[10px] text-brass mb-2">Most seen</div>
+                    <div className="flex items-baseline justify-between gap-3 mb-2">
+                      <div className="eyebrow text-[10px] text-brass">Most seen</div>
+                      {/* The preview stops pretending to be the whole roster.
+                          Standouts, per-match rates and search live on the page. */}
+                      <Link
+                        to={`/war-record/feuds/${encodeURIComponent(row.enemy_guild)}`}
+                        className="text-xs text-brass hover:text-brassbright transition-colors"
+                      >
+                        All {roster.players.length} players →
+                      </Link>
+                    </div>
                     {roster.players.length === 0 ? (
                       <p className="text-ash text-sm">No named players on record.</p>
                     ) : (
                       <div className="space-y-1.5">
-                        {roster.players.slice(0, 12).map((p) => (
+                        {roster.players.slice(0, 6).map((p) => (
                           <div key={p.player_name} className="flex items-baseline gap-2 text-sm">
                             <span className="font-mono text-ash w-8 shrink-0 text-right">{p.appearances}</span>
                             <span className={`truncate ${p.sub_for ? 'text-ash' : 'text-bone'}`}>{p.player_name}</span>
@@ -405,8 +425,8 @@ function FeudRow({ row, expanded, roster, onToggle, mergedFrom, isOfficer, busy,
                             )}
                           </div>
                         ))}
-                        {roster.players.length > 12 && (
-                          <div className="text-ash/50 text-xs pt-1">+{roster.players.length - 12} more</div>
+                        {roster.players.length > 6 && (
+                          <div className="text-ash/50 text-xs pt-1">+{roster.players.length - 6} more</div>
                         )}
                       </div>
                     )}
@@ -444,5 +464,56 @@ function FeudRow({ row, expanded, roster, onToggle, mergedFrom, isOfficer, busy,
         </tr>
       )}
     </>
+  );
+}
+
+// Looking a name up cold, without knowing whose roster it's on — which is what
+// makes this a search rather than a drill-down. Debounced, and it stays quiet
+// under two characters: a single letter scans the whole table for an answer
+// nobody can use.
+function PlayerSearch({ onPick }) {
+  const [q, setQ] = useState('');
+  const [hits, setHits] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    const term = q.trim();
+    if (term.length < 2) { setHits(null); return undefined; }
+    setBusy(true);
+    const t = setTimeout(() => {
+      axios.get('/api/players/search', { params: { q: term } })
+        .then((res) => setHits(res.data.players || []))
+        .catch(() => setHits([]))
+        .finally(() => setBusy(false));
+    }, 250);
+    return () => { clearTimeout(t); setBusy(false); };
+  }, [q]);
+
+  return (
+    <div className="mb-5">
+      <input
+        value={q} onChange={(e) => setQ(e.target.value)}
+        placeholder="Look up a player — where else have they played?"
+        className="w-full bg-panel border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
+      />
+      {hits && (
+        <div className="mt-2 panel rounded-lg divide-y divide-line max-h-64 overflow-auto">
+          {busy && hits.length === 0 ? (
+            <div className="px-4 py-3 text-ash text-sm">Searching…</div>
+          ) : hits.length === 0 ? (
+            <div className="px-4 py-3 text-ash text-sm">No player on record matching that.</div>
+          ) : hits.map((h) => (
+            <button
+              key={h.player_name} onClick={() => { onPick(h.player_name); setQ(''); setHits(null); }}
+              className="w-full text-left px-4 py-2.5 hover:bg-panelup transition-colors flex items-baseline gap-3"
+            >
+              <span className="text-bone">{h.player_name}</span>
+              <span className="text-ash/60 text-xs truncate flex-1">{(h.guilds || []).join(' · ')}</span>
+              <span className="font-mono text-ash text-xs shrink-0">{h.matches}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

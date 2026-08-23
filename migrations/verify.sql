@@ -101,6 +101,17 @@ select '019 · get_guild_feud_roster(text[], text)',
        (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.proname = 'get_guild_feud_roster' and p.pronargs = 2) = 1
 union all
+-- 020 widens get_guild_feud_roster's RETURNS TABLE, which verify.sql cannot
+-- inspect — the manual check in the plan covers the column list. What it can
+-- hold is that the two new lookup functions exist with the right arity.
+select '020 · get_player_guilds(text[], text)',
+       (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'get_player_guilds' and p.pronargs = 2) = 1
+union all
+select '020 · get_player_search(text, int)',
+       (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'get_player_search') = 1
+union all
 select '019 · normalise_guild_name(text)',
        (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.proname = 'normalise_guild_name') = 1

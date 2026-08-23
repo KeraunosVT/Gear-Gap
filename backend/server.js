@@ -27,6 +27,7 @@ const createIdentities = require('./identities');
 const createLoa = require('./loa');
 const { fetchAll } = require('./pagedRead');
 const { aggregatePlayerRows } = require('./playerStats');
+const { foldRoster } = require('./feudRoster');
 const createEventSignups = require('./eventSignups');
 const createAuditLog = require('./auditLog');
 const guildConfig = require('./guildConfig');
@@ -497,63 +498,79 @@ app.get('/api/guilds/feuds', async (req, res) => {
 app.get('/api/guilds/feuds/:name', async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
   try {
+    const enemy = decodeURIComponent(req.params.name);
     const { data, error } = await supabase.rpc('get_guild_feud_roster', {
       p_guild_names: Object.keys(guildAliases()),
-      p_enemy: decodeURIComponent(req.params.name),
+      p_enemy: enemy,
     });
     if (error) throw error;
 
-    // Rows arrive grouped by player AND weapon pair, so they fold two ways:
-    // a per-player total, and a class mix across the whole guild. The pair is
-    // turned into a class HERE rather than in SQL so shared/weaponClasses.json
-    // stays the site's only class vocabulary.
-    const enemy = decodeURIComponent(req.params.name);
-    const byPlayer = new Map();
-    const classMix = {};
-    (data || []).forEach((r) => {
-      const seen = Number(r.appearances) || 0;
-      const cls = getClassNameBackend(r.weapon_1, r.weapon_2);
-      classMix[cls] = (classMix[cls] || 0) + seen;
-
-      const p = byPlayer.get(r.player_name)
-        || { player_name: r.player_name, appearances: 0, kills: 0, classes: {}, guilds: {} };
-      p.appearances += seen;
-      p.kills += Number(r.kills) || 0;
-      p.classes[cls] = (p.classes[cls] || 0) + seen;
-      // Their own tag, which may not be this guild — the side is credited to
-      // whoever fielded most of it, so borrowed players are in this list too.
-      if (r.own_guild) p.guilds[r.own_guild] = (p.guilds[r.own_guild] || 0) + seen;
-      byPlayer.set(r.player_name, p);
-    });
-
-    const commonest = (counts) => Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
-
-    const players = [...byPlayer.values()]
-      .map(({ guilds, ...p }) => {
-        const own = commonest(guilds);
-        return {
-          ...p,
-          // What they turn up as most often. A player who has switched weapons
-          // has more than one; naming the commonest beats listing all of them.
-          main_class: commonest(p.classes) || 'Unknown',
-          // Null when they're one of this guild's own. Set to their tag when
-          // they were subbing — "they always run this" and "they borrowed a
-          // healer once" are different scouting facts.
-          sub_for: own && own !== enemy ? own : null,
-        };
-      })
-      .sort((a, b) => b.appearances - a.appearances || a.player_name.localeCompare(b.player_name));
-
+    // Rows arrive grouped by player AND weapon pair. The fold — per-player
+    // totals, per-match rates, the class mix, and which players stand out
+    // against their own guild's median — lives in feudRoster so it can be
+    // tested; see the note at the top of that module.
+    //
+    // classify is passed in rather than imported there, so
+    // shared/weaponClasses.json stays the site's only class vocabulary.
     res.json({
-      enemy_guild: decodeURIComponent(req.params.name),
-      players,
-      class_mix: Object.entries(classMix)
-        .map(([name, count]) => ({ name, count }))
-        .sort((a, b) => b.count - a.count),
+      enemy_guild: enemy,
+      ...foldRoster(data || [], { enemyGuild: enemy, classify: getClassNameBackend }),
     });
   } catch (err) {
     console.error('Guild feud roster error:', err.message);
     res.status(500).json({ error: 'Failed to load that guild.' });
+  }
+});
+
+// ── CROSS-GUILD PLAYER LOOKUP ───────────────────────────────────────────────
+// "Where else has this name played?" — a name under three guilds in a year is a
+// mercenary, and one that moved from a guild you beat to a guild you lose to is
+// worth knowing about. Member-facing for the same reason the feuds are: it is
+// derived from scoreboards everyone can already read.
+app.get('/api/players/search', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    const q = String(req.query.q || '').trim();
+    // Answered without touching the database. A search box that fires on the
+    // first keystroke scans the whole table for a single letter, and the answer
+    // is useless anyway.
+    if (q.length < 2) return res.json({ players: [], query: q, too_short: q.length > 0 });
+
+    const { data, error } = await supabase.rpc('get_player_search', { p_query: q, p_limit: 25 });
+    if (error) throw error;
+    res.json({ players: data || [], query: q });
+  } catch (err) {
+    console.error('Player search error:', err.message);
+    res.status(500).json({ error: 'Search failed.' });
+  }
+});
+
+app.get('/api/players/:name/guilds', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    const name = decodeURIComponent(req.params.name);
+    const { data, error } = await supabase.rpc('get_player_guilds', {
+      p_guild_names: Object.keys(guildAliases()),
+      p_player: name,
+    });
+    if (error) throw error;
+
+    const guilds = data || [];
+    // Whether this name is one of OUR members, so the page can link to their
+    // full profile. Resolved through identities, which is the only thing that
+    // knows our aliases — an enemy name simply isn't in it.
+    const ids = identities ? await identities.load() : null;
+    const identity = ids ? ids.identityForName(name) : null;
+
+    res.json({
+      player_name: name,
+      guilds,
+      matches: guilds.reduce((n, g) => n + (Number(g.matches) || 0), 0),
+      member: identity ? { display_name: identity.display_name } : null,
+    });
+  } catch (err) {
+    console.error('Player guilds error:', err.message);
+    res.status(500).json({ error: 'Failed to load that player.' });
   }
 });
 
