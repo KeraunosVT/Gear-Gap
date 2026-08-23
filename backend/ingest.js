@@ -186,11 +186,12 @@ function normalizeTeam(v) {
 
 // Spellings that mean one of the WEAPONS above but aren't it. Keyed lowercase.
 //
-// "Bow" is the one that matters: it is the natural English word, the legend
-// image labels the icon that way, and the prompt tells the model to trust the
-// legend — so the model has every reason to answer "Bow". Without this it
-// matches nothing, survives as raw text, and every longbow user on the
-// scoreboard comes through flagged for manual correction.
+// "Bow" is the one that matters: it is the natural English word for the icon,
+// so the model can reach for it regardless of what the legend says. (The legend
+// image did label it "Bow" for a while, which made this a live bug rather than
+// a hypothetical one — it says "Longbow" now, and this stays as the guard.)
+// Without it the answer matches nothing, survives as raw text, and every
+// longbow user on the scoreboard comes through flagged for manual correction.
 //
 // Aliases are for genuine synonyms only. A weapon the model couldn't identify
 // must still arrive as "Unknown" and get flagged — guessing on its behalf is
