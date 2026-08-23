@@ -48,6 +48,29 @@ create index if not exists enemy_guild_aliases_canonical_idx
 -- service-role key and all access control lives in Express middleware.
 alter table enemy_guild_aliases enable row level security;
 
+-- ── DROP BEFORE CREATE ──────────────────────────────────────────────────────
+-- `create or replace function` cannot change a function's return type. Change
+-- one and Postgres refuses with:
+--
+--   42P13: cannot change return type of existing function
+--   DETAIL: Row type defined by OUT parameters is different.
+--
+-- Migration 015 hit exactly this with save_event and documents the same fix.
+-- It matters here because a failed earlier attempt at this file can leave a
+-- function behind with the old signature, and then every later run fails on a
+-- statement that looks correct. Dropping first makes the file re-runnable from
+-- any state, including a half-applied one.
+--
+-- Dependents first, then the base they call. `language sql` bodies given as a
+-- quoted string aren't dependency-tracked, so the order is for clarity rather
+-- than necessity — but it is the order that stays correct if these ever become
+-- BEGIN ATOMIC bodies, which are tracked.
+drop function if exists get_guild_feud_roster(text[], text);
+drop function if exists get_guild_feud_coverage(text[]);
+drop function if exists get_guild_feuds(text[]);
+drop function if exists get_guild_match_sides(text[]);
+drop function if exists normalise_guild_name(text);
+
 -- Guild names arrive from OCR, so a stray double space is common. Collapsing
 -- here means `Iron Vow` and `Iron  Vow` need no alias row at all.
 create or replace function normalise_guild_name(p_name text)
@@ -77,13 +100,21 @@ $$;
 -- match must not read as a Win on one page and a Loss on another.
 create or replace function get_guild_match_sides(p_guild_names text[])
 returns table (
-  -- TEXT, not uuid. The reconstructed 000_baseline.sql says uuid, but this
-  -- database stores match ids as text — Postgres rejects the function outright
-  -- if the declaration disagrees, which is how that was found. wargame_matches.id
-  -- matches, since the foreign key forces the two to be the same type.
+  -- Types confirmed against information_schema, NOT taken from
+  -- 000_baseline.sql — that file is a reconstruction and disagrees with the
+  -- live database on at least two of these.
+  --
+  --   match_id    text  (baseline says uuid)
+  --   match_date  text  (baseline says date)
+  --   kills       bigint, so sum() over it yields NUMERIC — see the casts below
+  --
+  -- match_date stays text and is never cast to date. The values are ISO
+  -- YYYY-MM-DD, which sorts and compares correctly as text — max() gives the
+  -- real latest — whereas ::date would throw the whole function on a single
+  -- empty or malformed value somewhere in the record.
   match_id text,
   our_color text,
-  match_date date,
+  match_date text,
   our_kills bigint,
   their_kills bigint,
   outcome text
@@ -112,7 +143,7 @@ as $$
   )
   select c.match_id::text,
          c.our_color::text,
-         m.match_date::date,
+         m.match_date::text,
          coalesce(us.kills, 0)::bigint   as our_kills,
          coalesce(them.kills, 0)::bigint as their_kills,
          case
@@ -144,7 +175,7 @@ returns table (
   draws bigint,
   kills_for bigint,
   kills_against bigint,
-  last_met date
+  last_met text
 )
 language sql
 stable
@@ -167,9 +198,10 @@ as $$
     where normalise_guild_name(s.guild_name) is not null
   )
   -- Every aggregate is cast to the type the signature declares. count() is
-  -- already bigint, but sum() over a bigint returns NUMERIC — and a function
-  -- whose body disagrees with its RETURNS TABLE fails at creation time with
-  -- "return type mismatch", not at call time.
+  -- already bigint, but player_match_stats.kills is bigint and sum() over a
+  -- bigint returns NUMERIC — and a function whose body disagrees with its
+  -- RETURNS TABLE fails at creation time with "return type mismatch", not at
+  -- call time, so this is worth being explicit about everywhere.
   select e.enemy_guild::text,
          count(*)::bigint                                    as met,
          count(*) filter (where sc.outcome = 'Win')::bigint  as wins,
@@ -177,7 +209,7 @@ as $$
          count(*) filter (where sc.outcome = 'Draw')::bigint as draws,
          sum(sc.our_kills)::bigint                           as kills_for,
          sum(sc.their_kills)::bigint                         as kills_against,
-         max(sc.match_date)::date                            as last_met
+         max(sc.match_date)::text                            as last_met
   from enemies e
   join scored sc on sc.match_id = e.match_id
   group by e.enemy_guild
