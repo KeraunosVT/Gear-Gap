@@ -68,6 +68,7 @@ alter table enemy_guild_aliases enable row level security;
 drop function if exists get_guild_feud_roster(text[], text);
 drop function if exists get_guild_feud_coverage(text[]);
 drop function if exists get_guild_feuds(text[]);
+drop function if exists get_guild_feud_matches(text[]);
 drop function if exists get_guild_match_sides(text[]);
 drop function if exists normalise_guild_name(text);
 
@@ -178,14 +179,72 @@ as $$
   left join sides them on them.match_id = c.match_id and them.team_color <> c.our_color;
 $$;
 
+
+-- ── WHO WE ACTUALLY FOUGHT, ONE GUILD PER MATCH ─────────────────────────────
+-- The enemy side is credited to the single guild that fielded the most of it.
+-- Everyone else on that side is treated as having subbed FOR them.
+--
+-- Attributing every distinct guild name on the far side — the obvious reading —
+-- gives a guild that lent three players its own feud row, showing a match it
+-- never chose to fight, sitting next to guilds that brought fifty. Those rows
+-- are noise, and they are indistinguishable from real ones once they are in a
+-- table sorted by "met".
+--
+-- The consequence to know: `met` summed across all guilds now equals the number
+-- of attributed matches exactly, and a genuine two-guild alliance is recorded
+-- as the larger guild's match. That is the trade — one clean row per match
+-- rather than a faithful but unusable list.
+--
+-- Aliases resolve BEFORE the count, so two spellings of one guild combine into
+-- one total and can win the comparison together rather than splitting the vote.
+create or replace function get_guild_feud_matches(p_guild_names text[])
+returns table (match_id text, enemy_guild text)
+language sql
+stable
+as $$
+  with ours_names as (
+    select normalise_guild_name(x) as n
+    from unnest(p_guild_names) x
+    where normalise_guild_name(x) is not null
+  ),
+  scored as (
+    select * from get_guild_match_sides(p_guild_names)
+  ),
+  enemy_counts as (
+    select sc.match_id,
+           coalesce(a.canonical, normalise_guild_name(s.guild_name)) as enemy_guild,
+           count(*) as players
+    from scored sc
+    join player_match_stats s
+      on s.match_id = sc.match_id
+     and s.team_color in ('Red', 'Yellow')
+     and s.team_color <> sc.our_color
+    left join enemy_guild_aliases a
+      on a.alias = normalise_guild_name(s.guild_name)
+    where normalise_guild_name(s.guild_name) is not null
+      -- We are never our own enemy. Side detection picks the colour holding
+      -- MORE of our players, so a few of ours on the other team — subs lent
+      -- out, or a scrim against our own second roster — would otherwise be
+      -- counted here. Excluded by name, which is the only test that holds.
+      and normalise_guild_name(s.guild_name) not in (select n from ours_names)
+    group by sc.match_id, coalesce(a.canonical, normalise_guild_name(s.guild_name))
+  )
+  select match_id::text,
+         -- Ties break alphabetically, only so the answer is stable between runs.
+         (array_agg(enemy_guild order by players desc, enemy_guild))[1]::text
+  from enemy_counts
+  group by match_id;
+$$;
+
 -- ── THE FEUD LIST ───────────────────────────────────────────────────────────
 -- One row per enemy guild.
 --
 -- A match with several enemy guilds on the other side (allied teams are normal)
 -- counts once FOR EACH of them, so summed `met` exceeds the match count. That
--- is the honest shape — the alternative is picking one guild arbitrarily — and
--- the page says so. The same applies to kills_for / kills_against: they read as
--- "in matches against this guild, the totals were", not as a share-out.
+-- One row per enemy guild, and one match counted per guild — see
+-- get_guild_feud_matches above for why the far side is credited to whoever
+-- fielded most of it. kills_for / kills_against are the whole side's totals for
+-- those matches, not a per-guild share-out.
 create or replace function get_guild_feuds(p_guild_names text[])
 returns table (
   enemy_guild text,
@@ -200,41 +259,11 @@ returns table (
 language sql
 stable
 as $$
-  with ours_names as (
-    -- One name PER ROW, not an array. `= any (…)` reads a parenthesised
-    -- subquery as the subquery form, which wants a set of scalars — handing it
-    -- an array gives "operator does not exist: text = text[]". `in (select …)`
-    -- has no such ambiguity.
-    --
-    -- The `is not null` is load-bearing for the NOT IN below: a single NULL in
-    -- the list makes `x not in (…)` evaluate to NULL for every row, which
-    -- silently empties the enemy list rather than erroring.
-    select normalise_guild_name(x) as n
-    from unnest(p_guild_names) x
-    where normalise_guild_name(x) is not null
-  ),
-  scored as (
+  with scored as (
     select * from get_guild_match_sides(p_guild_names)
   ),
-  -- DISTINCT so a guild fielding twenty players in one match counts once.
   enemies as (
-    select distinct
-           sc.match_id,
-           coalesce(a.canonical, normalise_guild_name(s.guild_name)) as enemy_guild
-    from scored sc
-    join player_match_stats s
-      on s.match_id = sc.match_id
-     and s.team_color in ('Red', 'Yellow')
-     and s.team_color <> sc.our_color
-    left join enemy_guild_aliases a
-      on a.alias = normalise_guild_name(s.guild_name)
-    where normalise_guild_name(s.guild_name) is not null
-      -- Belt and braces: we are never our own enemy. Side detection picks the
-      -- colour holding MORE of our players, so a few of ours on the other team
-      -- — subs lent out, or a scrim against our own second roster — would
-      -- otherwise put the guild's own name in this list. Excluded by name
-      -- rather than by colour, which is the only test that always holds.
-      and normalise_guild_name(s.guild_name) not in (select n from ours_names)
+    select * from get_guild_feud_matches(p_guild_names)
   )
   -- Every aggregate is cast to the type the signature declares. count() is
   -- already bigint, but player_match_stats.kills is bigint and sum() over a
@@ -271,6 +300,13 @@ $$;
 -- ── WHO THEY FIELD ──────────────────────────────────────────────────────────
 -- The drill-down, fetched only when a row is expanded.
 --
+-- EVERYONE on that side of those matches, not only players whose own guild tag
+-- matches. A guild that borrows three players fielded five-and-fifty against
+-- you, and a scouting sheet that omits the borrowed ones describes a team you
+-- did not fight. `own_guild` comes back alongside so the page can mark them:
+-- knowing a name is a sub is the difference between "they always run this" and
+-- "they borrowed a healer once".
+--
 -- Grouped by player AND weapon pair, and returns the pair RAW rather than a
 -- class name. The weapon-to-class vocabulary lives in shared/weaponClasses.json
 -- and is applied by getClassNameBackend; a second copy in SQL would give the
@@ -279,6 +315,7 @@ $$;
 create or replace function get_guild_feud_roster(p_guild_names text[], p_enemy text)
 returns table (
   player_name text,
+  own_guild text,
   weapon_1 text,
   weapon_2 text,
   appearances bigint,
@@ -289,21 +326,29 @@ stable
 as $$
   with scored as (
     select * from get_guild_match_sides(p_guild_names)
+  ),
+  -- The same attribution the feud list uses, so the roster can never describe
+  -- a set of matches the row above it doesn't count.
+  enemies as (
+    select * from get_guild_feud_matches(p_guild_names)
   )
   select s.player_name::text,
+         coalesce(a.canonical, normalise_guild_name(s.guild_name))::text as own_guild,
          s.weapon_1::text,
          s.weapon_2::text,
          count(*)::bigint                    as appearances,
          sum(coalesce(s.kills, 0))::bigint   as kills
-  from scored sc
+  from enemies e
+  join scored sc on sc.match_id = e.match_id
   join player_match_stats s
-    on s.match_id = sc.match_id
+    on s.match_id = e.match_id
    and s.team_color in ('Red', 'Yellow')
    and s.team_color <> sc.our_color
   left join enemy_guild_aliases a
     on a.alias = normalise_guild_name(s.guild_name)
-  where coalesce(a.canonical, normalise_guild_name(s.guild_name)) = p_enemy
+  where e.enemy_guild = p_enemy
     and s.player_name is not null
-  group by s.player_name, s.weapon_1, s.weapon_2
+  group by s.player_name, coalesce(a.canonical, normalise_guild_name(s.guild_name)),
+           s.weapon_1, s.weapon_2
   order by appearances desc, s.player_name;
 $$;

@@ -89,6 +89,10 @@ select '019 · get_guild_feuds(text[])',
        (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.proname = 'get_guild_feuds' and p.pronargs = 1) = 1
 union all
+select '019 · get_guild_feud_matches(text[])',
+       (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'get_guild_feud_matches' and p.pronargs = 1) = 1
+union all
 select '019 · get_guild_feud_coverage(text[])',
        (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.proname = 'get_guild_feud_coverage' and p.pronargs = 1) = 1

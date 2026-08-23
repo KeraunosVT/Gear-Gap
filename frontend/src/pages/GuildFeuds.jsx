@@ -271,8 +271,10 @@ export default function GuildFeuds() {
 
       <div className="text-ash/60 text-xs mt-4 space-y-1">
         <p>
-          A match against allied guilds counts once for <em>each</em> of them, so these totals add up to more than
-          the number of matches played. Kills are the totals from matches against that guild, not a share-out.
+          Each match is credited to the <em>one</em> guild that fielded most of the other side — anyone else on it
+          counts as having subbed for them, and shows in the drill-down marked with their own tag. So these
+          totals add up to the number of matches played, and a genuine two-guild alliance is recorded as the
+          larger guild's match. Kills are that whole side's totals, not a per-guild share-out.
         </p>
         {excluded > 0 && (
           <p className="text-brass">
@@ -391,8 +393,16 @@ function FeudRow({ row, expanded, roster, onToggle, mergedFrom, isOfficer, busy,
                         {roster.players.slice(0, 12).map((p) => (
                           <div key={p.player_name} className="flex items-baseline gap-2 text-sm">
                             <span className="font-mono text-ash w-8 shrink-0 text-right">{p.appearances}</span>
-                            <span className="text-bone truncate">{p.player_name}</span>
+                            <span className={`truncate ${p.sub_for ? 'text-ash' : 'text-bone'}`}>{p.player_name}</span>
                             <span className="text-ash/50 text-xs truncate">{p.main_class}</span>
+                            {/* Borrowed, not theirs. Worth saying — otherwise a
+                                one-off loaned healer reads as part of their
+                                usual composition. */}
+                            {p.sub_for && (
+                              <span className="text-brass/70 text-xs truncate shrink-0" title={`Subbed in from ${p.sub_for}`}>
+                                ← {p.sub_for}
+                              </span>
+                            )}
                           </div>
                         ))}
                         {roster.players.length > 12 && (

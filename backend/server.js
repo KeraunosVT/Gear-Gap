@@ -507,6 +507,7 @@ app.get('/api/guilds/feuds/:name', async (req, res) => {
     // a per-player total, and a class mix across the whole guild. The pair is
     // turned into a class HERE rather than in SQL so shared/weaponClasses.json
     // stays the site's only class vocabulary.
+    const enemy = decodeURIComponent(req.params.name);
     const byPlayer = new Map();
     const classMix = {};
     (data || []).forEach((r) => {
@@ -514,20 +515,33 @@ app.get('/api/guilds/feuds/:name', async (req, res) => {
       const cls = getClassNameBackend(r.weapon_1, r.weapon_2);
       classMix[cls] = (classMix[cls] || 0) + seen;
 
-      const p = byPlayer.get(r.player_name) || { player_name: r.player_name, appearances: 0, kills: 0, classes: {} };
+      const p = byPlayer.get(r.player_name)
+        || { player_name: r.player_name, appearances: 0, kills: 0, classes: {}, guilds: {} };
       p.appearances += seen;
       p.kills += Number(r.kills) || 0;
       p.classes[cls] = (p.classes[cls] || 0) + seen;
+      // Their own tag, which may not be this guild — the side is credited to
+      // whoever fielded most of it, so borrowed players are in this list too.
+      if (r.own_guild) p.guilds[r.own_guild] = (p.guilds[r.own_guild] || 0) + seen;
       byPlayer.set(r.player_name, p);
     });
 
+    const commonest = (counts) => Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || null;
+
     const players = [...byPlayer.values()]
-      .map((p) => ({
-        ...p,
-        // What they turn up as most often. A player who has switched weapons
-        // has more than one; naming the commonest beats listing all of them.
-        main_class: Object.entries(p.classes).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Unknown',
-      }))
+      .map(({ guilds, ...p }) => {
+        const own = commonest(guilds);
+        return {
+          ...p,
+          // What they turn up as most often. A player who has switched weapons
+          // has more than one; naming the commonest beats listing all of them.
+          main_class: commonest(p.classes) || 'Unknown',
+          // Null when they're one of this guild's own. Set to their tag when
+          // they were subbing — "they always run this" and "they borrowed a
+          // healer once" are different scouting facts.
+          sub_for: own && own !== enemy ? own : null,
+        };
+      })
       .sort((a, b) => b.appearances - a.appearances || a.player_name.localeCompare(b.player_name));
 
     res.json({
