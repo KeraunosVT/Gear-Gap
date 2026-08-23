@@ -89,7 +89,13 @@ Note that two different definitions of "our guild" are in play. Everything readi
 
 `guild_config.aliases` means **names this guild has gone by**. Every reader of it — `canonicalGuild`, the war-record collapsing, the player profile's guild split, `assertAliasesSafe` — treats a name in that list as *us*. `enemy_guild_aliases` (migration 019) means **misread or former names of other guilds**, and is read only by the feud functions.
 
-They must never share storage. One enemy name in `guild_config.aliases` silently folds a rival's matches into the guild's own record, and one of ours in `enemy_guild_aliases` does the reverse. The write path in [admin.js](backend/admin.js) refuses both directions, and refuses chains (`A→B, B→C`), since a chain makes the result depend on join order. There are tests for each.
+They must never share storage. One enemy name in `guild_config.aliases` silently folds a rival's matches into the guild's own record, and one of ours in `enemy_guild_aliases` does the reverse. The write path in [admin.js](backend/admin.js) refuses both directions. There are tests for each.
+
+**Merging, on the Feuds page:** misreads (`lron Vow` for `Iron Vow`) are *suggested* by edit distance and applied on confirmation. **Renames** are merged by hand — `Iron Vow` to `Iron Covenant` has a large edit distance and will never be proposed, so each row carries a merge control that takes any other guild, or a name typed in that isn't on the board yet.
+
+Chains are handled in both directions, and the two rules are complements rather than duplicates:
+- Pointing **at** a name that is already an alias is refused — point at the real guild instead.
+- Pointing **from** a name that others already point at re-points them all forward. A guild that renames twice (`A→B`, then `B→C`) leaves every spelling resolving to `C`. Without this, `A` would still resolve to `B` — a name nothing else uses — and its matches would split off on their own again. The lookup is a single join, so the table has to stay one level deep by construction.
 
 Whitespace is collapsed by `normalise_guild_name()` in SQL, so `Iron Vow` / `Iron  Vow` needs no alias row at all — the table is only for genuine misreads and rebrands.
 

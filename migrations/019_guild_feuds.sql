@@ -122,10 +122,30 @@ returns table (
 language sql
 stable
 as $$
-  with sides as (
+  -- Normalised the SAME way enemy names are. This used to compare the raw
+  -- guild_name against the raw alias list while the enemy side collapsed
+  -- whitespace — so a scoreboard reading `FTP ` failed to match `FTP`, those
+  -- players counted as nobody, and the guild's own name then turned up in the
+  -- feud table as a rival. Both sides normalise or neither can.
+  with ours_names as (
+    -- One name PER ROW, not an array. `= any (…)` reads a parenthesised
+    -- subquery as the subquery form, which wants a set of scalars — handing it
+    -- an array gives "operator does not exist: text = text[]". `in (select …)`
+    -- has no such ambiguity.
+    --
+    -- The `is not null` is load-bearing for the NOT IN below: a single NULL in
+    -- the list makes `x not in (…)` evaluate to NULL for every row, which
+    -- silently empties the enemy list rather than erroring.
+    select normalise_guild_name(x) as n
+    from unnest(p_guild_names) x
+    where normalise_guild_name(x) is not null
+  ),
+  sides as (
     select s.match_id,
            s.team_color,
-           count(*) filter (where s.guild_name = any (p_guild_names)) as ours,
+           count(*) filter (
+             where normalise_guild_name(s.guild_name) in (select n from ours_names)
+           ) as ours,
            sum(coalesce(s.kills, 0)) as kills
     from player_match_stats s
     where s.team_color in ('Red', 'Yellow')
@@ -180,7 +200,20 @@ returns table (
 language sql
 stable
 as $$
-  with scored as (
+  with ours_names as (
+    -- One name PER ROW, not an array. `= any (…)` reads a parenthesised
+    -- subquery as the subquery form, which wants a set of scalars — handing it
+    -- an array gives "operator does not exist: text = text[]". `in (select …)`
+    -- has no such ambiguity.
+    --
+    -- The `is not null` is load-bearing for the NOT IN below: a single NULL in
+    -- the list makes `x not in (…)` evaluate to NULL for every row, which
+    -- silently empties the enemy list rather than erroring.
+    select normalise_guild_name(x) as n
+    from unnest(p_guild_names) x
+    where normalise_guild_name(x) is not null
+  ),
+  scored as (
     select * from get_guild_match_sides(p_guild_names)
   ),
   -- DISTINCT so a guild fielding twenty players in one match counts once.
@@ -196,6 +229,12 @@ as $$
     left join enemy_guild_aliases a
       on a.alias = normalise_guild_name(s.guild_name)
     where normalise_guild_name(s.guild_name) is not null
+      -- Belt and braces: we are never our own enemy. Side detection picks the
+      -- colour holding MORE of our players, so a few of ours on the other team
+      -- — subs lent out, or a scrim against our own second roster — would
+      -- otherwise put the guild's own name in this list. Excluded by name
+      -- rather than by colour, which is the only test that always holds.
+      and normalise_guild_name(s.guild_name) not in (select n from ours_names)
   )
   -- Every aggregate is cast to the type the signature declares. count() is
   -- already bigint, but player_match_stats.kills is bigint and sum() over a

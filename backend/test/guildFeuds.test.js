@@ -60,6 +60,17 @@ function fakeSupabase() {
         eq(_c, v) { q._alias = v; return q; },
         maybeSingle: async () => ({ data: aliasRows.find((r) => r.alias === q._alias) || null }),
         upsert: async (row) => { aliasRows = aliasRows.filter((r) => r.alias !== row.alias).concat(row); return { error: null }; },
+        update(patch) {
+          return {
+            eq: (_c, v) => ({
+              select: async () => {
+                const hit = aliasRows.filter((r) => r.canonical === v);
+                hit.forEach((r) => { r.canonical = patch.canonical; });
+                return { data: hit.map((r) => ({ alias: r.alias })), error: null };
+              },
+            }),
+          };
+        },
         delete: () => ({ eq: async (_c, v) => { aliasRows = aliasRows.filter((r) => r.alias !== v); return { error: null }; } }),
         then: (resolve) => Promise.resolve({ data: aliasRows, error: null }).then(resolve),
       };
@@ -172,5 +183,42 @@ describe('merge suggestions', () => {
     aliasRows = [];
     await call(handlers.list);
     assert.equal(aliasRows.length, 0);
+  });
+});
+
+describe('renames, and the chains they create', () => {
+  test('a rename with a large edit distance merges when asked directly', async () => {
+    // Suggestions are Levenshtein-based and would never propose this — which
+    // is exactly why a manual merge path has to exist.
+    aliasRows = [];
+    const { status } = await call(handlers.create, { body: { alias: 'Iron Vow', canonical: 'Iron Covenant' } });
+    assert.equal(status, 200);
+    assert.deepEqual(aliasRows.map((r) => [r.alias, r.canonical]), [['Iron Vow', 'Iron Covenant']]);
+  });
+
+  test('a second rename re-points the first instead of leaving a chain', async () => {
+    // A→B recorded, then B renames to C. Left alone the table holds A→B and
+    // B→C — and the lookup is a SINGLE join, so A would resolve to B, a name
+    // nothing else uses, and its matches would split off on their own again.
+    aliasRows = [];
+    await call(handlers.create, { body: { alias: 'Iron Vow', canonical: 'Iron Covenant' } });
+    const { body } = await call(handlers.create, { body: { alias: 'Iron Covenant', canonical: 'The Covenant' } });
+
+    assert.deepEqual(body.repointed, ['Iron Vow'], 'reports what else moved');
+    const byAlias = Object.fromEntries(aliasRows.map((r) => [r.alias, r.canonical]));
+    assert.deepEqual(byAlias, {
+      'Iron Vow': 'The Covenant',
+      'Iron Covenant': 'The Covenant',
+    }, 'every spelling points at the current name, one level deep');
+  });
+
+  test('three renames deep still resolves to the newest name', async () => {
+    aliasRows = [];
+    await call(handlers.create, { body: { alias: 'A', canonical: 'B' } });
+    await call(handlers.create, { body: { alias: 'B', canonical: 'C' } });
+    await call(handlers.create, { body: { alias: 'C', canonical: 'D' } });
+    const targets = new Set(aliasRows.map((r) => r.canonical));
+    assert.deepEqual([...targets], ['D'], 'no intermediate name survives as a target');
+    assert.equal(aliasRows.length, 3);
   });
 });

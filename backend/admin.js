@@ -644,7 +644,22 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
         alias, canonical, created_by: req.user.username || req.user.id, created_at: new Date().toISOString(),
       }, { onConflict: 'alias' });
       if (error) throw error;
-      res.json({ ok: true, alias, canonical });
+
+      // Flatten, rather than refuse. A guild that renames twice is the normal
+      // case: A→B is recorded, then B renames to C. Left alone that leaves
+      // A→B and B→C, and the lookup is a single join — so A would resolve to
+      // B, a name nothing else uses, and its matches would split off on their
+      // own again.
+      //
+      // Re-pointing every alias that named B at C keeps the table one level
+      // deep by construction, which is what makes the single join correct.
+      const { data: repointed, error: rErr } = await supabase.from('enemy_guild_aliases')
+        .update({ canonical })
+        .eq('canonical', alias)
+        .select('alias');
+      if (rErr) console.error('Enemy alias re-point failed:', rErr.message);
+
+      res.json({ ok: true, alias, canonical, repointed: (repointed || []).map((r) => r.alias) });
     } catch (err) {
       console.error('Enemy guild merge error:', err.message);
       res.status(err.status || 500).json({ error: err.message || 'Failed to save that merge.' });

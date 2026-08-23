@@ -4,9 +4,11 @@ import axios from 'axios';
 import { useAuth } from '../auth';
 import { Swords, RefreshCw, ChevronDown, ArrowLeft, Merge, Undo2, Loader2 } from 'lucide-react';
 import { PageShell } from '../components/ui/PageShell';
+import Button from '../components/ui/Button';
 import ErrorState from '../components/ui/ErrorState';
 import EmptyState from '../components/ui/EmptyState';
 import { Table, Thead, SortableTh, Tr, useSort, sortRows } from '../components/ui/Table';
+import Modal from '../components/ui/Modal';
 import Toast from '../components/ui/Toast';
 import { useFlash } from '../components/ui/useFlash';
 
@@ -126,7 +128,13 @@ export default function GuildFeuds() {
 
   const applyMerge = (alias, canonical) => run(
     `merge:${alias}`,
-    () => axios.post('/api/admin/enemy-guilds', { alias, canonical }),
+    async () => {
+      const res = await axios.post('/api/admin/enemy-guilds', { alias, canonical });
+      const also = res.data.repointed || [];
+      // A rename chain flattens server-side; say so, because the officer only
+      // asked for one merge and more than one row moved.
+      if (also.length) flash(`"${alias}" now counts as "${canonical}" — and so ${also.length === 1 ? 'does' : 'do'} ${also.join(', ')}.`);
+    },
     `"${alias}" now counts as "${canonical}".`,
   );
 
@@ -135,6 +143,23 @@ export default function GuildFeuds() {
     () => axios.delete(`/api/admin/enemy-guilds/${encodeURIComponent(alias)}`),
     `"${alias}" is its own guild again.`,
   );
+
+  // The manual path. Suggestions only ever catch MISREADS — a rename ("Iron
+  // Vow" to "Iron Covenant") has a large edit distance and will never be
+  // proposed, so without this there is no way to combine a guild's history
+  // across a name change at all.
+  const [mergeFrom, setMergeFrom] = useState(null);
+  const [mergeTo, setMergeTo] = useState('');
+
+  const submitManualMerge = (e) => {
+    e.preventDefault();
+    const target = mergeTo.trim();
+    if (!target) return flash('Pick or type the name to merge into.', false);
+    if (target === mergeFrom) return flash('That maps a name to itself.', false);
+    setMergeFrom(null);
+    setMergeTo('');
+    applyMerge(mergeFrom, target);
+  };
 
   if (loading) return <PageShell maxWidth="max-w-5xl"><EmptyState>Reading the war record…</EmptyState></PageShell>;
   if (error) {
@@ -226,7 +251,7 @@ export default function GuildFeuds() {
                 activeKey={sort.key} dir={sort.dir} onSort={sort.sortBy}
               />
             ))}
-            <th className="p-2.5 w-8"></th>
+            <th className="p-2.5 w-16"></th>
           </Thead>
           <tbody>
             {rows.map((r) => {
@@ -236,6 +261,7 @@ export default function GuildFeuds() {
                   key={r.enemy_guild} row={r} expanded={expanded === r.enemy_guild}
                   roster={rosters[r.enemy_guild]} onToggle={() => openRoster(r.enemy_guild)}
                   mergedFrom={alias} isOfficer={isOfficer} busy={busy} onUndo={undoMerge}
+                  onMerge={() => { setMergeFrom(r.enemy_guild); setMergeTo(''); }}
                 />
               );
             })}
@@ -260,11 +286,47 @@ export default function GuildFeuds() {
           </p>
         )}
       </div>
+
+      {mergeFrom && (
+        <Modal onClose={() => setMergeFrom(null)} maxWidth="max-w-md">
+          <div className="eyebrow text-brass text-[11px] mb-3">Combine guilds</div>
+          <h2 className="font-display text-xl text-bone tracking-[0.06em] mb-1">Merge {mergeFrom}</h2>
+          <p className="text-ash text-sm mb-5">
+            Its matches, kills and record fold into whichever guild you name, and it stops appearing on its own.
+            Reversible from the merged guild&apos;s row.
+          </p>
+          <form onSubmit={submitManualMerge}>
+            <label className="eyebrow text-[10px] text-ash/75 block mb-1.5">Merge into</label>
+            {/* A datalist rather than a select: the target is usually already
+                in the table, but after a rename the current name may not be
+                (nothing has been played under it yet), so typing has to work. */}
+            <input
+              list="feud-guild-names" value={mergeTo} onChange={(e) => setMergeTo(e.target.value)}
+              placeholder="Pick a guild, or type its new name" autoFocus
+              className="w-full bg-hall border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
+            />
+            <datalist id="feud-guild-names">
+              {(data?.feuds || [])
+                .map((f) => f.enemy_guild)
+                .filter((n) => n !== mergeFrom)
+                .map((n) => <option key={n} value={n} />)}
+            </datalist>
+            <div className="flex justify-end gap-3 mt-6">
+              <Button type="button" variant="neutral" size="none" className="px-4 py-2" onClick={() => setMergeFrom(null)}>
+                Cancel
+              </Button>
+              <Button type="submit" size="none" className="px-5 py-2" icon={<Merge className="w-4 h-4" />}>
+                Merge
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </PageShell>
   );
 }
 
-function FeudRow({ row, expanded, roster, onToggle, mergedFrom, isOfficer, busy, onUndo }) {
+function FeudRow({ row, expanded, roster, onToggle, mergedFrom, isOfficer, busy, onUndo, onMerge }) {
   const colSpan = COLUMNS.length + 1;
   return (
     <>
@@ -292,8 +354,23 @@ function FeudRow({ row, expanded, roster, onToggle, mergedFrom, isOfficer, busy,
           {row.diff > 0 ? '+' : ''}{fmt(row.diff)}
         </td>
         <td className="p-2.5 text-center text-xs text-ash">{fmtDay(row.last_met)}</td>
-        <td className="p-2.5 text-ash" onClick={onToggle}>
-          <ChevronDown className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+        <td className="p-2.5">
+          <span className="flex items-center gap-1.5">
+            {isOfficer && (
+              <button
+                onClick={onMerge} title={`Merge ${row.enemy_guild} into another guild`}
+                disabled={busy === `merge:${row.enemy_guild}`}
+                className="text-ash hover:text-brass transition-colors disabled:opacity-40"
+              >
+                {busy === `merge:${row.enemy_guild}`
+                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  : <Merge className="w-3.5 h-3.5" />}
+              </button>
+            )}
+            <button onClick={onToggle} className="text-ash hover:text-bone transition-colors">
+              <ChevronDown className={`w-4 h-4 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+            </button>
+          </span>
         </td>
       </Tr>
 
