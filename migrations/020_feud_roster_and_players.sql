@@ -20,7 +20,12 @@
 -- `create or replace function` cannot. Migration 015 documents this for
 -- save_event; 019 hit it twice while being written. Dropping first also makes
 -- this file re-runnable from a half-applied state.
+-- BOTH signatures: an earlier run of this file may have created the two-arg
+-- version. Leaving it behind alongside a three-arg one gives PostgREST two
+-- overloads to choose between, and it refuses with PGRST203 rather than
+-- picking — the same failure migration 005 documents for the duplicate FK.
 drop function if exists get_guild_feud_roster(text[], text);
+drop function if exists get_guild_feud_roster(text[], text, int);
 drop function if exists get_player_guilds(text[], text);
 drop function if exists get_player_search(text, int);
 
@@ -34,13 +39,20 @@ drop function if exists get_player_search(text, int);
 -- name. The weapon-to-class vocabulary lives in shared/weaponClasses.json and
 -- is applied by getClassNameBackend; a second copy in SQL would give the site
 -- two class vocabularies that drift apart.
-create or replace function get_guild_feud_roster(p_guild_names text[], p_enemy text)
+--
+-- `recent_appearances` counts only the last p_recent matches against this
+-- guild, so the page can show who they are fielding NOW while every rate and
+-- threat mark still comes from the player's full history. Those are two
+-- different questions and a single window can't answer both: three matches is
+-- the right lens on a current roster and far too few to call anyone dangerous.
+create or replace function get_guild_feud_roster(p_guild_names text[], p_enemy text, p_recent int default 3)
 returns table (
   player_name text,
   own_guild text,
   weapon_1 text,
   weapon_2 text,
   appearances bigint,
+  recent_appearances bigint,
   kills bigint,
   damage_dealt bigint,
   damage_taken bigint,
@@ -56,12 +68,25 @@ as $$
   -- a set of matches the row above it doesn't count.
   enemies as (
     select * from get_guild_feud_matches(p_guild_names)
+  ),
+  -- The most recent p_recent matches against THIS guild. match_date is ISO
+  -- text, which sorts chronologically as text — see the note in 019.
+  recent as (
+    select e.match_id
+    from enemies e
+    join scored sc on sc.match_id = e.match_id
+    where e.enemy_guild = p_enemy
+    order by sc.match_date desc
+    limit greatest(coalesce(p_recent, 3), 0)
   )
   select s.player_name::text,
          coalesce(a.canonical, normalise_guild_name(s.guild_name))::text as own_guild,
          s.weapon_1::text,
          s.weapon_2::text,
          count(*)::bigint                          as appearances,
+         count(*) filter (
+           where s.match_id in (select match_id from recent)
+         )::bigint                                 as recent_appearances,
          sum(coalesce(s.kills, 0))::bigint         as kills,
          sum(coalesce(s.damage_dealt, 0))::bigint  as damage_dealt,
          sum(coalesce(s.damage_taken, 0))::bigint  as damage_taken,

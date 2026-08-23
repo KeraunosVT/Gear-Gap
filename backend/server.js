@@ -27,7 +27,7 @@ const createIdentities = require('./identities');
 const createLoa = require('./loa');
 const { fetchAll } = require('./pagedRead');
 const { aggregatePlayerRows } = require('./playerStats');
-const { foldRoster } = require('./feudRoster');
+const { foldRoster, RECENT_GAMES } = require('./feudRoster');
 const createEventSignups = require('./eventSignups');
 const createAuditLog = require('./auditLog');
 const guildConfig = require('./guildConfig');
@@ -502,6 +502,7 @@ app.get('/api/guilds/feuds/:name', async (req, res) => {
     const { data, error } = await supabase.rpc('get_guild_feud_roster', {
       p_guild_names: Object.keys(guildAliases()),
       p_enemy: enemy,
+      p_recent: RECENT_GAMES,
     });
     if (error) throw error;
 

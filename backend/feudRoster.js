@@ -19,8 +19,15 @@
 const STANDOUT_RATIO = 2;
 
 // Below this, a player is listed but never marked. One good night makes anyone
-// a large multiple of a median.
-const DEFAULT_MIN_APPEARANCES = 3;
+// a large multiple of a median, and even three is thin for calling somebody
+// dangerous — so the bar is five matches against you, all-time.
+const DEFAULT_MIN_APPEARANCES = 5;
+
+// How many recent matches count as "who they're fielding now". Deliberately
+// SMALLER than the marking floor and deliberately not the same window: three
+// matches is the right lens on a current roster and far too few to judge anyone
+// by. The list is windowed; the rates and marks behind it are not.
+const RECENT_GAMES = 3;
 
 // The metrics ranked on. Kills and damage find threats; healing finds healers
 // empirically, which matters because only 11 of the game's 45 classes have a
@@ -55,6 +62,10 @@ function foldRoster(rows, { enemyGuild, classify, minAppearances = DEFAULT_MIN_A
     const p = byPlayer.get(r.player_name) || {
       player_name: r.player_name,
       appearances: 0,
+      // Of the last RECENT_GAMES matches against this guild. Zero means they
+      // haven't been seen lately — still listed, because the page offers an
+      // all-time view, but filtered out of the default.
+      recent_appearances: 0,
       kills: 0,
       damage_dealt: 0,
       damage_taken: 0,
@@ -67,6 +78,7 @@ function foldRoster(rows, { enemyGuild, classify, minAppearances = DEFAULT_MIN_A
     p.damage_dealt += Number(r.damage_dealt) || 0;
     p.damage_taken += Number(r.damage_taken) || 0;
     p.healing += Number(r.healing) || 0;
+    p.recent_appearances += Number(r.recent_appearances) || 0;
     p.classes[cls] = (p.classes[cls] || 0) + seen;
     if (r.own_guild) p.guilds[r.own_guild] = (p.guilds[r.own_guild] || 0) + seen;
     byPlayer.set(r.player_name, p);
@@ -134,7 +146,11 @@ function foldRoster(rows, { enemyGuild, classify, minAppearances = DEFAULT_MIN_A
     eligible_count: population.length,
     min_appearances: minAppearances,
     standout_ratio: STANDOUT_RATIO,
+    recent_games: RECENT_GAMES,
+    // How many of them turned out in the recent window, so the page can say
+    // "22 of 38" rather than leaving the reader to count.
+    recent_count: players.filter((p) => p.recent_appearances > 0).length,
   };
 }
 
-module.exports = { foldRoster, median, STANDOUT_RATIO, DEFAULT_MIN_APPEARANCES, METRICS };
+module.exports = { foldRoster, median, STANDOUT_RATIO, DEFAULT_MIN_APPEARANCES, RECENT_GAMES, METRICS };

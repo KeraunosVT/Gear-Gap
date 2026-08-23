@@ -7,7 +7,7 @@
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { foldRoster, median, STANDOUT_RATIO } = require('../feudRoster');
+const { foldRoster, median, STANDOUT_RATIO, DEFAULT_MIN_APPEARANCES, RECENT_GAMES } = require('../feudRoster');
 
 const ENEMY = 'Iron Covenant';
 const classify = (w1, w2) => (w1 ? `${w1}/${w2}` : 'Unknown');
@@ -19,6 +19,7 @@ const row = (player, over = {}) => ({
   weapon_1: 'Greatsword',
   weapon_2: 'Dagger',
   appearances: 10,
+  recent_appearances: 3,
   kills: 100,
   damage_dealt: 10_000_000,
   damage_taken: 5_000_000,
@@ -134,7 +135,7 @@ describe('the population the median describes', () => {
     const out = fold([
       row('Fluke', { appearances: 1, kills: 90 }), // 90 k/match, absurd
       row('B', { kills: 100 }), row('C', { kills: 100 }), row('D', { kills: 100 }),
-    ], { minAppearances: 3 });
+    ]);
     const p = byName(out);
     assert.ok(p.Fluke, 'still listed');
     assert.equal(p.Fluke.standout, undefined, 'one match proves nothing');
@@ -203,7 +204,8 @@ describe('the rest of the payload', () => {
   test('the threshold and population are reported so the page can explain itself', () => {
     const out = fold(['A', 'B', 'C'].map((n) => row(n)));
     assert.equal(out.standout_ratio, STANDOUT_RATIO);
-    assert.equal(out.min_appearances, 3);
+    assert.equal(out.min_appearances, DEFAULT_MIN_APPEARANCES);
+    assert.equal(out.recent_games, RECENT_GAMES);
     assert.equal(out.eligible_count, 3);
   });
 
@@ -212,5 +214,73 @@ describe('the rest of the payload', () => {
     assert.deepEqual(out.players, []);
     assert.deepEqual(out.class_mix, []);
     assert.equal(out.eligible_count, 0);
+  });
+});
+
+describe('the two windows', () => {
+  // The list windows to recent games; the rates and marks behind it do not.
+  // A single window can't do both jobs — three matches is the right lens on a
+  // current roster and fewer than the five needed to call anyone dangerous,
+  // which is exactly why these are separate numbers.
+  test('the marking floor is above the recent window, on purpose', () => {
+    assert.ok(
+      DEFAULT_MIN_APPEARANCES > RECENT_GAMES,
+      'if the floor ever drops to the window size, marks come from three games',
+    );
+  });
+
+  test('recent appearances fold across both of a player’s weapon pairs', () => {
+    const out = fold([
+      row('Vex', { weapon_1: 'Staff', weapon_2: 'Wand', appearances: 8, recent_appearances: 2 }),
+      row('Vex', { weapon_1: 'Greatsword', weapon_2: 'Dagger', appearances: 2, recent_appearances: 1 }),
+    ]);
+    assert.equal(out.players[0].recent_appearances, 3);
+    assert.equal(out.players[0].appearances, 10);
+  });
+
+  test('someone absent lately is still listed, with zero recent', () => {
+    // The page filters them out by default and offers All time; the fold must
+    // not drop them, or that toggle would have nothing to show.
+    const out = fold([
+      row('Current', { recent_appearances: 3 }),
+      row('Retired', { recent_appearances: 0 }),
+    ]);
+    assert.equal(out.players.length, 2);
+    assert.equal(byName(out).Retired.recent_appearances, 0);
+  });
+
+  test('recent_count counts players seen lately, not all of them', () => {
+    const out = fold([
+      row('A', { recent_appearances: 3 }),
+      row('B', { recent_appearances: 1 }),
+      row('C', { recent_appearances: 0 }),
+      row('D', { recent_appearances: 0 }),
+    ]);
+    assert.equal(out.recent_count, 2);
+    assert.equal(out.players.length, 4);
+  });
+
+  test('marks come from full history, not from the recent window', () => {
+    // Vex played once recently but has 20 matches of history at 3x the median.
+    // Windowing the marks would leave them unmarked on one appearance — the
+    // opposite of useful right before you fight them.
+    const out = fold([
+      row('Vex', { appearances: 20, recent_appearances: 1, kills: 600 }),
+      row('B', { appearances: 20, recent_appearances: 3, kills: 200 }),
+      row('C', { appearances: 20, recent_appearances: 3, kills: 200 }),
+      row('D', { appearances: 20, recent_appearances: 3, kills: 200 }),
+    ]);
+    assert.equal(byName(out).Vex.standout?.kills, 3);
+  });
+
+  test('a player with only four matches is never marked', () => {
+    // The raised floor. Four good games is still a small sample.
+    const out = fold([
+      row('Almost', { appearances: 4, kills: 400 }),
+      row('B', { appearances: 10, kills: 100 }), row('C', { appearances: 10, kills: 100 }),
+      row('D', { appearances: 10, kills: 100 }),
+    ]);
+    assert.equal(byName(out).Almost.standout, undefined);
+    assert.equal(byName(out).Almost.appearances, 4, 'still listed');
   });
 });
