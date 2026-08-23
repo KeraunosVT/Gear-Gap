@@ -184,9 +184,36 @@ function normalizeTeam(v) {
   return '';
 }
 
+// Spellings that mean one of the WEAPONS above but aren't it. Keyed lowercase.
+//
+// "Bow" is the one that matters: it is the natural English word, the legend
+// image labels the icon that way, and the prompt tells the model to trust the
+// legend — so the model has every reason to answer "Bow". Without this it
+// matches nothing, survives as raw text, and every longbow user on the
+// scoreboard comes through flagged for manual correction.
+//
+// Aliases are for genuine synonyms only. A weapon the model couldn't identify
+// must still arrive as "Unknown" and get flagged — guessing on its behalf is
+// how a wrong class ends up in the record with nobody reviewing it.
+const WEAPON_ALIASES = {
+  bow: 'Longbow',
+  longbow: 'Longbow',
+  'long bow': 'Longbow',
+  'cross bow': 'Crossbow',
+  'sword and shield': 'SnS',
+  'sword & shield': 'SnS',
+  's&s': 'SnS',
+  greatsword: 'Greatsword',
+  'great sword': 'Greatsword',
+  'two-handed sword': 'Greatsword',
+  daggers: 'Dagger',
+  gauntlets: 'Gauntlet',
+};
+
 function cleanWeapon(v) {
   const s = String(v || '').trim();
-  const match = WEAPONS.find((w) => w.toLowerCase() === s.toLowerCase());
+  const match = WEAPONS.find((w) => w.toLowerCase() === s.toLowerCase())
+    || WEAPON_ALIASES[s.toLowerCase()];
   return match || s; // keep raw (e.g. "Unknown") so the admin can fix it
 }
 
@@ -226,4 +253,7 @@ function buildWarnings(players, source) {
   return warnings;
 }
 
-module.exports = { parseScreenshot, parseCsv, WEAPONS };
+// cleanWeapon is exported for backend/test/weaponNames.test.js — it is the seam
+// between whatever Gemini answers and the tokens shared/weaponClasses.json can
+// resolve, so it is worth holding directly.
+module.exports = { parseScreenshot, parseCsv, WEAPONS, cleanWeapon };
