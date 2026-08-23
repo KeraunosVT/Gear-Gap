@@ -6,6 +6,7 @@ A guild-management web app for a *Throne & Liberty* guild, built around Discord:
 
 **For members**
 - **Roster & War Record** — every member's all-time PvP stats, drill into a player's match history
+- **Feuds** (`/war-record/feuds`) — the head-to-head record against every guild you've met: matches, W/L/D, win %, kills for and against, last met. Expand a row for a scouting sheet — who they field most often, and what they field. Every scoreboard already stored **both** teams; nothing read the enemy half until now. Aggregated in SQL (`migrations/019`) because answering it in JS would mean paging every player row of every match on each load. Officers holding `names` also get merge controls: a misread rival (`lron Vow` for `Iron Vow`) is *suggested* by name similarity and merged only on confirmation, into a **separate** `enemy_guild_aliases` table — see below
 - **Loot Wishlist** — pick items you want per build (PvP / PvE / Second Build); see live demand
 - **Archboss Shards** — track how many of each archboss shard type you need, plus a weapon wishlist
 - **Gear Level** — a **Watermark Upload** (the small in-game Equipment Level popup) has its four numbers read automatically (Gemini). That is the only thing that sets a gear level. Separately you can file a **Gear Screenshot Upload** — your full equipment window: it is stored and visible to you and to officers, and nothing is read out of it — no parse, no numbers, no effect on your level. It used to be parsed item by item to recompute the maxima with Heroic gear excluded, but two uploads writing one column meant the number meant different things for different members, off a per-item read too unreliable to trust without opening the image anyway. The picture is now the evidence, and the watermark is the measurement
@@ -83,6 +84,14 @@ A profile shows every match row under any of that player's names, then splits ou
 Excluded rows are now counted and named on the page, so recognising one of the spellings as yours and adding it to the aliases in Guild Settings folds those matches back in.
 
 Note that two different definitions of "our guild" are in play. Everything reading `guildAliases()` follows `guild_config` and updates the moment Guild Settings is saved. The Roster's all-time table and the dashboard tiles come from `get_player_stats()` / `get_stats_summary()`, both called with **no arguments**, so their guild list is baked into the SQL and does not. If the two ever disagree about a member's match count, that mismatch is the first place to look.
+
+### Two alias lists, and why they are separate tables
+
+`guild_config.aliases` means **names this guild has gone by**. Every reader of it — `canonicalGuild`, the war-record collapsing, the player profile's guild split, `assertAliasesSafe` — treats a name in that list as *us*. `enemy_guild_aliases` (migration 019) means **misread or former names of other guilds**, and is read only by the feud functions.
+
+They must never share storage. One enemy name in `guild_config.aliases` silently folds a rival's matches into the guild's own record, and one of ours in `enemy_guild_aliases` does the reverse. The write path in [admin.js](backend/admin.js) refuses both directions, and refuses chains (`A→B, B→C`), since a chain makes the result depend on join order. There are tests for each.
+
+Whitespace is collapsed by `normalise_guild_name()` in SQL, so `Iron Vow` / `Iron  Vow` needs no alias row at all — the table is only for genuine misreads and rebrands.
 
 ### Reading a table that grows
 

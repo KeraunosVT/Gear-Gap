@@ -8,6 +8,7 @@ import EliteTimerBar from './components/EliteTimerBar';
 import Sigil from './components/Sigil';
 import Home from './pages/Home';
 import MatchStats from './pages/MatchStats';
+import GuildFeuds from './pages/GuildFeuds';
 import Roster from './pages/Roster';
 import Shards from './pages/Shards';
 import Loot from './pages/Loot';
@@ -88,6 +89,7 @@ function Gate() {
         <Route element={<Layout />}>
           <Route path="/" element={<Home />} />
           <Route path="/war-record" element={<MatchStats />} />
+          <Route path="/war-record/feuds" element={<GuildFeuds />} />
           <Route path="/roster" element={<Roster />} />
           <Route path="/roster/:name" element={<PlayerProfile />} />
           <Route path="/me" element={<MyProfile />} />

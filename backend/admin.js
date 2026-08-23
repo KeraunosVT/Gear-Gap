@@ -43,6 +43,16 @@ function lev(a, b) {
 }
 const norm = (s) => (s || '').trim().toLowerCase();
 
+// Same shape loa.js and eventSignups.js use, so a validation failure carries
+// its own status instead of every caller inventing one. Routes here mostly
+// return res.status(...) inline; this is for the handful with real validation
+// worth doing in a helper.
+function httpError(status, message) {
+  const err = new Error(message);
+  err.status = status;
+  return err;
+}
+
 // Merge parsed rows from one or more screenshots/CSVs into a single reviewed set:
 // de-duplicate by player name (fallback rank), sort by rank, and recompute the
 // data-quality warnings. Shared by the batch and per-file parse paths.
@@ -546,6 +556,106 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
     const { error } = await supabase.from('currency_awards').delete().eq('id', req.params.id);
     if (error) return res.status(500).json({ error: 'Failed to revoke grant.' });
+    res.json({ ok: true });
+  });
+
+  // ── Enemy guild aliases ─────────────────────────────────────────────────────
+  // The same job the Names page does for players — reconcile an OCR-misread
+  // name to the right thing — applied to enemy guilds, which is why it takes
+  // the 'names' capability rather than a new key nobody has been granted.
+  //
+  // Whitespace is collapsed by the SQL already, so a row here is only ever
+  // needed for a genuine misread ("HighIy Regarded") or a rebrand.
+  const normaliseGuild = (v) => String(v ?? '').trim().replace(/\s+/g, ' ');
+
+  // The two rules that keep the enemy list from corrupting the guild's own
+  // record, checked here where the error message can explain them.
+  async function assertEnemyAliasSafe(alias, canonical) {
+    // 1. Neither side may name US. guild_config.aliases is the list of names
+    //    the guild has gone by, and every reader of it treats a match as us —
+    //    so an entry here pointing at one of our names would either fold a
+    //    rival's matches into our record or push ours out of it. Preventing
+    //    exactly that is why the two lists are separate tables.
+    const ours = new Set(Object.keys(guildConfig.aliasMap()).map(normaliseGuild));
+    if (ours.has(alias)) {
+      throw httpError(400, `"${alias}" is one of this guild's own names — enemy aliases can't point at us.`);
+    }
+    if (ours.has(canonical)) {
+      throw httpError(400, `"${canonical}" is one of this guild's own names. To record a name we used to go by, add it to the aliases in Guild Settings instead.`);
+    }
+
+    // 2. No chains. If the target is itself an alias, the result would depend
+    //    on which join ran first, so A→B→C is refused rather than flattened.
+    const { data: chain } = await supabase.from('enemy_guild_aliases')
+      .select('canonical').eq('alias', canonical).maybeSingle();
+    if (chain) {
+      throw httpError(400, `"${canonical}" is already mapped to "${chain.canonical}". Point this one there instead.`);
+    }
+  }
+
+  router.get('/enemy-guilds', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    try {
+      const p_guild_names = Object.keys(guildConfig.aliasMap());
+      const [{ data: aliases, error: aErr }, feuds] = await Promise.all([
+        supabase.from('enemy_guild_aliases').select('*').order('canonical').order('alias'),
+        supabase.rpc('get_guild_feuds', { p_guild_names }),
+      ]);
+      if (aErr) throw aErr;
+      if (feuds.error) throw feuds.error;
+
+      // Suggestions use the same Levenshtein helper and the same length-scaled
+      // threshold as /unmapped-names, so the two merge tools behave alike. It
+      // only ever SUGGESTS — auto-merging on edit distance would eventually
+      // fold two genuinely different guilds together with nothing saying so.
+      const names = (feuds.data || []).map((f) => f.enemy_guild);
+      const suggestions = [];
+      names.forEach((a, i) => {
+        names.slice(i + 1).forEach((b) => {
+          const d = lev(norm(a), norm(b));
+          const threshold = Math.max(1, Math.floor(Math.min(a.length, b.length) * 0.25));
+          if (d > 0 && d <= threshold) {
+            const [from, to] = (feuds.data.find((f) => f.enemy_guild === a).met
+              <= feuds.data.find((f) => f.enemy_guild === b).met) ? [a, b] : [b, a];
+            // Merge the rarer spelling INTO the commoner one — the one seen
+            // more often is far likelier to be the correct reading.
+            suggestions.push({ alias: from, canonical: to, distance: d });
+          }
+        });
+      });
+
+      res.json({ aliases: aliases || [], guilds: feuds.data || [], suggestions });
+    } catch (err) {
+      console.error('Enemy guilds error:', err.message);
+      res.status(err.status || 500).json({ error: err.message || 'Failed to load enemy guilds.' });
+    }
+  });
+
+  router.post('/enemy-guilds', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const alias = normaliseGuild(req.body?.alias);
+    const canonical = normaliseGuild(req.body?.canonical);
+    try {
+      if (!alias || !canonical) throw httpError(400, 'Both names are required.');
+      if (alias === canonical) throw httpError(400, 'That maps a name to itself.');
+      await assertEnemyAliasSafe(alias, canonical);
+
+      const { error } = await supabase.from('enemy_guild_aliases').upsert({
+        alias, canonical, created_by: req.user.username || req.user.id, created_at: new Date().toISOString(),
+      }, { onConflict: 'alias' });
+      if (error) throw error;
+      res.json({ ok: true, alias, canonical });
+    } catch (err) {
+      console.error('Enemy guild merge error:', err.message);
+      res.status(err.status || 500).json({ error: err.message || 'Failed to save that merge.' });
+    }
+  });
+
+  router.delete('/enemy-guilds/:alias', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const { error } = await supabase.from('enemy_guild_aliases')
+      .delete().eq('alias', normaliseGuild(decodeURIComponent(req.params.alias)));
+    if (error) return res.status(500).json({ error: 'Failed to undo that merge.' });
     res.json({ ok: true });
   });
 

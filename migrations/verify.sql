@@ -73,4 +73,31 @@ union all
 select '018 · guild_config.loa_notify_discord_id',
        (select count(*) from information_schema.columns
         where table_schema = 'public' and table_name = 'guild_config' and column_name = 'loa_notify_discord_id') = 1
+union all
+select '019 · enemy_guild_aliases table',
+       to_regclass('public.enemy_guild_aliases') is not null
+union all
+-- Argument counts are checked, not just existence. Every one of these takes the
+-- guild alias list as a parameter on purpose — a zero-argument version would be
+-- one with our names baked into its body, which is the thing that stops
+-- get_player_stats() from following Guild Settings.
+select '019 · get_guild_match_sides(text[])',
+       (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'get_guild_match_sides' and p.pronargs = 1) = 1
+union all
+select '019 · get_guild_feuds(text[])',
+       (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'get_guild_feuds' and p.pronargs = 1) = 1
+union all
+select '019 · get_guild_feud_coverage(text[])',
+       (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'get_guild_feud_coverage' and p.pronargs = 1) = 1
+union all
+select '019 · get_guild_feud_roster(text[], text)',
+       (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'get_guild_feud_roster' and p.pronargs = 2) = 1
+union all
+select '019 · normalise_guild_name(text)',
+       (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'normalise_guild_name') = 1
 order by item;

@@ -1,4 +1,4 @@
-import { Sword, Target, Heart, Users, ShieldAlert, Pencil, Trash2, Share2, Map as MapIcon } from 'lucide-react';
+import { Sword, Swords, Target, Heart, Users, ShieldAlert, Pencil, Trash2, Share2, Map as MapIcon } from 'lucide-react';
 import { useState, useEffect, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
@@ -7,7 +7,7 @@ import weaponToClass from '../../../shared/weaponClasses.json';
 import ErrorState from '../components/ui/ErrorState';
 import EmptyState from '../components/ui/EmptyState';
 import { PageShell } from '../components/ui/PageShell';
-import { Table, Thead, SortableTh, Tr } from '../components/ui/Table';
+import { Table, Thead, SortableTh, Tr, useSort, sortRows } from '../components/ui/Table';
 import { useFlash } from '../components/ui/useFlash';
 import Toast from '../components/ui/Toast';
 
@@ -22,42 +22,8 @@ function getClassName(weapon1, weapon2) {
   return `${w1} ${w2}`.trim();
 }
 
-// ── SORTING, SHARED BY THE TWO TABLES ON THIS PAGE ──────────────────────────
-// Starts with NO column selected, so what loads is the order the server sent —
-// the roster in rank order, the maps most-played first. Both of those are
-// meaningful defaults that a forced initial sort would quietly discard, and an
-// unsorted start also means nobody's bookmarked view changes under them.
-//
-// `textKeys` decides which way a column opens: names read best A–Z, numbers
-// best highest-first, and having to click twice to get the obvious direction is
-// the thing that makes sortable headers feel broken.
-function useSort(textKeys = []) {
-  const [key, setKey] = useState(null);
-  const [dir, setDir] = useState('desc');
-  const sortBy = (k) => {
-    if (k === key) setDir((d) => (d === 'desc' ? 'asc' : 'desc'));
-    else { setKey(k); setDir(textKeys.includes(k) ? 'asc' : 'desc'); }
-  };
-  return { key, dir, sortBy };
-}
-
-// `value(row, key)` so a column can be sorted by something it doesn't store —
-// the roster's Class is computed from two weapon fields and exists nowhere on
-// the row. Strings compare with localeCompare, everything else numerically;
-// a missing number sorts as 0 rather than NaN, which would scatter those rows
-// unpredictably instead of grouping them at one end.
-function sortRows(rows, key, dir, value) {
-  if (!key) return rows;
-  const sign = dir === 'asc' ? 1 : -1;
-  return [...rows].sort((a, b) => {
-    const va = value(a, key);
-    const vb = value(b, key);
-    if (typeof va === 'string' || typeof vb === 'string') {
-      return String(va ?? '').localeCompare(String(vb ?? '')) * sign;
-    }
-    return ((Number(va) || 0) - (Number(vb) || 0)) * sign;
-  });
-}
+// Sort state and sortRows now live in the UI kit — the Feuds page is a second
+// consumer, and two copies is how two tables end up sorting differently.
 
 const MAP_COLUMNS = [
   { key: 'map', label: 'Map', align: 'left' },
@@ -225,9 +191,18 @@ export default function MatchStats() {
       {/* Per-map win record */}
       {mapStats.length > 0 && (
         <div className="mb-8">
-          <h3 className="font-display text-xl text-bone tracking-[0.08em] mb-3 flex items-center gap-3">
-            <MapIcon className="w-5 h-5 text-brass" /> Map Record
-          </h3>
+          {/* The Feuds link lives here as well as in the sidebar, because a
+              collapsed sidebar renders no child links at all — and it defaults
+              to collapsed under 768px, so this is the only way to reach the
+              page from a phone. */}
+          <div className="flex items-baseline justify-between gap-4 mb-3 flex-wrap">
+            <h3 className="font-display text-xl text-bone tracking-[0.08em] flex items-center gap-3">
+              <MapIcon className="w-5 h-5 text-brass" /> Map Record
+            </h3>
+            <Link to="/war-record/feuds" className="inline-flex items-center gap-1.5 text-sm text-brass hover:text-brassbright transition-colors">
+              <Swords className="w-4 h-4" /> Feuds →
+            </Link>
+          </div>
           <Table minWidth="min-w-[480px]">
             <Thead>
               {MAP_COLUMNS.map((c) => (

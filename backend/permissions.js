@@ -67,6 +67,10 @@ const ROUTE_PERMISSIONS = [
   { prefix: '/attendance-stats', permission: 'attendance' },
   { prefix: '/gear-ilvl', permission: 'gear' },
   { prefix: '/identities', permission: 'names' },
+  // Reconciling a misread ENEMY guild name is the same job as reconciling a
+  // misread player name, so it takes the same capability rather than a new key
+  // that would start granted to nobody.
+  { prefix: '/enemy-guilds', permission: 'names' },
   { prefix: '/unmapped-names', permission: 'names' },
   { prefix: '/event-schedule', permission: 'schedule' },
   { prefix: '/audit-log', permission: 'audit' },

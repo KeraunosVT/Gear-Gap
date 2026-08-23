@@ -11,7 +11,12 @@ import { getDisplayTimezone, setDisplayTimezone, TIMEZONE_OPTIONS } from '../tim
 
 export const guildLinks = [
   { to: '/', label: 'Dashboard', end: true, icon: LayoutDashboard },
-  { to: '/war-record', label: 'War Record', icon: Swords },
+  // `end` because /war-record/feuds sits beneath it — without it this NavLink
+  // prefix-matches the child and two sibling items light at once, the same
+  // thing that forced `end` onto /attendance when the calendar landed under it.
+  { to: '/war-record', label: 'War Record', icon: Swords, end: true, children: [
+    { to: '/war-record/feuds', label: 'Feuds' },
+  ] },
   { to: '/roster', label: 'Roster', icon: Users },
 ];
 

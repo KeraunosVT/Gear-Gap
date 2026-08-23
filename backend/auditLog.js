@@ -14,6 +14,7 @@ const FEATURE_PREFIXES = [
   { prefix: '/loa/unavailable', label: 'Parties' },
   { prefix: '/unmapped-names', label: 'Names' },
   { prefix: '/identities', label: 'Names' },
+  { prefix: '/enemy-guilds', label: 'Names' },
   { prefix: '/loot', label: 'Loot Council' },
   { prefix: '/currency-awards', label: 'Loot Council' },
   { prefix: '/lucent-requests', label: 'Loot Council' },

@@ -460,6 +460,89 @@ app.get('/api/elite-timers', async (req, res) => {
   res.json({ timers, locations: eliteTimers.locations });
 });
 
+// ── FEUDS: the head-to-head record against every enemy guild ────────────────
+// Member-facing, like the War Record and the Map Record beside it — all three
+// are derived from the same scoreboards, which everyone in the guild can
+// already read in full.
+//
+// Aggregated in SQL (migrations/019). Doing it here would mean paging every
+// player row of every match on each request; see the note in that migration.
+app.get('/api/guilds/feuds', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    const p_guild_names = Object.keys(guildAliases());
+    const [feuds, coverage] = await Promise.all([
+      supabase.rpc('get_guild_feuds', { p_guild_names }),
+      supabase.rpc('get_guild_feud_coverage', { p_guild_names }),
+    ]);
+    if (feuds.error) throw feuds.error;
+    if (coverage.error) throw coverage.error;
+
+    const { total_matches: total = 0, scored_matches: scored = 0 } = coverage.data?.[0] || {};
+    res.json({
+      feuds: feuds.data || [],
+      // Matches whose side couldn't be determined — no player of ours matched
+      // on either team. Reported rather than silently dropped: a number that
+      // climbs usually means an alias is missing from Guild Settings.
+      coverage: { total_matches: Number(total), scored_matches: Number(scored), excluded: Number(total) - Number(scored) },
+    });
+  } catch (err) {
+    console.error('Guild feuds error:', err.message);
+    res.status(500).json({ error: 'Failed to load the feud list.' });
+  }
+});
+
+// Who one enemy guild fields. Fetched on expand — the list is cheap, a roster
+// per guild is not.
+app.get('/api/guilds/feuds/:name', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    const { data, error } = await supabase.rpc('get_guild_feud_roster', {
+      p_guild_names: Object.keys(guildAliases()),
+      p_enemy: decodeURIComponent(req.params.name),
+    });
+    if (error) throw error;
+
+    // Rows arrive grouped by player AND weapon pair, so they fold two ways:
+    // a per-player total, and a class mix across the whole guild. The pair is
+    // turned into a class HERE rather than in SQL so shared/weaponClasses.json
+    // stays the site's only class vocabulary.
+    const byPlayer = new Map();
+    const classMix = {};
+    (data || []).forEach((r) => {
+      const seen = Number(r.appearances) || 0;
+      const cls = getClassNameBackend(r.weapon_1, r.weapon_2);
+      classMix[cls] = (classMix[cls] || 0) + seen;
+
+      const p = byPlayer.get(r.player_name) || { player_name: r.player_name, appearances: 0, kills: 0, classes: {} };
+      p.appearances += seen;
+      p.kills += Number(r.kills) || 0;
+      p.classes[cls] = (p.classes[cls] || 0) + seen;
+      byPlayer.set(r.player_name, p);
+    });
+
+    const players = [...byPlayer.values()]
+      .map((p) => ({
+        ...p,
+        // What they turn up as most often. A player who has switched weapons
+        // has more than one; naming the commonest beats listing all of them.
+        main_class: Object.entries(p.classes).sort((a, b) => b[1] - a[1])[0]?.[0] || 'Unknown',
+      }))
+      .sort((a, b) => b.appearances - a.appearances || a.player_name.localeCompare(b.player_name));
+
+    res.json({
+      enemy_guild: decodeURIComponent(req.params.name),
+      players,
+      class_mix: Object.entries(classMix)
+        .map(([name, count]) => ({ name, count }))
+        .sort((a, b) => b.count - a.count),
+    });
+  } catch (err) {
+    console.error('Guild feud roster error:', err.message);
+    res.status(500).json({ error: 'Failed to load that guild.' });
+  }
+});
+
 // Per-map win/loss record, for the War Record page.
 app.get('/api/maps/stats', async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
