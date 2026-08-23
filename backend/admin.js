@@ -674,6 +674,124 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     res.json({ ok: true });
   });
 
+  // ── Enemy player aliases ────────────────────────────────────────────────────
+  // The same job one level down from enemy guilds: OCR turns one person into
+  // three rows of a roster, each with a third of their matches — which also
+  // puts all three under the standout floor, so the misread hides exactly the
+  // player it fragments.
+  //
+  // Its own table rather than player_identities: that one maps names to OUR
+  // members and their Discord ids, and every reader treats a name in it as
+  // somebody in this guild. Same call as enemy_guild_aliases in 019.
+  async function assertEnemyPlayerSafe(alias, canonical) {
+    // Our own members already have a merge mechanism — the Names page, backed
+    // by player_identities. A name handled by both would diverge the moment
+    // either was edited, so each name belongs to exactly one system.
+    const ids = await identities.load();
+    if (ids.identityForName(alias)) {
+      throw httpError(400, `"${alias}" is already mapped to one of this guild's members. Merge it on the Names page instead.`);
+    }
+    if (ids.identityForName(canonical)) {
+      throw httpError(400, `"${canonical}" is one of this guild's members. Enemy aliases can't point at us.`);
+    }
+
+    // No chains. A→B, B→C would make the result depend on join order, and the
+    // lookup is a single join.
+    const { data: chain } = await supabase.from('enemy_player_aliases')
+      .select('canonical').ilike('alias', canonical).maybeSingle();
+    if (chain) {
+      throw httpError(400, `"${canonical}" is already mapped to "${chain.canonical}". Point this one there instead.`);
+    }
+  }
+
+  router.get('/enemy-players', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    try {
+      const enemy = String(req.query.guild || '').trim();
+      if (!enemy) throw httpError(400, 'Which guild?');
+
+      const [{ data: aliases, error: aErr }, roster] = await Promise.all([
+        supabase.from('enemy_player_aliases').select('*').order('canonical').order('alias'),
+        supabase.rpc('get_guild_feud_roster', {
+          p_guild_names: Object.keys(guildConfig.aliasMap()),
+          p_enemy: enemy,
+        }),
+      ]);
+      if (aErr) throw aErr;
+      if (roster.error) throw roster.error;
+
+      // Appearances per already-resolved name, so the commoner spelling is the
+      // one a suggestion merges INTO.
+      const seen = new Map();
+      (roster.data || []).forEach((r) => {
+        seen.set(r.player_name, (seen.get(r.player_name) || 0) + (Number(r.appearances) || 0));
+      });
+      const names = [...seen.keys()];
+
+      // Scoped to ONE guild's roster, deliberately. Across the whole record,
+      // two unrelated players in different guilds with similar names would be
+      // proposed constantly; within a guild, a near-match is nearly always the
+      // same person read twice.
+      const suggestions = [];
+      names.forEach((a, i) => {
+        names.slice(i + 1).forEach((b) => {
+          const d = lev(norm(a), norm(b));
+          const threshold = Math.max(1, Math.floor(Math.min(a.length, b.length) * 0.25));
+          if (d > 0 && d <= threshold) {
+            const [from, to] = seen.get(a) <= seen.get(b) ? [a, b] : [b, a];
+            suggestions.push({ alias: from, canonical: to, distance: d });
+          }
+        });
+      });
+
+      res.json({
+        guild: enemy,
+        aliases: aliases || [],
+        players: names.map((n) => ({ player_name: n, appearances: seen.get(n) })),
+        suggestions,
+      });
+    } catch (err) {
+      console.error('Enemy players error:', err.message);
+      res.status(err.status || 500).json({ error: err.message || 'Failed to load enemy players.' });
+    }
+  });
+
+  router.post('/enemy-players', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const alias = normaliseGuild(req.body?.alias);
+    const canonical = normaliseGuild(req.body?.canonical);
+    try {
+      if (!alias || !canonical) throw httpError(400, 'Both names are required.');
+      if (alias.toLowerCase() === canonical.toLowerCase()) throw httpError(400, 'That maps a name to itself.');
+      await assertEnemyPlayerSafe(alias, canonical);
+
+      const { error } = await supabase.from('enemy_player_aliases').upsert({
+        alias, canonical, created_by: req.user.username || req.user.id, created_at: new Date().toISOString(),
+      }, { onConflict: 'alias' });
+      if (error) throw error;
+
+      // Flatten rather than refuse, as with guild renames: if others already
+      // pointed at this alias, re-point them at the new target so the table
+      // stays one level deep — which is what makes the single join correct.
+      const { data: repointed, error: rErr } = await supabase.from('enemy_player_aliases')
+        .update({ canonical }).ilike('canonical', alias).select('alias');
+      if (rErr) console.error('Enemy player re-point failed:', rErr.message);
+
+      res.json({ ok: true, alias, canonical, repointed: (repointed || []).map((r) => r.alias) });
+    } catch (err) {
+      console.error('Enemy player merge error:', err.message);
+      res.status(err.status || 500).json({ error: err.message || 'Failed to save that merge.' });
+    }
+  });
+
+  router.delete('/enemy-players/:alias', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const { error } = await supabase.from('enemy_player_aliases')
+      .delete().ilike('alias', normaliseGuild(decodeURIComponent(req.params.alias)));
+    if (error) return res.status(500).json({ error: 'Failed to undo that merge.' });
+    res.json({ ok: true });
+  });
+
   // ── Loot council: fairness ──────────────────────────────────────────────────
   // "Who has shown up the most and received the least" is the question a loot
   // council actually argues about, and until now it could only be answered from

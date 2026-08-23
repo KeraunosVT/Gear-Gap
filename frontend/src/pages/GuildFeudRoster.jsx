@@ -1,12 +1,17 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import axios from 'axios';
-import { ArrowLeft, Users, RefreshCw, TrendingUp } from 'lucide-react';
+import { ArrowLeft, Users, RefreshCw, TrendingUp, Merge, Undo2, Loader2 } from 'lucide-react';
 import { PageShell } from '../components/ui/PageShell';
 import ErrorState from '../components/ui/ErrorState';
 import EmptyState from '../components/ui/EmptyState';
 import { Table, Thead, SortableTh, Tr, useSort, sortRows } from '../components/ui/Table';
 import PlayerGuildHistory from '../components/PlayerGuildHistory';
+import Modal from '../components/ui/Modal';
+import Button from '../components/ui/Button';
+import Toast from '../components/ui/Toast';
+import { useFlash } from '../components/ui/useFlash';
+import { useAuth } from '../auth';
 
 // ── ONE GUILD'S ROSTER ──────────────────────────────────────────────────────
 // Everyone they field, what they play, and which of them is the actual problem.
@@ -60,6 +65,18 @@ export default function GuildFeudRoster() {
   const [scope, setScope] = useState('recent');
   const [lookup, setLookup] = useState(null);
 
+  // ── MERGING MISREAD NAMES ─────────────────────────────────────────────────
+  // OCR turns one person into three rows, each with a third of their matches —
+  // which also drops all three under the standout floor, so the misread hides
+  // exactly the player it fragments. Officers holding 'names' can fold them.
+  const { can } = useAuth();
+  const isOfficer = can('names');
+  const [merge, setMerge] = useState({ aliases: [], suggestions: [] });
+  const [mergeFrom, setMergeFrom] = useState(null);
+  const [mergeTo, setMergeTo] = useState('');
+  const [busy, setBusy] = useState('');
+  const [msg, flash] = useFlash();
+
   const sort = useSort(['main_class', 'player_name'], 'appearances', 'desc');
 
   const load = useCallback(() => {
@@ -69,13 +86,54 @@ export default function GuildFeudRoster() {
       // The head-to-head line above the table. Soft-failed — the roster is the
       // page, and a missing record shouldn't cost you it.
       axios.get('/api/guilds/feuds').then((r) => (r.data.feuds || []).find((f) => f.enemy_guild === enemy)).catch(() => null),
+      // Officer-only, and soft-failed: the roster is the page, and a member
+      // without 'names' simply gets no merge controls.
+      axios.get('/api/admin/enemy-players', { params: { guild: enemy } })
+        .then((r) => r.data).catch(() => null),
     ])
-      .then(([roster, rec]) => { setData(roster.data); setRecord(rec); })
+      .then(([roster, rec, mg]) => {
+        setData(roster.data); setRecord(rec);
+        if (mg) setMerge({ aliases: mg.aliases || [], suggestions: mg.suggestions || [] });
+      })
       .catch((err) => setError(err.response?.data?.error || 'Could not load that guild.'))
       .finally(() => setLoading(false));
   }, [enemy]);
 
   useEffect(() => { load(); }, [load]);
+
+  const run = async (key, fn, ok) => {
+    setBusy(key);
+    try {
+      await fn();
+      load();
+      if (ok) flash(ok);
+    } catch (err) {
+      flash(err.response?.data?.error || 'That did not work.', false);
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const applyMerge = (alias, canonical) => run(`merge:${alias}`, async () => {
+    const res = await axios.post('/api/admin/enemy-players', { alias, canonical });
+    const also = res.data.repointed || [];
+    // Others may have pointed at this spelling; they get re-pointed forward so
+    // the table stays one level deep. Say so, since only one merge was asked for.
+    if (also.length) flash(`"${alias}" is now "${canonical}" — and so ${also.length === 1 ? 'is' : 'are'} ${also.join(', ')}.`);
+  }, `"${alias}" and "${canonical}" are one player now.`);
+
+  const undoMerge = (alias) => run(`undo:${alias}`,
+    () => axios.delete(`/api/admin/enemy-players/${encodeURIComponent(alias)}`),
+    `"${alias}" is its own player again.`);
+
+  const submitMerge = (e) => {
+    e.preventDefault();
+    const target = mergeTo.trim();
+    if (!target) return flash('Pick or type the name to merge into.', false);
+    if (target.toLowerCase() === mergeFrom.toLowerCase()) return flash('That maps a name to itself.', false);
+    setMergeFrom(null); setMergeTo('');
+    return applyMerge(mergeFrom, target);
+  };
 
   const rows = useMemo(() => {
     const f = filter.toLowerCase();
@@ -127,6 +185,49 @@ export default function GuildFeudRoster() {
         )}
         {marked > 0 && <>{' · '}<span className="text-brassbright">{marked} standing out</span></>}
       </p>
+
+      <Toast msg={msg} />
+
+      {isOfficer && merge.suggestions.length > 0 && (
+        <div className="panel rounded-lg p-4 mb-5 border border-brass/30">
+          <div className="eyebrow text-[10px] text-brass mb-3">Possible misreads</div>
+          <div className="space-y-2">
+            {merge.suggestions.map((sg) => (
+              <div key={`${sg.alias}->${sg.canonical}`} className="flex items-center gap-3 flex-wrap text-sm">
+                <span className="text-bone">{sg.alias}</span>
+                <span className="text-ash/60">looks like</span>
+                <span className="text-bone">{sg.canonical}</span>
+                <button
+                  onClick={() => applyMerge(sg.alias, sg.canonical)} disabled={busy === `merge:${sg.alias}`}
+                  className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs border border-brass/50 text-brassbright hover:bg-panelup transition-colors disabled:opacity-40"
+                >
+                  {busy === `merge:${sg.alias}` ? <Loader2 className="w-3 h-3 animate-spin" /> : <Merge className="w-3 h-3" />}
+                  Same player
+                </button>
+              </div>
+            ))}
+          </div>
+          <p className="text-ash/60 text-xs mt-3">
+            Suggested by name similarity within this guild only — two people can genuinely have similar names, so
+            nothing merges until you say so.
+          </p>
+        </div>
+      )}
+
+      {isOfficer && merge.aliases.length > 0 && (
+        <div className="mb-5 flex flex-wrap items-center gap-2 text-xs">
+          <span className="text-ash/60">Merged:</span>
+          {merge.aliases.map((a) => (
+            <button
+              key={a.alias} onClick={() => undoMerge(a.alias)} disabled={busy === `undo:${a.alias}`}
+              title={`Split "${a.alias}" back out from "${a.canonical}"`}
+              className="inline-flex items-center gap-1.5 bg-panel border border-line rounded-full px-3 py-1 text-ash hover:text-oxblood transition-colors disabled:opacity-40"
+            >
+              {a.alias} → {a.canonical} <Undo2 className="w-3 h-3" />
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="flex flex-wrap items-center gap-3 mb-5">
         <input
@@ -187,6 +288,15 @@ export default function GuildFeudRoster() {
                   {p.sub_for && (
                     <span className="text-brass/70 text-xs ml-2" title={`Subbed in from ${p.sub_for}`}>← {p.sub_for}</span>
                   )}
+                  {isOfficer && (
+                    <button
+                      onClick={() => { setMergeFrom(p.player_name); setMergeTo(''); }}
+                      title={`${p.player_name} is really another name on this list`}
+                      className="text-ash/40 hover:text-brass transition-colors ml-2 align-middle"
+                    >
+                      <Merge className="w-3 h-3" />
+                    </button>
+                  )}
                 </td>
                 <td className="p-2.5 text-center font-mono">
                   <span className={p.recent_appearances ? 'text-bone' : 'text-ash/30'}>{p.recent_appearances}</span>
@@ -227,6 +337,35 @@ export default function GuildFeudRoster() {
       </p>
 
       {lookup && <PlayerGuildHistory name={lookup} onClose={() => setLookup(null)} />}
+
+      {mergeFrom && (
+        <Modal onClose={() => setMergeFrom(null)} maxWidth="max-w-md">
+          <div className="eyebrow text-brass text-[11px] mb-3">Same player</div>
+          <h2 className="font-display text-xl text-bone tracking-[0.06em] mb-1">{mergeFrom}</h2>
+          <p className="text-ash text-sm mb-5">
+            Their matches fold into whichever name you pick, and this spelling stops appearing on its own.
+            Reversible from the chips above the table.
+          </p>
+          <form onSubmit={submitMerge}>
+            <label className="eyebrow text-[10px] text-ash/75 block mb-1.5">Really this player</label>
+            <input
+              list="feud-player-names" value={mergeTo} onChange={(e) => setMergeTo(e.target.value)}
+              placeholder="Pick a name from this roster" autoFocus
+              className="w-full bg-hall border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
+            />
+            <datalist id="feud-player-names">
+              {(data?.players || [])
+                .map((x) => x.player_name)
+                .filter((n) => n !== mergeFrom)
+                .map((n) => <option key={n} value={n} />)}
+            </datalist>
+            <div className="flex justify-end gap-3 mt-6">
+              <Button type="button" variant="neutral" size="none" className="px-4 py-2" onClick={() => setMergeFrom(null)}>Cancel</Button>
+              <Button type="submit" size="none" className="px-5 py-2" icon={<Merge className="w-4 h-4" />}>Merge</Button>
+            </div>
+          </form>
+        </Modal>
+      )}
     </PageShell>
   );
 }

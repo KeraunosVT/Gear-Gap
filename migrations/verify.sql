@@ -112,6 +112,20 @@ select '020 · get_player_search(text, int)',
        (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.proname = 'get_player_search') = 1
 union all
+select '021 · enemy_player_aliases table',
+       to_regclass('public.enemy_player_aliases') is not null
+union all
+-- Case-insensitive uniqueness on the alias. Without it `Vex` and `vex` can be
+-- two rows pointing different ways, and the joins (which match on lower())
+-- would resolve one of them arbitrarily.
+select '021 · enemy_player_aliases unique on lower(alias)',
+       (select count(*) from pg_indexes
+        where schemaname = 'public' and indexname = 'enemy_player_aliases_alias_lower_idx') = 1
+union all
+select '021 · normalise_player_name(text)',
+       (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'normalise_player_name') = 1
+union all
 select '019 · normalise_guild_name(text)',
        (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.proname = 'normalise_guild_name') = 1

@@ -71,6 +71,7 @@ const ROUTE_PERMISSIONS = [
   // misread player name, so it takes the same capability rather than a new key
   // that would start granted to nobody.
   { prefix: '/enemy-guilds', permission: 'names' },
+  { prefix: '/enemy-players', permission: 'names' },
   { prefix: '/unmapped-names', permission: 'names' },
   { prefix: '/event-schedule', permission: 'schedule' },
   { prefix: '/audit-log', permission: 'audit' },

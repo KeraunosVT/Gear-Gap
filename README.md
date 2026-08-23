@@ -93,7 +93,16 @@ Excluded rows are now counted and named on the page, so recognising one of the s
 
 Note that two different definitions of "our guild" are in play. Everything reading `guildAliases()` follows `guild_config` and updates the moment Guild Settings is saved. The Roster's all-time table and the dashboard tiles come from `get_player_stats()` / `get_stats_summary()`, both called with **no arguments**, so their guild list is baked into the SQL and does not. If the two ever disagree about a member's match count, that mismatch is the first place to look.
 
-### Two alias lists, and why they are separate tables
+### Three alias lists, and why they are separate tables
+
+There are three, and each answers a different question:
+
+| Table | Means | Merged on |
+|---|---|---|
+| `guild_config.aliases` | names **we** have gone by | Guild Settings |
+| `player_identities` | in-game names of **our members** | Names page |
+| `enemy_guild_aliases` | misreads and former names of **other guilds** | Feuds page |
+| `enemy_player_aliases` | misreads of **enemy players** | a guild's roster page |
 
 `guild_config.aliases` means **names this guild has gone by**. Every reader of it — `canonicalGuild`, the war-record collapsing, the player profile's guild split, `assertAliasesSafe` — treats a name in that list as *us*. `enemy_guild_aliases` (migration 019) means **misread or former names of other guilds**, and is read only by the feud functions.
 
@@ -106,6 +115,8 @@ Chains are handled in both directions, and the two rules are complements rather 
 - Pointing **from** a name that others already point at re-points them all forward. A guild that renames twice (`A→B`, then `B→C`) leaves every spelling resolving to `C`. Without this, `A` would still resolve to `B` — a name nothing else uses — and its matches would split off on their own again. The lookup is a single join, so the table has to stay one level deep by construction.
 
 Whitespace is collapsed by `normalise_guild_name()` in SQL, so `Iron Vow` / `Iron  Vow` needs no alias row at all — the table is only for genuine misreads and rebrands.
+
+**Enemy players** (`enemy_player_aliases`, migration 021) work identically one level down, and matter more than they look: OCR turning one person into `Ravager` / `Ravag3r` / `Ravaqer` gives three rows with a third of the matches each — which also drops all three under the standout floor, so **the misread hides exactly the player it fragments**. Merged from a guild's roster page, suggested within that one guild only (across the whole record, unrelated players with similar names would be proposed constantly). A name already in `player_identities` is refused in both directions: our own members are merged on the Names page, and a name handled by two systems diverges the moment either is edited. Matching is case-insensitive, with a unique index on `lower(alias)` so `Vex` and `vex` can't point different ways.
 
 ### Reading a table that grows
 
