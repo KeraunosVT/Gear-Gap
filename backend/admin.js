@@ -684,15 +684,42 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
   // members and their Discord ids, and every reader treats a name in it as
   // somebody in this guild. Same call as enemy_guild_aliases in 019.
   async function assertEnemyPlayerSafe(alias, canonical) {
-    // Our own members already have a merge mechanism — the Names page, backed
-    // by player_identities. A name handled by both would diverge the moment
-    // either was edited, so each name belongs to exactly one system.
+    // CURRENT members only. Someone who left and now plays for a rival is
+    // exactly the case this table is for — their old name genuinely belongs to
+    // an enemy player now, and refusing it would leave them fragmented on every
+    // roster they appear on.
+    //
+    // "Current" is membership of the Discord guild, not merely having an
+    // identity row: those are never deleted (deliberately — they keep old match
+    // rows readable), so an identity alone says "we knew this name once", which
+    // is not a reason to block anything.
     const ids = await identities.load();
-    if (ids.identityForName(alias)) {
-      throw httpError(400, `"${alias}" is already mapped to one of this guild's members. Merge it on the Names page instead.`);
-    }
-    if (ids.identityForName(canonical)) {
-      throw httpError(400, `"${canonical}" is one of this guild's members. Enemy aliases can't point at us.`);
+    const hits = [alias, canonical].map((n) => ids.identityForName(n)).filter(Boolean);
+
+    if (hits.length) {
+      let current;
+      try {
+        current = new Set((await listMembers()).map((m) => String(m.id)));
+      } catch (err) {
+        // Fail closed, and say so. The same call assertAliasesSafe makes when
+        // it can't check the war record: refusing a merge that might be wrong
+        // beats making one nobody verified, and this is transient.
+        console.error('enemy player guard: member list unavailable:', err.message);
+        throw httpError(503, "Couldn't check the member list just now, so nothing was merged. Try again in a moment.");
+      }
+
+      // No discord_id means nobody is attached to that name — it can't be a
+      // current member however it got into the identities table.
+      const isCurrent = (it) => Boolean(it?.discord_id) && current.has(String(it.discord_id));
+
+      const aliasHit = ids.identityForName(alias);
+      if (isCurrent(aliasHit)) {
+        throw httpError(400, `"${alias}" belongs to ${aliasHit.display_name}, who is in the guild. Merge it on the Names page instead.`);
+      }
+      const canonHit = ids.identityForName(canonical);
+      if (isCurrent(canonHit)) {
+        throw httpError(400, `"${canonical}" belongs to ${canonHit.display_name}, who is in the guild — enemy aliases can't point at a current member.`);
+      }
     }
 
     // No chains. A→B, B→C would make the result depend on join order, and the

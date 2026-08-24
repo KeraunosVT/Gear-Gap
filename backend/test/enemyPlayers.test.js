@@ -9,10 +9,23 @@ const { test, describe, before } = require('node:test');
 const assert = require('node:assert/strict');
 
 const DISCORD = require.resolve('../discord');
+
+// Who is in the Discord guild right now. Swapped per test — the whole point
+// of the guard is that it turns on CURRENT membership, not on having an
+// identity row, which never goes away.
+let currentMembers = [{ id: 'd-kera', name: 'Keraunos' }];
+let membersThrow = false;
+
 require.cache[DISCORD] = {
   id: DISCORD,
   loaded: true,
-  exports: { listMembers: async () => [], listRoles: async () => [], postEmbed: async () => null, postImage: async () => null },
+  exports: {
+    listMembers: async () => {
+      if (membersThrow) throw new Error('discord unreachable');
+      return currentMembers;
+    },
+    listRoles: async () => [], postEmbed: async () => null, postImage: async () => null,
+  },
 };
 
 const CFG = require.resolve('../guildConfig');
@@ -35,8 +48,13 @@ const ROSTER = [
   { player_name: 'Nightfall', own_guild: 'Iron Vow', appearances: 7 },
 ];
 
-// Our own members, who must be merged on the Names page and not here.
-const OUR_MEMBERS = new Set(['Keraunos']);
+// Names we have identity rows for. Identity rows are never deleted — they
+// keep old match rows readable — so 'Departed' is here long after leaving.
+const IDENTITIES = {
+  Keraunos: { display_name: 'Keraunos', discord_id: 'd-kera' },
+  Departed: { display_name: 'Departed', discord_id: 'd-gone' },
+  Nameless: { display_name: 'Nameless', discord_id: null },
+};
 
 let aliasRows = [];
 let handlers = {};
@@ -87,7 +105,7 @@ function fakeSupabase() {
 
 const identities = {
   load: async () => ({
-    identityForName: (n) => (OUR_MEMBERS.has(n) ? { display_name: n } : null),
+    identityForName: (n) => IDENTITIES[n] || null,
     displayNameFor: (id, fb) => fb || id,
   }),
 };
@@ -147,9 +165,10 @@ describe('suggestions', () => {
 });
 
 describe('the guards', () => {
-  test('a name belonging to one of our members is refused as an alias', async () => {
-    // Our members are merged on the Names page, backed by player_identities.
-    // A name handled by both systems diverges the moment either is edited.
+  test('a CURRENT member is refused as an alias', async () => {
+    // Current members are merged on the Names page, backed by
+    // player_identities. A name handled by both diverges the moment either
+    // is edited.
     aliasRows = [];
     const { status, body } = await call(handlers.create, { body: { alias: 'Keraunos', canonical: 'Ravager' } });
     assert.equal(status, 400);
@@ -157,10 +176,66 @@ describe('the guards', () => {
     assert.equal(aliasRows.length, 0);
   });
 
-  test('and refused as the target', async () => {
+  test('a CURRENT member is refused as the target', async () => {
     const { status, body } = await call(handlers.create, { body: { alias: 'Ravag3r', canonical: 'Keraunos' } });
     assert.equal(status, 400);
-    assert.match(body.error, /can't point at us/);
+    assert.match(body.error, /current member/);
+  });
+
+  test('a FORMER member can be merged — they really are an enemy now', async () => {
+    // The case this scoping exists for. Someone who left and now plays for a
+    // rival has an identity row forever, and blocking on that alone would
+    // leave them fragmented across every roster they appear on.
+    aliasRows = [];
+    const { status } = await call(handlers.create, { body: { alias: 'Departed', canonical: 'Ravager' } });
+    assert.equal(status, 200);
+    assert.deepEqual(aliasRows.map((r) => [r.alias, r.canonical]), [['Departed', 'Ravager']]);
+  });
+
+  test('a former member can also be the target', async () => {
+    aliasRows = [];
+    const { status } = await call(handlers.create, { body: { alias: 'Ravag3r', canonical: 'Departed' } });
+    assert.equal(status, 200);
+  });
+
+  test('an identity with no Discord id attached is not a current member', async () => {
+    // An identity row with nobody behind it can't be in the guild, however it
+    // got there.
+    aliasRows = [];
+    const { status } = await call(handlers.create, { body: { alias: 'Nameless', canonical: 'Ravager' } });
+    assert.equal(status, 200);
+  });
+
+  test('rejoining re-protects the name', async () => {
+    // Membership is read at merge time, so the answer follows the roster
+    // rather than a snapshot taken whenever the identity was created.
+    aliasRows = [];
+    currentMembers = [{ id: 'd-kera', name: 'Keraunos' }, { id: 'd-gone', name: 'Departed' }];
+    const { status } = await call(handlers.create, { body: { alias: 'Departed', canonical: 'Ravager' } });
+    currentMembers = [{ id: 'd-kera', name: 'Keraunos' }];
+    assert.equal(status, 400);
+  });
+
+  test('an unreachable member list refuses rather than guessing', async () => {
+    // Fail closed, the same call assertAliasesSafe makes when it can't check
+    // the war record: a merge nobody could verify is worse than a retry.
+    aliasRows = [];
+    membersThrow = true;
+    const { status, body } = await call(handlers.create, { body: { alias: 'Keraunos', canonical: 'Ravager' } });
+    membersThrow = false;
+    assert.equal(status, 503);
+    assert.match(body.error, /member list/);
+    assert.equal(aliasRows.length, 0);
+  });
+
+  test('a name nobody has an identity for never touches Discord', async () => {
+    // The common path: two enemy misreads. It must not pay for a member-list
+    // fetch, and must not fail when Discord is down.
+    aliasRows = [];
+    membersThrow = true;
+    const { status } = await call(handlers.create, { body: { alias: 'Ravag3r', canonical: 'Ravager' } });
+    membersThrow = false;
+    assert.equal(status, 200);
   });
 
   test('a name may not map to itself, in any case', async () => {
