@@ -103,7 +103,7 @@ export default function Shards() {
   const weaponModalMember = weaponModalId ? members.find((m) => m.id === weaponModalId) : null;
 
   return (
-    <PageShell maxWidth="max-w-[1400px]">
+    <PageShell maxWidth="max-w-[1750px]">
       <p className="text-sm text-ash mb-5">
         {can('loot.awards')
           ? 'Track every member’s shard requests. You can edit any row.'
@@ -129,13 +129,20 @@ export default function Shards() {
         <EmptyState>No members found.</EmptyState>
       ) : (
         <div className="panel rounded-lg overflow-auto max-h-[70vh]">
-          <table className="w-full min-w-[1160px] text-sm border-separate border-spacing-0">
+          <table className="w-full min-w-[1520px] text-sm border-separate border-spacing-0">
             <thead>
               <tr className="eyebrow text-[10px] text-ash">
-                <th className="sticky top-0 z-10 bg-panel p-4 text-left font-normal border-b border-line">Member</th>
-                {TYPES.map((t) => <th key={t.key} className="sticky top-0 z-10 bg-panel p-4 text-center font-normal border-b border-line">{t.label}</th>)}
-                <th className="sticky top-0 z-10 bg-panel p-4 text-center font-normal border-b border-line">Total</th>
-                <th className="sticky top-0 z-10 bg-panel p-4 text-left font-normal border-b border-line">Weapons</th>
+                <th className="sticky top-0 z-10 bg-panel p-4 text-left font-normal border-b border-line align-bottom">Member</th>
+                {/* Shard labels have grown long enough to need two lines ("Thunderstruck
+                    Giant Tree Branch"), so they wrap inside a capped span and the cells
+                    bottom-align — otherwise a one-line header floats above a two-line one. */}
+                {TYPES.map((t) => (
+                  <th key={t.key} className="sticky top-0 z-10 bg-panel px-2 py-4 text-center font-normal border-b border-line align-bottom">
+                    <span className="block mx-auto max-w-[104px] leading-tight">{t.label}</span>
+                  </th>
+                ))}
+                <th className="sticky top-0 z-10 bg-panel p-4 text-center font-normal border-b border-line align-bottom">Total</th>
+                <th className="sticky top-0 z-10 bg-panel p-4 text-left font-normal border-b border-line align-bottom">Weapons</th>
                 <th className="sticky top-0 z-10 bg-panel p-3 w-8 border-b border-line"></th>
               </tr>
             </thead>
@@ -156,7 +163,7 @@ export default function Shards() {
                       </div>
                     </td>
                     {TYPES.map((t) => (
-                      <td key={t.key} className="p-3 text-center">
+                      <td key={t.key} className="px-2 py-3 text-center">
                         {editable ? (
                           <input
                             type="number" min={0} max={MAX} value={m.shards[t.key]}
@@ -171,7 +178,7 @@ export default function Shards() {
                     ))}
                     <td className="p-3 text-center font-mono text-brassbright">{rowTotal(m.shards)}</td>
                     <td className="p-3">
-                      <div className="flex flex-wrap items-center gap-1.5 min-w-[320px] max-w-[420px]">
+                      <div className="flex flex-wrap items-center gap-1.5 min-w-[360px] max-w-[560px]">
                         {weapons.length === 0 && <span className="text-ash/50 text-xs">none set</span>}
                         {weapons.map((w, i) => (
                           <span key={i} className="inline-flex items-center gap-1 text-[10px] bg-hall border border-line rounded-full px-2 py-0.5 text-ash" title={w.boss}>
@@ -198,7 +205,7 @@ export default function Shards() {
             <tfoot>
               <tr className="[&>td]:border-t [&>td]:border-line bg-panelup/60">
                 <td className="p-4 eyebrow text-[10px] text-brass">Guild Total</td>
-                {TYPES.map((t) => <td key={t.key} className="p-4 text-center font-mono text-brassbright">{totals[t.key]}</td>)}
+                {TYPES.map((t) => <td key={t.key} className="px-2 py-4 text-center font-mono text-brassbright">{totals[t.key]}</td>)}
                 <td className="p-4 text-center font-mono text-brassbright">{TYPES.reduce((a, t) => a + totals[t.key], 0)}</td>
                 <td></td>
                 <td></td>
@@ -239,7 +246,7 @@ function WeaponModal({ member, onClose, onSave }) {
   };
 
   return (
-    <Modal onClose={onClose} maxWidth="max-w-lg" scrollable>
+    <Modal onClose={onClose} maxWidth="max-w-2xl" scrollable>
       <div className="eyebrow text-brass text-[11px] mb-3">Weapon Wishlist</div>
       <h2 className="font-display text-xl text-bone tracking-[0.06em] mb-4">{member.name}</h2>
 

@@ -23,9 +23,15 @@ const ICON_PREFIX = 'currency-icons/';
 // command line — the shard keys are in shared/shards.json.
 //
 // The archboss pieces are I_Arcboss_piece_001..003; only those three exist
-// (004+ are 404), so the five shard types in shards.json can't each have their
-// own. Which piece belongs to which shard is a game-knowledge call, not
-// something the filenames give away.
+// (004+ are 404), so the shard types in shards.json can't each have their own.
+// Which piece belongs to which shard is a game-knowledge call, not something the
+// filenames give away.
+//
+// thunderstruck_snow_flowers and thunderstruck_giant_tree_branch have no icon
+// yet — CurrencyIcon falls back to a coin glyph, so the ledger renders either
+// way. Add them here (or pass them on the command line) once the URLs turn up;
+// they're the Thunderstruck variants of the two BFB_ assets below, so expect
+// similar filenames rather than an Arcboss piece.
 const MISC = 'https://cdn.questlog.gg/throne-and-liberty/assets/Game/Image/Icon/Item_128/Misc';
 const ARCBOSS_PIECE = (n) => `${MISC}/I_Arcboss_piece_${n}.webp`;
 
