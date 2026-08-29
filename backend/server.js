@@ -341,7 +341,10 @@ app.put('/api/shards/:discordId', async (req, res) => {
   const shards = {};
   SHARDS.types.forEach((t) => {
     const v = parseInt(incoming[t.key], 10);
-    shards[t.key] = Math.max(0, Math.min(SHARDS.max, Number.isFinite(v) ? v : 0));
+    // Per-type cap, falling back to the file's default. The page clamps as you
+    // type, but this is the one that decides — the input is a courtesy.
+    const max = Number.isFinite(t.max) ? t.max : SHARDS.max;
+    shards[t.key] = Math.max(0, Math.min(max, Number.isFinite(v) ? v : 0));
   });
   const incomingWeapons = Array.isArray(incoming.weapons) ? incoming.weapons : [];
   shards.weapons = incomingWeapons

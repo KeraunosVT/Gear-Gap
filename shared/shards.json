@@ -1,4 +1,5 @@
 {
+  "_comment": "`max` is the default cap per shard type. A type may override it with its own `max` — the Thunderstruck pair are farmed in far larger numbers than the older shards. Both the page and PUT /api/shards clamp to the per-type value.",
   "max": 90,
   "types": [
     { "key": "tevent_ashen", "label": "Tevent Ashen" },
@@ -6,7 +7,7 @@
     { "key": "scorched_frostblooms", "label": "Scorched Frostblooms" },
     { "key": "queen_ashen_carapace", "label": "Queen Ashen Carapace" },
     { "key": "thundercloud_scale", "label": "Thundercloud Scale" },
-    { "key": "thunderstruck_snow_flowers", "label": "Thunderstruck Snow Flowers" },
-    { "key": "thunderstruck_giant_tree_branch", "label": "Thunderstruck Giant Tree Branch" }
+    { "key": "thunderstruck_snow_flowers", "label": "Thunderstruck Snow Flowers", "max": 270 },
+    { "key": "thunderstruck_giant_tree_branch", "label": "Thunderstruck Giant Tree Branch", "max": 270 }
   ]
 }

@@ -9,8 +9,14 @@ import Button from '../components/ui/Button';
 import { PageShell } from '../components/ui/PageShell';
 import EmptyState from '../components/ui/EmptyState';
 
-const MAX = SHARDS.max;
 const TYPES = SHARDS.types;
+// Caps are per shard type now — the Thunderstruck pair go to 270 where the older
+// shards stop at 90 — so there is no single MAX to clamp against. Mirrors the
+// same fallback PUT /api/shards applies server-side.
+const maxFor = (key) => {
+  const t = TYPES.find((x) => x.key === key);
+  return Number.isFinite(t?.max) ? t.max : SHARDS.max;
+};
 const BUILDS = ['PvP', 'PvE'];
 const VALID_BOSS_WEAPONS = new Set(
   Object.entries(BOSS_WEAPONS).flatMap(([boss, list]) => list.map((w) => `${boss}|${w}`))
@@ -18,7 +24,7 @@ const VALID_BOSS_WEAPONS = new Set(
 
 const normalizeShards = (s) => {
   const out = {};
-  TYPES.forEach((t) => { out[t.key] = Math.max(0, Math.min(MAX, Number(s?.[t.key]) || 0)); });
+  TYPES.forEach((t) => { out[t.key] = Math.max(0, Math.min(maxFor(t.key), Number(s?.[t.key]) || 0)); });
   out.weapons = Array.isArray(s?.weapons)
     ? s.weapons
         .filter((w) => w && VALID_BOSS_WEAPONS.has(`${w.boss}|${w.weapon}`))
@@ -50,7 +56,7 @@ export default function Shards() {
   useEffect(() => { load(); }, []);
 
   const updateShard = (id, key, raw) => {
-    const v = Math.max(0, Math.min(MAX, parseInt(raw, 10) || 0));
+    const v = Math.max(0, Math.min(maxFor(key), parseInt(raw, 10) || 0));
     setMembers((prev) => prev.map((m) => (m.id === id ? { ...m, shards: { ...m.shards, [key]: v } } : m)));
     setDirty((d) => ({ ...d, [id]: true }));
   };
@@ -107,7 +113,7 @@ export default function Shards() {
       <p className="text-sm text-ash mb-5">
         {can('loot.awards')
           ? 'Track every member’s shard requests. You can edit any row.'
-          : 'Track your shard requests. You can edit your own row; others are read-only.'} Max {MAX} of each.
+          : 'Track your shard requests. You can edit your own row; others are read-only.'} Each column shows its own cap.
         <span className="block text-bone font-bold uppercase mt-1.5">Put how many you need, not how many you have AND keep it updated</span>
       </p>
 
@@ -139,6 +145,10 @@ export default function Shards() {
                 {TYPES.map((t) => (
                   <th key={t.key} className="sticky top-0 z-10 bg-panel px-2 py-4 text-center font-normal border-b border-line align-bottom">
                     <span className="block mx-auto max-w-[104px] leading-tight">{t.label}</span>
+                    {/* The cap differs per shard now, so it belongs on the column
+                        rather than in one sentence above the table — a silent clamp
+                        from 200 down to 90 is otherwise just a number that changed. */}
+                    <span className="block mt-1 text-ash/50 normal-case tracking-normal">max {maxFor(t.key)}</span>
                   </th>
                 ))}
                 <th className="sticky top-0 z-10 bg-panel p-4 text-center font-normal border-b border-line align-bottom">Total</th>
@@ -166,7 +176,7 @@ export default function Shards() {
                       <td key={t.key} className="px-2 py-3 text-center">
                         {editable ? (
                           <input
-                            type="number" min={0} max={MAX} value={m.shards[t.key]}
+                            type="number" min={0} max={maxFor(t.key)} value={m.shards[t.key]}
                             onChange={(e) => updateShard(m.id, t.key, e.target.value)}
                             onBlur={() => saveRow(m)}
                             className="w-16 bg-hall border border-line rounded px-2 py-1.5 text-center font-mono text-bone focus:outline-none focus:border-brass"
