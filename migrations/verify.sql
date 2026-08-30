@@ -97,11 +97,24 @@ select '019 · get_guild_feud_coverage(text[])',
        (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.proname = 'get_guild_feud_coverage' and p.pronargs = 1) = 1
 union all
-select '019 · get_guild_feud_roster(text[], text)',
+-- get_guild_feud_roster is 020's shape, not 019's: 020 dropped the 2-argument
+-- version and created a 3-argument one (p_recent). Checked the same way as
+-- save_event above, and for the same failure — `create or replace` cannot change
+-- a signature, so a skipped drop leaves BOTH defined and every roster load dies
+-- with PGRST203 "could not choose the best candidate function". Exactly one,
+-- taking three arguments, is the pass.
+--
+-- This row asserted `pronargs = 2` until 020 shipped, which made a correctly
+-- migrated database report MISSING. A check that fails when the migration
+-- SUCCEEDS is worse than no check, so it moved down here with the migration
+-- that owns the function.
+select '020 · get_guild_feud_roster is the 3-arg version only',
        (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-        where n.nspname = 'public' and p.proname = 'get_guild_feud_roster' and p.pronargs = 2) = 1
+        where n.nspname = 'public' and p.proname = 'get_guild_feud_roster') = 1
+       and (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'get_guild_feud_roster' and p.pronargs = 3) = 1
 union all
--- 020 widens get_guild_feud_roster's RETURNS TABLE, which verify.sql cannot
+-- 020 also widens that function's RETURNS TABLE, which verify.sql cannot
 -- inspect — the manual check in the plan covers the column list. What it can
 -- hold is that the two new lookup functions exist with the right arity.
 select '020 · get_player_guilds(text[], text)',
