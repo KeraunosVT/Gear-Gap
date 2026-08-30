@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../auth';
-import { CalendarOff, CalendarX2, Plus, Trash2, Settings, X, Repeat, ChevronDown, Pencil, Check } from 'lucide-react';
+import { CalendarOff, CalendarX2, Plus, Trash2, Settings, X, Repeat, ChevronDown, Pencil, Check, CalendarCheck, Undo2 } from 'lucide-react';
 
-import { fmtTimeEst, fmtDatetime, todayInGuildTz, eventsForGuildDay, isAfterMidnight, guildDayOfWeek } from '../timeUtils';
+import { fmtTimeEst, fmtDatetime, todayInGuildTz, eventsForGuildDay, isAfterMidnight, guildDayOfWeek, loaSkipsDate } from '../timeUtils';
 import Tabs from '../components/ui/Tabs';
 import { PageShell } from '../components/ui/PageShell';
 import { useFlash } from '../components/ui/useFlash';
@@ -221,6 +221,9 @@ export default function LOA() {
     }
   };
 
+  // Cancels the WHOLE entry. For a recurring one that means every future
+  // occurrence of it, so the callers that offer this on a single night confirm
+  // first — see skipOccurrence for the small-scope alternative.
   const cancel = async (id) => {
     try {
       await axios.delete(`/api/loa/${id}`);
@@ -228,6 +231,30 @@ export default function LOA() {
       load();
     } catch (err) {
       flash(err.response?.data?.error || 'Failed to cancel.', false);
+    }
+  };
+
+  // Removes ONE date from a recurring series and leaves the rule standing.
+  // This is what the agenda's X does now: a projected occurrence looks like a
+  // row of its own, so the action on it has to be scoped like one. Cancelling
+  // the series is still available, but only behind its own explicit control.
+  const skipOccurrence = async (id, date) => {
+    try {
+      await axios.delete(`/api/loa/${id}/occurrences/${date}`);
+      flash('Removed that one — the rest of the series still stands.');
+      load();
+    } catch (err) {
+      flash(err.response?.data?.error || 'Failed to remove that occurrence.', false);
+    }
+  };
+
+  const restoreOccurrence = async (id, date) => {
+    try {
+      await axios.post(`/api/loa/${id}/occurrences/${date}`);
+      flash('Put back.');
+      load();
+    } catch (err) {
+      flash(err.response?.data?.error || 'Failed to restore that occurrence.', false);
     }
   };
 
@@ -341,6 +368,17 @@ export default function LOA() {
 
   const todayStr = todayInGuildTz();
 
+  const shortDate = (d) =>
+    new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+  // Dates lifted out of a recurring series that are still ahead of us. Past
+  // exceptions stay stored on purpose — unavailableOn() is asked about finished
+  // nights too, and dropping them would rewrite who was absent that night — but
+  // they are history, not something anyone needs offered back.
+  const upcomingSkips = (entry) => (Array.isArray(entry.skip_dates) ? entry.skip_dates : [])
+    .filter((d) => d >= todayStr)
+    .sort();
+
   const upcomingAbsent = useMemo(() => {
     return allEntries.filter((e) => {
       if (e.type === 'event') return e.event_date >= todayStr;
@@ -412,7 +450,9 @@ export default function LOA() {
     });
     calendarCells.forEach(({ date }) => {
       const dow = new Date(date + 'T12:00:00').getDay();
-      recurringEntries.filter((e) => e.day_of_week === dow).forEach((e) => add(date, e));
+      recurringEntries
+        .filter((e) => e.day_of_week === dow && !loaSkipsDate(e, date))
+        .forEach((e) => add(date, e));
     });
 
     // Someone with both a range and a recurring entry covering the same day is
@@ -462,7 +502,10 @@ export default function LOA() {
     lookaheadDates.forEach((d) => {
       const dow = new Date(d + 'T12:00:00').getDay();
       recurringEntries
-        .filter((e) => e.day_of_week === dow)
+        // A date the member has lifted out of the series is not an absence, so
+        // it doesn't belong on the agenda. It stays visible in the Recurring
+        // summary above, where it can be put back.
+        .filter((e) => e.day_of_week === dow && !loaSkipsDate(e, d))
         .forEach((e) => { (groups[d] = groups[d] || []).push(e); });
     });
     return Object.entries(groups)
@@ -762,9 +805,36 @@ export default function LOA() {
                           {e.type === 'recurring' && formatRecurringLabel(e)}
                         </div>
                         {e.reason && <div className="text-xs text-ash mt-0.5">{e.reason}</div>}
+                        {/* Your own removed occurrences, restorable from the tab
+                            you'd actually look in. */}
+                        {e.type === 'recurring' && upcomingSkips(e).length > 0 && (
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[11px]">
+                            <span className="text-ash/50 inline-flex items-center gap-1">
+                              <CalendarCheck className="w-3 h-3" /> except
+                            </span>
+                            {upcomingSkips(e).map((sd) => (
+                              <button
+                                key={sd}
+                                onClick={() => restoreOccurrence(e.id, sd)}
+                                title={`Put ${shortDate(sd)} back on this LOA`}
+                                className="inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-ash/70 hover:border-brass hover:text-brassbright"
+                              >
+                                {shortDate(sd)}
+                                <Undo2 className="w-2.5 h-2.5" />
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                       <div className="text-xs text-ash/60 shrink-0 text-right" title="When this LOA was submitted">Filed {fmtDatetime(e.created_at)}</div>
-                      <button onClick={() => cancel(e.id)} className="text-ash hover:text-oxblood shrink-0" title="Cancel LOA">
+                      <button
+                        onClick={() => (e.type !== 'recurring'
+                          || window.confirm(`Cancel this LOA for every ${DAYS[e.day_of_week]}?`)) && cancel(e.id)}
+                        className="text-ash hover:text-oxblood shrink-0"
+                        title={e.type === 'recurring'
+                          ? `Cancel every ${DAYS[e.day_of_week]} — to drop a single week, use the X on that night in the Board`
+                          : 'Cancel LOA'}
+                      >
                         <X className="w-4 h-4" />
                       </button>
                     </div>
@@ -802,12 +872,18 @@ export default function LOA() {
                                 const entry = m.byDay[i];
                                 const active = !!entry;
                                 const title = active
-                                  ? `${d} — ${formatRecurringOccurrence(entry)}${can('loa.admin') && entry.reason ? ` · ${entry.reason}` : ''}${canCancel ? ' (click to cancel)' : ''}`
+                                  ? `${d} — ${formatRecurringOccurrence(entry)}${can('loa.admin') && entry.reason ? ` · ${entry.reason}` : ''}${canCancel ? ' (click to cancel every ' + d + ')' : ''}`
                                   : d;
                                 return (
                                   <button
                                     key={d}
-                                    onClick={() => active && canCancel && cancel(entry.id)}
+                                    // The chip is the RULE for that weekday, so
+                                    // cancelling the series here is the right
+                                    // scope — but it's one click on a 24px dot,
+                                    // which is not enough between an officer's
+                                    // finger and someone's standing absence.
+                                    onClick={() => active && canCancel
+                                      && window.confirm(`Cancel this LOA for every ${d}?`) && cancel(entry.id)}
                                     disabled={!active || !canCancel}
                                     title={title}
                                     className={`w-6 h-6 rounded-full text-[10px] font-semibold border transition-colors ${
@@ -825,18 +901,53 @@ export default function LOA() {
 
                           {isOpen && (
                             <div className="pl-11 pr-5 pb-3 -mt-1 space-y-1.5">
-                              {activeDays.map(({ d, i, entry }) => (
-                                <div key={i} className="flex items-center gap-2 text-xs">
-                                  <span className="text-brass w-24 shrink-0">{d}</span>
-                                  <span className="text-ash truncate">{formatRecurringOccurrence(entry)}</span>
-                                  {can('loa.admin') && entry.reason && <span className="text-ash/60 truncate">· {entry.reason}</span>}
-                                  {canCancel && (
-                                    <button onClick={() => cancel(entry.id)} className="ml-auto text-ash hover:text-oxblood shrink-0" title="Cancel this day">
-                                      <X className="w-3.5 h-3.5" />
-                                    </button>
-                                  )}
-                                </div>
-                              ))}
+                              {activeDays.map(({ d, i, entry }) => {
+                                const skips = upcomingSkips(entry);
+                                return (
+                                  <div key={i} className="space-y-1">
+                                    <div className="flex items-center gap-2 text-xs">
+                                      <span className="text-brass w-24 shrink-0">{d}</span>
+                                      <span className="text-ash truncate">{formatRecurringOccurrence(entry)}</span>
+                                      {can('loa.admin') && entry.reason && <span className="text-ash/60 truncate">· {entry.reason}</span>}
+                                      {canCancel && (
+                                        <button
+                                          onClick={() => window.confirm(`Cancel this LOA for every ${d}?`) && cancel(entry.id)}
+                                          className="ml-auto text-ash hover:text-oxblood shrink-0"
+                                          title={`Cancel every ${d} — to drop a single week, use the X on that night in the agenda below`}
+                                        >
+                                          <X className="w-3.5 h-3.5" />
+                                        </button>
+                                      )}
+                                    </div>
+                                    {/* The only place a removed occurrence is
+                                        still visible. Everywhere else it is
+                                        simply gone — which is correct, but
+                                        would leave a misclick with nothing to
+                                        undo it from. */}
+                                    {skips.length > 0 && (
+                                      <div className="flex flex-wrap items-center gap-1.5 pl-24 text-[11px]">
+                                        <span className="text-ash/50 inline-flex items-center gap-1">
+                                          <CalendarCheck className="w-3 h-3" /> here on
+                                        </span>
+                                        {skips.map((sd) => (
+                                          <button
+                                            key={sd}
+                                            onClick={() => canCancel && restoreOccurrence(entry.id, sd)}
+                                            disabled={!canCancel}
+                                            title={canCancel ? `Put ${shortDate(sd)} back on the LOA` : `Removed from this LOA`}
+                                            className={`inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-ash/70 ${
+                                              canCancel ? 'hover:border-brass hover:text-brassbright' : ''
+                                            }`}
+                                          >
+                                            {shortDate(sd)}
+                                            {canCancel && <Undo2 className="w-2.5 h-2.5" />}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
                             </div>
                           )}
                         </div>
@@ -877,9 +988,36 @@ export default function LOA() {
                             </div>
                             <div className="text-xs text-ash/60 shrink-0 text-right" title="When this LOA was submitted">Filed {fmtDatetime(e.created_at)}</div>
                             {(can('loa.admin') || e.discord_id === user?.id) && (
-                              <button onClick={() => cancel(e.id)} className="text-ash hover:text-oxblood shrink-0" title="Cancel LOA">
-                                <X className="w-4 h-4" />
-                              </button>
+                              e.type === 'recurring' ? (
+                                // A recurring entry is projected onto every
+                                // matching night, so this row is ONE occurrence
+                                // of a standing rule — not the rule. The X
+                                // removes just this night; ending the whole
+                                // thing is a second, deliberately separate
+                                // button that says what it will do.
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <button
+                                    onClick={() => skipOccurrence(e.id, date)}
+                                    className="text-ash hover:text-brassbright"
+                                    title={`Remove just ${formatDateHeader(date)} — every other ${DAYS[e.day_of_week]} stays`}
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => window.confirm(
+                                      `Cancel this LOA for EVERY ${DAYS[e.day_of_week]}, not just ${formatDateHeader(date)}?`,
+                                    ) && cancel(e.id)}
+                                    className="text-ash/50 hover:text-oxblood"
+                                    title={`Cancel the whole series — every ${DAYS[e.day_of_week]}`}
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              ) : (
+                                <button onClick={() => cancel(e.id)} className="text-ash hover:text-oxblood shrink-0" title="Cancel LOA">
+                                  <X className="w-4 h-4" />
+                                </button>
+                              )
                             )}
                           </div>
                         ))}

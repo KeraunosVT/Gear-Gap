@@ -126,6 +126,17 @@ select '021 · normalise_player_name(text)',
        (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.proname = 'normalise_player_name') = 1
 union all
+-- Without this column every read of loa_entries in unavailableOn() fails, since
+-- the select names it explicitly — so a missing 022 takes down the party
+-- builder, the event page and the signup reminder sweep, not just the new
+-- buttons. `date[]`, not `text[]`: PostgREST hands dates back as YYYY-MM-DD
+-- either way, but a text column would accept "next tuesday" without complaint.
+select '022 · loa_entries.skip_dates is date[]',
+       (select data_type = 'ARRAY' and udt_name = '_date'
+        from information_schema.columns
+        where table_schema = 'public' and table_name = 'loa_entries'
+          and column_name = 'skip_dates')
+union all
 select '019 · normalise_guild_name(text)',
        (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.proname = 'normalise_guild_name') = 1

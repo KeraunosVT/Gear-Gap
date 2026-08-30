@@ -7,7 +7,7 @@ import {
 
 import {
   fmtTimeEst, todayInGuildTz, eventsForGuildDay, isAfterMidnight, daySlot, getGuildTz,
-  withinLoaWindow, addDays,
+  withinLoaWindow, addDays, loaSkipsDate,
 } from '../timeUtils';
 import { PageShell } from '../components/ui/PageShell';
 import Button from '../components/ui/Button';
@@ -72,7 +72,14 @@ function loaCovers(entry, { date, dow, scheduleId, eventTime }) {
   const inScope = !entry.event_schedule_id || !scheduleId || entry.event_schedule_id === scheduleId;
   if (entry.type === 'range') return entry.start_date <= date && entry.end_date >= date;
   if (entry.type === 'event') return entry.event_date === date && inScope && withinLoaWindow(entry, eventTime);
-  if (entry.type === 'recurring') return entry.day_of_week === dow && inScope && withinLoaWindow(entry, eventTime);
+  // A date lifted out of the series doesn't warn you're away — you told us you
+  // could make this one. Same order as unavailableOn: the exception is checked
+  // before scope and window, because a removed occurrence isn't in the series
+  // for any event that night.
+  if (entry.type === 'recurring') {
+    return entry.day_of_week === dow && !loaSkipsDate(entry, date)
+      && inScope && withinLoaWindow(entry, eventTime);
+  }
   return false;
 }
 

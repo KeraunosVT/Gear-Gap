@@ -620,6 +620,38 @@ async function notifyLoaCancelled(entry, actor) {
   }
 }
 
+// One date lifted out of a standing absence, or put back. Worth a DM for the
+// same reason a cancellation is (migration 018): somebody planning that night
+// has the member down as out, and a change that only ever REMOVES a row is
+// invisible to them — the board just quietly has one fewer name on it.
+//
+// `skipped` true means they're now available that night; false means the
+// standing rule applies again after all.
+async function notifyLoaOccurrence(entry, date, skipped, actor) {
+  const target = loaNotifyDiscordId();
+  if (!ready || !client || !target || !entry) return;
+  if (actor?.id && String(actor.id) === String(target)) return;
+
+  const who = entry.display_name || 'Someone';
+  const scope = entry.event_name ? ` for **${entry.event_name}**` : '';
+  const rule = `every **${DAY_NAMES[entry.day_of_week]}**${scope}`;
+
+  const byOther = actor?.id && String(actor.id) !== String(entry.discord_id);
+  const lines = [
+    skipped
+      ? `✅ **${who}** is available on ${discordDate(date)} after all — their standing LOA ${rule} still stands otherwise.`
+      : `📋 **${who}** is back on LOA for ${discordDate(date)} — their standing LOA ${rule} applies again.`,
+    byOther ? `Changed by **${actor.name || actor.id}**.` : null,
+  ].filter(Boolean);
+
+  try {
+    const user = await client.users.fetch(String(target));
+    await user.send(lines.join('\n'));
+  } catch (err) {
+    console.warn(`LOA occurrence DM to ${target} failed:`, err.message);
+  }
+}
+
 async function handleLoa(interaction) {
   const sub = interaction.options.getSubcommand();
   if (sub === 'event') return handleLoaEvent(interaction);
@@ -1405,6 +1437,7 @@ module.exports = {
   announceLoaEntry,
   deleteLoaMessage,
   notifyLoaCancelled,
+  notifyLoaOccurrence,
   notifyAttendance,
   announceSignup,
   refreshSignupMessage,

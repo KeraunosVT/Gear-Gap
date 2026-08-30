@@ -131,6 +131,48 @@ describe('withinLoaWindow is identical on both sides', () => {
   });
 });
 
+describe('loaSkipsDate is identical on both sides', () => {
+  // A drift here doesn't error: it lists someone as absent on a night they told
+  // us they'd be there, or hides someone who is genuinely out. Both sides read
+  // the same date[] off the row, so the only way they can disagree is over what
+  // counts as a series to except a date from.
+  const DATE = '2026-09-01';
+  const CASES = [
+    { type: 'recurring', day_of_week: 2, skip_dates: [DATE] },
+    { type: 'recurring', day_of_week: 2, skip_dates: ['2026-09-08'] },
+    { type: 'recurring', day_of_week: 2, skip_dates: [] },
+    { type: 'recurring', day_of_week: 2, skip_dates: null },
+    { type: 'recurring', day_of_week: 2 },
+    // Only recurring has a series. An event LOA carrying the column anyway
+    // (nothing stops a hand-written row) must not be read as excepted.
+    { type: 'event', event_date: DATE, skip_dates: [DATE] },
+    { type: 'range', start_date: DATE, end_date: DATE, skip_dates: [DATE] },
+  ];
+
+  test('every entry shape agrees', () => {
+    const mismatches = CASES.filter(
+      (e) => createLoa.loaSkipsDate(e, DATE) !== fe.loaSkipsDate(e, DATE),
+    ).map((e) => JSON.stringify(e));
+    assert.deepEqual(mismatches, []);
+  });
+
+  test('a recurring entry excepting this date is skipped by both', () => {
+    const e = { type: 'recurring', day_of_week: 2, skip_dates: ['2026-08-25', DATE] };
+    assert.equal(createLoa.loaSkipsDate(e, DATE), true);
+    assert.equal(fe.loaSkipsDate(e, DATE), true);
+    assert.equal(createLoa.loaSkipsDate(e, '2026-09-08'), false);
+    assert.equal(fe.loaSkipsDate(e, '2026-09-08'), false);
+  });
+
+  test('neither throws on a missing or malformed entry', () => {
+    for (const impl of [createLoa, fe]) {
+      assert.equal(impl.loaSkipsDate(null, DATE), false);
+      assert.equal(impl.loaSkipsDate(undefined, DATE), false);
+      assert.equal(impl.loaSkipsDate({ type: 'recurring', skip_dates: 'nope' }, DATE), false);
+    }
+  });
+});
+
 describe('a non-default rollover moves both the same way', () => {
   // Guild Settings can change day_start, and the two sides learn about it by
   // completely different routes — guild_config on the backend, GET /api/guild

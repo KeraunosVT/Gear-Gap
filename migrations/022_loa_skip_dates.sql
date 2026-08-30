@@ -1,0 +1,40 @@
+-- 022_loa_skip_dates.sql — per-occurrence exceptions for a recurring LOA.
+--
+-- A recurring entry is a STANDING RULE ("out every Tuesday"), and until now the
+-- only thing you could do to it was delete it. The LOA board projects that rule
+-- onto every matching date, so each Tuesday looked like its own row with its own
+-- X — and clicking the X on one Tuesday cancelled every Tuesday, for good, with
+-- no warning and nothing to undo it with. "I can actually make it this week" is
+-- the most ordinary thing a member can say about a standing absence, and the
+-- page's only answer was to destroy the rule and ask them to re-file it.
+--
+-- An exception list on the row, rather than an loa_exceptions table:
+--   * unavailableOn() already reads every loa_entries row and matches in JS —
+--     recurring entries have no date to filter on, so there is nothing to narrow
+--     by. Carrying the exceptions ON the row costs that hot path nothing. A side
+--     table would add a second paged read to the party builder, the event page
+--     and the signup reminder sweep, to answer a question the row could have
+--     answered itself.
+--   * Nothing ever queries BY an excluded date — they are only ever read
+--     alongside the entry that owns them — so the one thing a table would buy
+--     (an index on the date) has no caller.
+--   * `on delete cascade` for free: cancelling the series takes its exceptions
+--     with it, because they were never anywhere else.
+--
+-- Deliberately NOT pruned of past dates. It is tempting to drop anything before
+-- today to keep the array small, but unavailableOn() is asked about past nights
+-- too — the attendance breakdown for a finished event calls it — and a pruned
+-- exception would silently turn "they were here that night" back into "they
+-- were on LOA". A few dozen dates on a row is not a size problem; a night that
+-- changes its own history is a correctness one.
+--
+-- Only meaningful for type = 'recurring'. A one-off event LOA is already a
+-- single occurrence, and a range is cancelled by editing its dates — neither has
+-- a series to except anything from. Nothing enforces that in the schema because
+-- the check would have to be a trigger to say it, and the write path is the only
+-- thing that can set the column.
+--
+-- Run this in the Supabase SQL editor.
+
+alter table loa_entries
+  add column if not exists skip_dates date[] not null default '{}';

@@ -60,6 +60,20 @@ function dayOfWeek(dateStr) {
   return new Date(dateStr + 'T12:00:00').getDay();
 }
 
+// One date lifted out of a recurring series — "out every Tuesday, except this
+// one". Only recurring entries have a series to except a date from; on any other
+// type the column is meaningless and is not consulted.
+//
+// Postgres hands a date[] back as YYYY-MM-DD strings, which is what every date
+// in this module already is, so this is a plain string match with no parsing.
+// Exported so the frontend's copy can be checked against it — see the
+// conformance test.
+function loaSkipsDate(entry, dateStr) {
+  if (entry?.type !== 'recurring') return false;
+  const skips = entry.skip_dates;
+  return Array.isArray(skips) && skips.includes(dateStr);
+}
+
 // Parses either a 24-hour "HH:MM" (what the website's <input type="time"> sends)
 // or a freeform clock string like "9pm" / "9:00 PM" (what the Discord command
 // takes, since slash commands have no time picker). Returns "HH:MM" or null.
@@ -222,7 +236,7 @@ module.exports = function createLoa(supabase, identities = null) {
         [data, eventRow] = await Promise.all([
           fetchAll(
             () => supabase.from('loa_entries').select(
-              'discord_id, display_name, type, event_date, event_schedule_id, start_date, end_date, day_of_week, start_time, end_time, reason',
+              'discord_id, display_name, type, event_date, event_schedule_id, start_date, end_date, day_of_week, start_time, end_time, reason, skip_dates',
             ).order('id'),
             { label: 'loa_entries' },
           ),
@@ -246,7 +260,14 @@ module.exports = function createLoa(supabase, identities = null) {
         // and has no time scoping to check.
         if (e.type === 'event' && e.event_date === date) matches = inScope(e) && withinLoaWindow(e, eventTime);
         if (e.type === 'range' && e.start_date <= date && e.end_date >= date) matches = true;
-        if (e.type === 'recurring' && e.day_of_week === dow) matches = inScope(e) && withinLoaWindow(e, eventTime);
+        // A recurring entry that has this date excepted doesn't apply at all —
+        // checked before the scope and window tests, since a lifted occurrence
+        // is absent from the series regardless of which event is being asked
+        // about. This is the authoritative reading: everything that decides
+        // whether someone is available tonight comes through here.
+        if (e.type === 'recurring' && e.day_of_week === dow && !loaSkipsDate(e, date)) {
+          matches = inScope(e) && withinLoaWindow(e, eventTime);
+        }
         if (!matches) return;
 
         const entry = {
@@ -437,6 +458,63 @@ module.exports = function createLoa(supabase, identities = null) {
 
       return { messageId: entry.discord_message_id || null, entry: { ...entry, event_name: eventName } };
     },
+
+    // Lift ONE date out of a recurring series, or put it back. The series
+    // survives either way — that is the entire point. Cancelling one Tuesday
+    // used to mean cancelling every Tuesday, because a projected occurrence has
+    // no row of its own to delete and the only id on screen was the rule's.
+    //
+    // `skip` false restores. Both are idempotent: skipping an already-skipped
+    // date and restoring one that was never skipped are both no-ops that report
+    // success, so a double-click or a stale page can't produce an error about
+    // something that is already true.
+    async setOccurrenceSkipped({ id, date, skip, discordId, isAdmin }) {
+      if (!isValidDate(date)) throw httpError(400, 'Date must be in YYYY-MM-DD format.');
+      const { data: entry } = await supabase.from('loa_entries').select('*').eq('id', id).single();
+      if (!entry) throw httpError(404, 'LOA not found.');
+      if (entry.discord_id !== discordId && !isAdmin) throw httpError(403, 'You can only change your own LOA.');
+      if (entry.type !== 'recurring') {
+        throw httpError(400, 'Only a recurring LOA has occurrences to remove. Cancel this one instead.');
+      }
+      // The date has to be a day the rule actually lands on, or the exception
+      // describes nothing and sits on the row forever looking like it does
+      // something. A stale page whose day_of_week has since been edited is the
+      // realistic way to get here.
+      if (dayOfWeek(date) !== entry.day_of_week) {
+        throw httpError(400, "That date isn't one this LOA covers.");
+      }
+
+      const current = Array.isArray(entry.skip_dates) ? entry.skip_dates.map(String) : [];
+      const has = current.includes(date);
+      if (skip === has) return { entry, changed: false, skipDates: current };
+
+      // Read-modify-write rather than an rpc doing array_append. The contention
+      // this could lose to is two people excepting two DIFFERENT dates on the
+      // same recurring entry within the same instant, which is not a thing that
+      // happens to a rule one member owns — unlike signup_join, where two people
+      // really do race for the last slot and the cap is enforced by a function
+      // for exactly that reason. Sorted so the stored order is stable and the
+      // UI needn't sort on read.
+      const next = skip ? [...current, date].sort() : current.filter((d) => d !== date);
+      const { error } = await supabase.from('loa_entries')
+        .update({ skip_dates: next }).eq('id', id);
+      if (error) {
+        console.error('loa.setOccurrenceSkipped error:', error.message);
+        throw httpError(500, skip ? 'Failed to remove that occurrence.' : 'Failed to restore that occurrence.');
+      }
+
+      // Same best-effort lookup cancel() does, and for the same reason: the
+      // notice reads better naming the event, and not knowing it costs a few
+      // words rather than the notice.
+      let eventName = null;
+      if (entry.event_schedule_id) {
+        const { data: ev } = await supabase.from('event_schedule')
+          .select('name').eq('id', entry.event_schedule_id).single();
+        eventName = ev?.name || null;
+      }
+
+      return { entry: { ...entry, event_name: eventName }, changed: true, skipDates: next };
+    },
   };
 };
 
@@ -448,6 +526,7 @@ module.exports.daySlot = daySlot;
 // they disagree. The two can't be one file — see the note in that test — so a
 // test is what keeps them honest.
 module.exports.withinLoaWindow = withinLoaWindow;
+module.exports.loaSkipsDate = loaSkipsDate;
 module.exports.guildDayOfWeek = guildDayOfWeek;
 module.exports.isAfterMidnight = isAfterMidnight;
 // Accessors, not constants — the rollover and timezone are configuration now.

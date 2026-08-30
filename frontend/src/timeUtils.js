@@ -79,6 +79,21 @@ export function withinLoaWindow(entry, eventTime) {
   return at < to;
 }
 
+// Has this one date been lifted out of a recurring series? "Out every Tuesday,
+// except this one" — the exception a member needs when they can make the night
+// after all, so that saying so doesn't have to cancel the standing rule.
+//
+// Only recurring entries have a series to except a date from. Mirrors
+// loaSkipsDate in backend/loa.js and is held in step by the same conformance
+// test as withinLoaWindow — this one decides whether a name shows on the board
+// at all, so a drift here is a member silently listed as absent on a night they
+// told us they'd be there.
+export function loaSkipsDate(entry, dateStr) {
+  if (entry?.type !== 'recurring') return false;
+  const skips = entry.skip_dates;
+  return Array.isArray(skips) && skips.includes(dateStr);
+}
+
 // Does this LOA still apply on or after `today` (a guild-night YYYY-MM-DD)?
 // Recurring entries never expire — that is the point of them — so anything
 // counting "absences on file" has to treat them as permanently live rather

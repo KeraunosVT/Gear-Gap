@@ -680,6 +680,44 @@ app.delete('/api/loa/:id', async (req, res) => {
   }
 });
 
+// Remove ONE occurrence from a recurring LOA, or put it back.
+//
+// Separate from DELETE /api/loa/:id on purpose. That one cancels the standing
+// rule; this one lifts a single date out of it. The board projects a recurring
+// entry onto every matching night, so those nights look like rows you can
+// delete — and until this existed, deleting one deleted all of them. Two
+// different destructive scopes need two different routes, or the UI has no way
+// to offer the small one.
+//
+// DELETE removes the occurrence, POST restores it — the occurrence is the
+// resource, and the series it belongs to is untouched either way.
+const loaOccurrence = (skip) => async (req, res) => {
+  if (!loa) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    const result = await loa.setOccurrenceSkipped({
+      id: req.params.id,
+      date: req.params.date,
+      skip,
+      discordId: req.user.id,
+      isAdmin: userHas(req.user, 'loa.admin'),
+    });
+    res.json({ ok: true, skip_dates: result.skipDates });
+    // Only when something actually changed: a repeated click is a no-op and
+    // shouldn't DM anybody a second time. After the response and never awaited,
+    // like the announcement on submit and the notice on cancel.
+    if (result.changed) {
+      gateway.notifyLoaOccurrence(result.entry, req.params.date, skip, {
+        id: req.user.id, name: req.user.username,
+      }).catch((err) => console.error('LOA occurrence notice error:', err.message));
+    }
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+};
+
+app.delete('/api/loa/:id/occurrences/:date', loaOccurrence(true));
+app.post('/api/loa/:id/occurrences/:date', loaOccurrence(false));
+
 // ── Event signups ────────────────────────────────────────────────────────────
 // Opt-in only: a row means "I'm coming". There is no way to record "I'm out"
 // here — that's what an LOA is — so a member with no entry is undecided, not
