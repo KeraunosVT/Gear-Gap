@@ -162,6 +162,22 @@ select '023 · get_guild_player_counts is the 1-arg version only',
        and (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.proname = 'get_guild_player_counts' and p.pronargs = 1) = 1
 union all
+-- The last two functions that had guild names baked into their bodies: the
+-- Roster's all-time table and the dashboard tiles. Same drop-then-create trap
+-- as above, and the same reason the arity is what gets checked — a 0-argument
+-- version of either is one that has stopped following Guild Settings.
+select '024 · get_player_stats is the 1-arg version only',
+       (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'get_player_stats') = 1
+       and (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'get_player_stats' and p.pronargs = 1) = 1
+union all
+select '024 · get_stats_summary is the 1-arg version only',
+       (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'get_stats_summary') = 1
+       and (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'get_stats_summary' and p.pronargs = 1) = 1
+union all
 select '019 · normalise_guild_name(text)',
        (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.proname = 'normalise_guild_name') = 1

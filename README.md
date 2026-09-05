@@ -93,7 +93,9 @@ A profile shows every match row under any of that player's names, then splits ou
 
 Excluded rows are now counted and named on the page, so recognising one of the spellings as yours and adding it to the aliases in Guild Settings folds those matches back in.
 
-Note that two different definitions of "our guild" are in play. Everything reading `guildAliases()` follows `guild_config` and updates the moment Guild Settings is saved. The Roster's all-time table and the dashboard tiles come from `get_player_stats()` / `get_stats_summary()`, both called with **no arguments**, so their guild list is baked into the SQL and does not. If the two ever disagree about a member's match count, that mismatch is the first place to look.
+There is now **one** definition of "our guild": `guild_config`, reached through `guildAliases()`, updating the moment Guild Settings is saved. No SQL function carries a guild name in its body — every one that scopes to us takes the alias list as a `p_guild_names text[]` parameter, and `verify.sql` asserts the argument count of each so a zero-argument version can never quietly come back.
+
+It was not always so, and the failure is worth remembering: `get_guild_player_counts()`, `get_player_stats()` and `get_stats_summary()` each had a list of our former names frozen into their SQL. After the rename to Gear Gap they kept answering — just about nobody. Players who had been on the scoreboard for weeks never reached the Names page's Unmapped list, the Roster's All Time table dropped them under both its toggles, and the dashboard totals stopped counting. Nothing errored, and the older names that still carried a historical `guild_name` went on resolving, so all three pages looked like they were working. Migrations 019, 023 and 024 walked that back one function at a time.
 
 ### Three alias lists, and why they are separate tables
 

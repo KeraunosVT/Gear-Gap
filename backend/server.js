@@ -903,7 +903,7 @@ app.get('/api/players', async (req, res) => {
       });
       data = Object.values(agg);
     } else {
-      const result = await supabase.rpc('get_player_stats');
+      const result = await supabase.rpc('get_player_stats', { p_guild_names: Object.keys(guildAliases()) });
       if (result.error) throw result.error;
       data = result.data;
     }
@@ -1108,9 +1108,11 @@ app.get('/api/stats/summary', async (req, res) => {
       .select('*', { count: 'exact', head: true });
 
     // Aggregation via RPC — bypasses the 1,000-row PostgREST limit entirely.
-    // Called with no argument; the SQL function already scopes to our guild's names.
+    // The alias list is passed in, never assumed by the function: it used to be
+    // hardcoded in the SQL body, so these tiles stopped counting at the last
+    // guild rename. See 024.
     const { data: aggData, error: aggError } = await supabase
-      .rpc('get_stats_summary');
+      .rpc('get_stats_summary', { p_guild_names: Object.keys(guildAliases()) });
 
     if (aggError) throw aggError;
 
