@@ -112,6 +112,8 @@ There are three, and each answers a different question:
 
 They must never share storage. One enemy name in `guild_config.aliases` silently folds a rival's matches into the guild's own record, and one of ours in `enemy_guild_aliases` does the reverse. The write path in [admin.js](backend/admin.js) refuses both directions. There are tests for each.
 
+**Name matching folds case and collapses whitespace, in every layer.** `identities.js` does it in JS as `lower(trim(…))`; the SQL functions do it as `lower(normalise_player_name(…))`. This is not a stylistic preference — the two layers drifting apart is a live bug class, and migration 025 exists because of it. `get_player_stats()` once joined case-sensitively while the Names page resolved case-insensitively, so a scoreboard read as `Shawarmashuffle` against an identity holding `ShawarmaShuffle` was *unmapped enough to fork the Roster into two rows for one person, and mapped enough that the Unmapped list never offered it* — unfixable from the page built to fix it. If you add a name lookup anywhere, fold it the same way as its neighbours.
+
 **Merging, on the Feuds page:** misreads (`lron Vow` for `Iron Vow`) are *suggested* by edit distance and applied on confirmation. **Renames** are merged by hand — `Iron Vow` to `Iron Covenant` has a large edit distance and will never be proposed, so each row carries a merge control that takes any other guild, or a name typed in that isn't on the board yet.
 
 Chains are handled in both directions, and the two rules are complements rather than duplicates:

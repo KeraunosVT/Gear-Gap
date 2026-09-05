@@ -178,6 +178,18 @@ select '024 · get_stats_summary is the 1-arg version only',
        and (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.proname = 'get_stats_summary' and p.pronargs = 1) = 1
 union all
+-- 025 changes a BODY, not a signature, so the arity check above cannot see it
+-- and there is no catalog column that can. This reads the source text instead:
+-- weaker than every other row here (it asserts the fix is spelled that way, not
+-- that it works), but a body-only migration is otherwise untestable from here,
+-- and silently keeping the case-SENSITIVE join is what forks one player into two
+-- Roster rows.
+select '025 · get_player_stats folds case when resolving names',
+       coalesce((select p.prosrc ~ 'lower\(normalise_player_name'
+                 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                 where n.nspname = 'public' and p.proname = 'get_player_stats'
+                 limit 1), false)
+union all
 select '019 · normalise_guild_name(text)',
        (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.proname = 'normalise_guild_name') = 1
