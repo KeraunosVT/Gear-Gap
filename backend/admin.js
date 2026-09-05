@@ -1354,11 +1354,15 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
   });
 
   // In-game names from match data that aren't yet mapped to any identity.
+  //
+  // The alias list is passed in, never assumed by the function — see 023. The
+  // zero-argument version this replaced had our guild names hardcoded, so a
+  // rename made every player since invisible to the Unmapped list.
   router.get('/unmapped-names', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
     try {
       const [counts, ids] = await Promise.all([
-        supabase.rpc('get_guild_player_counts'),
+        supabase.rpc('get_guild_player_counts', { p_guild_names: Object.keys(guildConfig.aliasMap()) }),
         identities.load(),
       ]);
       if (counts.error) throw counts.error;

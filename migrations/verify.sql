@@ -150,6 +150,18 @@ select '022 · loa_entries.skip_dates is date[]',
         where table_schema = 'public' and table_name = 'loa_entries'
           and column_name = 'skip_dates')
 union all
+-- Checked the same way as save_event and get_guild_feud_roster above, and for
+-- the same failure: 023 must DROP the 0-argument version before creating the
+-- 1-argument one, or both exist and every Names page load dies with PGRST203.
+-- The arity is the whole point of the migration — a 0-argument
+-- get_guild_player_counts is one with our guild names hardcoded in its body,
+-- which is what stopped the Unmapped list from following Guild Settings.
+select '023 · get_guild_player_counts is the 1-arg version only',
+       (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'get_guild_player_counts') = 1
+       and (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'get_guild_player_counts' and p.pronargs = 1) = 1
+union all
 select '019 · normalise_guild_name(text)',
        (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.proname = 'normalise_guild_name') = 1
