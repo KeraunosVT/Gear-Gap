@@ -1,15 +1,12 @@
 // backend/ingest.js — turn a screenshot or CSV into draft player rows.
-// Screenshots go through Gemini vision (with an optional weapon legend as a
-// reference image); CSVs are parsed directly. Both produce the same row shape,
-// which the admin reviews and edits before committing.
-const { GoogleGenAI, Type } = require('@google/genai');
+// Screenshots go through the vision model (see vision.js), with an optional
+// weapon legend as a reference image; CSVs are parsed directly. Both produce the
+// same row shape, which the admin reviews and edits before committing.
+const vision = require('./vision');
 const Papa = require('papaparse');
 const fs = require('fs');
 const path = require('path');
 
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-// Model names churn — keep this swappable without a code change.
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
 // Optional reference legend image sent as image 1 on every screenshot read.
 const LEGEND_PATH = process.env.WEAPON_LEGEND_PATH || path.join(__dirname, 'assets', 'weapon-legend.png');
 
@@ -22,14 +19,14 @@ let _legendPart; // undefined = not checked, null = absent
 function getLegendPart() {
   if (_legendPart !== undefined) return _legendPart;
   try {
-    const data = fs.readFileSync(LEGEND_PATH);
+    const buffer = fs.readFileSync(LEGEND_PATH);
     const ext = path.extname(LEGEND_PATH).toLowerCase();
     const mimeType = ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/png';
-    _legendPart = { inlineData: { mimeType, data: data.toString('base64') } };
+    _legendPart = { buffer, mimeType };
   } catch (err) {
     // Warn once. This silently returned null for every parse, so a mistyped
     // path or missing file degraded weapon detection invisibly — the prompt
-    // still asked Gemini to compare against a legend that was never attached.
+    // still asked the model to compare against a legend that was never attached.
     console.warn(`⚠️  Weapon legend not loaded from ${LEGEND_PATH} (${err.code || err.message}) — weapon detection will be less accurate. Set WEAPON_LEGEND_PATH to override.`);
     _legendPart = null;
   }
@@ -79,59 +76,72 @@ OTHER RULES:
 - If a value is blank or unreadable, use 0.
 - Return rows in ranking order.
 
-Extract every remaining row into a JSON array of objects with these exact keys:
+Extract every remaining row into an object with these exact keys:
 rank, weapon1, weapon2, guildname, playername, teamcolor, kills, assists, damagedealt, damagetaken, healing.
-Return ONLY the JSON array, no markdown, no explanation.`;
+Return a JSON object with a single key "players", whose value is the array of those row objects. No markdown, no explanation.`;
 }
 
 // Schema guarantees the model returns a well-formed array of rows.
+//
+// The rows are wrapped in a `players` key because strict-mode structured output
+// requires the ROOT to be an object — a bare array root is rejected. Every
+// property is listed in `required` and every object carries
+// `additionalProperties: false` for the same reason: strict mode demands both.
+const ROW_PROPERTIES = {
+  rank: { type: 'number' },
+  weapon1: { type: 'string' },
+  weapon2: { type: 'string' },
+  guildname: { type: 'string' },
+  playername: { type: 'string' },
+  teamcolor: { type: 'string' },
+  kills: { type: 'number' },
+  assists: { type: 'number' },
+  damagedealt: { type: 'number' },
+  damagetaken: { type: 'number' },
+  healing: { type: 'number' },
+};
+
 const RESPONSE_SCHEMA = {
-  type: Type.ARRAY,
-  items: {
-    type: Type.OBJECT,
-    properties: {
-      rank: { type: Type.NUMBER },
-      weapon1: { type: Type.STRING },
-      weapon2: { type: Type.STRING },
-      guildname: { type: Type.STRING },
-      playername: { type: Type.STRING },
-      teamcolor: { type: Type.STRING },
-      kills: { type: Type.NUMBER },
-      assists: { type: Type.NUMBER },
-      damagedealt: { type: Type.NUMBER },
-      damagetaken: { type: Type.NUMBER },
-      healing: { type: Type.NUMBER },
+  type: 'object',
+  properties: {
+    players: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: ROW_PROPERTIES,
+        // Derived, not retyped. A hand-maintained copy of this list is one
+        // rename away from a schema that silently stops requiring a column.
+        required: Object.keys(ROW_PROPERTIES),
+        additionalProperties: false,
+      },
     },
-    required: ['rank', 'weapon1', 'weapon2', 'guildname', 'playername', 'teamcolor', 'kills', 'assists', 'damagedealt', 'damagetaken', 'healing'],
   },
+  required: ['players'],
+  additionalProperties: false,
 };
 
 async function parseScreenshot(buffer, mimeType) {
-  if (!GEMINI_API_KEY) {
-    throw new Error('GEMINI_API_KEY is not set — screenshot reading is unavailable.');
-  }
-
-  const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
   const legend = getLegendPart();
 
-  const parts = [{ text: buildPrompt(!!legend) }];
-  if (legend) parts.push(legend);
-  parts.push({ inlineData: { mimeType, data: buffer.toString('base64') } });
+  // Legend FIRST when present — the prompt calls it "Image 1" and describes the
+  // scoreboard as "Image 2", so the order here is load-bearing, not incidental.
+  const images = [];
+  if (legend) images.push(legend);
+  images.push({ buffer, mimeType });
 
-  const response = await ai.models.generateContent({
-    model: GEMINI_MODEL,
-    contents: [{ role: 'user', parts }],
-    config: { responseMimeType: 'application/json', responseSchema: RESPONSE_SCHEMA, temperature: 0 },
+  const parsed = await vision.readImages({
+    prompt: buildPrompt(!!legend),
+    images,
+    schema: RESPONSE_SCHEMA,
+    schemaName: 'scoreboard',
+    unavailable: 'screenshot reading',
   });
 
-  let parsed;
-  try {
-    parsed = JSON.parse(response.text);
-  } catch {
-    throw new Error('Gemini did not return valid JSON. Try a clearer screenshot.');
-  }
-
-  const arr = Array.isArray(parsed) ? parsed : Array.isArray(parsed.players) ? parsed.players : [];
+  // The schema guarantees `players`, but the array fallback stays: it costs a
+  // comparison and it is the difference between a bad read degrading to "no
+  // rows detected" (which buildWarnings explains) and a TypeError reaching the
+  // officer as a 500.
+  const arr = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.players) ? parsed.players : [];
   const players = arr.map(normalizeRow);
   return { players, warnings: buildWarnings(players, 'screenshot'), usedLegend: !!legend };
 }
@@ -255,6 +265,6 @@ function buildWarnings(players, source) {
 }
 
 // cleanWeapon is exported for backend/test/weaponNames.test.js — it is the seam
-// between whatever Gemini answers and the tokens shared/weaponClasses.json can
+// between whatever the model answers and the tokens shared/weaponClasses.json can
 // resolve, so it is worth holding directly.
 module.exports = { parseScreenshot, parseCsv, WEAPONS, cleanWeapon };

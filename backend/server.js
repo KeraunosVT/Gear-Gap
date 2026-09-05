@@ -47,7 +47,7 @@ const app = express();
 // req.secure to reflect the real client rather than the proxy.
 app.set('trust proxy', 1);
 
-// Per-member throttle for endpoints that call Gemini (each request costs real
+// Per-member throttle for endpoints that call the vision model (each request costs real
 // API money). Keyed on the session user id; IP is only a fallback in case this
 // is ever mounted before auth.
 const GEAR_LIMIT_PER_HOUR = parseInt(process.env.GEAR_SUBMIT_LIMIT_PER_HOUR, 10) || 5;
@@ -263,7 +263,7 @@ app.post('/api/gear-ilvl', gearSubmitLimiter, gearUpload.single('image'), async 
 // thing that sets one. See the note at the top of gearIlvl.js for why.
 //
 // Still behind the same per-member hourly limiter as the popup. It no longer
-// costs a Gemini request, but it does write a file to the bucket, and an
+// costs a vision request, but it does write a file to the bucket, and an
 // unmetered image upload is worth rate-limiting on its own.
 app.post('/api/gear-screenshot', gearSubmitLimiter, gearUpload.single('image'), async (req, res) => {
   if (!gearIlvl) return res.status(503).json({ error: 'Database not configured.' });

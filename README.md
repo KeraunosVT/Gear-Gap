@@ -17,7 +17,7 @@ A guild-management web app for a *Throne & Liberty* guild, built around Discord:
 - **Player lookup** — click any name on an enemy roster, or search from the Feuds page, to see every guild that name has played under with dates and totals. A name under three guilds in a year is a mercenary; one that moved from a guild you beat to a guild you lose to is worth knowing about. Guild names resolve through the same alias table the Feuds page uses, so a player's history doesn't split across the misreads that page already merges. One of your own members links out to their full profile.
 - **Loot Wishlist** — pick items you want per build (PvP / PvE / Second Build); see live demand
 - **Archboss Shards** — track how many of each archboss shard type you need, plus a weapon wishlist. Both lists come from `shared/shards.json` and `shared/archbossWeapons.json`, so a new shard or weapon is a JSON edit and no migration: counts live in a `shards` JSON blob on `shard_counts`, and a key nobody has yet reads as 0. A new shard type also becomes grantable in the Lucent & Shards ledger automatically (`backend/admin.js` builds its allowed set from the same file) — but it has no mirrored icon until someone runs `scripts/mirrorCurrencyIcons.js <key> <url>`, and falls back to a coin glyph until then
-- **Gear Level** — a **Watermark Upload** (the small in-game Equipment Level popup) has its four numbers read automatically (Gemini). That is the only thing that sets a gear level. Separately you can file a **Gear Screenshot Upload** — your full equipment window: it is stored and visible to you and to officers, and nothing is read out of it — no parse, no numbers, no effect on your level. It used to be parsed item by item to recompute the maxima with Heroic gear excluded, but two uploads writing one column meant the number meant different things for different members, off a per-item read too unreliable to trust without opening the image anyway. The picture is now the evidence, and the watermark is the measurement
+- **Gear Level** — a **Watermark Upload** (the small in-game Equipment Level popup) has its four numbers read automatically. That is the only thing that sets a gear level. Separately you can file a **Gear Screenshot Upload** — your full equipment window: it is stored and visible to you and to officers, and nothing is read out of it — no parse, no numbers, no effect on your level. It used to be parsed item by item to recompute the maxima with Heroic gear excluded, but two uploads writing one column meant the number meant different things for different members, off a per-item read too unreliable to trust without opening the image anyway. The picture is now the evidence, and the watermark is the measurement
 - **My Classes** — rank up to 3 classes per mode so officers can plan parties around your build
 - **Event Calendar** (`/attendance/calendar`) — the week ahead as an agenda, one section per night, four weeks of paging. It shows the **schedule**, not just opened signups: a recurring event appears on the nights it runs even when nobody has opened it, and saying *I'm in* opens the occurrence on the way through (`POST /api/signups/for-event`, which opens and joins in one request so a failure can't strand an empty signup that looks like a raid call nobody answered). Opening this way is quiet — no Discord post; officers post it from Signups when they want the call made. Members can only open a night that hasn't started and is inside 30 days, and the pager's 4-week ceiling is that same limit, so its arrows can't reach a week the API would refuse. Your own LOA marks a row *you're away*, and *on LOA and signed up* if both — surfaced, never auto-resolved. There is no way to say you're out here; that's what an LOA is
 - **Leave of Absence** — submit LOA for a single event, a date range, or recurring days (pick more than one at once); optionally scope any of these to a time window (e.g. "I can make the 6pm event but I'm out after that," or "out 7–8pm, back after") — also via `/loa` in Discord. Cancelling one deletes its announcement, so a nominated member can be [DMed](#guild-settings-adminsettings) when it happens: coming back otherwise *removes* evidence rather than adding it, and nobody planning a night would notice.
@@ -50,7 +50,7 @@ A guild-management web app for a *Throne & Liberty* guild, built around Discord:
 - **Frontend**: React + Vite, React Router, Tailwind CSS
 - **Backend**: Node.js + Express, `discord.js` (bot/gateway), Discord OAuth2 (login)
 - **Database**: Supabase (Postgres)
-- **AI**: Google Gemini — parses screenshot uploads (match scoreboards, gear level windows)
+- **AI**: OpenAI `gpt-5.6-terra` — parses screenshot uploads (match scoreboards, gear level windows), behind the single seam in [`backend/vision.js`](backend/vision.js)
 
 Backend and frontend deploy as a single process: `server.js` serves the built frontend (`frontend/dist`) statically alongside the `/api` routes, so there's one server to run.
 
@@ -144,11 +144,11 @@ Configuration is split in two. **Secrets and identity** are environment variable
 | `DISCORD_GUILD_ID` | The one Discord server this deployment is bound to |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` | Database connection |
 | `JWT_SECRET` | Signs the session cookie |
-| `GEMINI_API_KEY` | Screenshot parsing (match stats, gear level) |
-| `GEMINI_MODEL` | Optional, defaults to `gemini-2.5-flash` |
+| `OPENAI_API_KEY` | Screenshot parsing (match stats, gear level) |
+| `VISION_MODEL` | Optional, defaults to `gpt-5.6-terra` |
 | `PORT` | Optional, defaults to `3000` |
 | `CORS_ORIGINS` | Optional, comma-separated trusted origins (local dev only — production is same-origin) |
-| `APP_URL`, `NODE_ENV`, `SESSION_REVERIFY_MINUTES`, `GEAR_SUBMIT_LIMIT_PER_HOUR`, `IDENTITY_CACHE_SECONDS`, `MEMBER_CACHE_SECONDS`, `GUILD_CONFIG_CACHE_SECONDS`, `WEAPON_LEGEND_PATH` | Secondary tuning, all have sensible defaults |
+| `APP_URL`, `NODE_ENV`, `SESSION_REVERIFY_MINUTES`, `GEAR_SUBMIT_LIMIT_PER_HOUR`, `IDENTITY_CACHE_SECONDS`, `MEMBER_CACHE_SECONDS`, `GUILD_CONFIG_CACHE_SECONDS`, `WEAPON_LEGEND_PATH`, `VISION_REASONING_EFFORT`, `VISION_IMAGE_DETAIL` | Secondary tuning, all have sensible defaults |
 
 ### Guild Settings (`/admin/settings`)
 
@@ -232,7 +232,7 @@ Descriptions are rebuilt from stored data on every sync, so correcting a divisor
 
 ### Weapon legend (optional, improves screenshot accuracy)
 
-Place a reference image at `backend/assets/weapon-legend.png` (or override the path with `WEAPON_LEGEND_PATH`) showing each Throne & Liberty weapon icon next to its name. When present, it's sent to Gemini as the first image on every screenshot parse so the model can compare each scoreboard icon against a labeled reference — the single biggest accuracy win for weapon detection. Without it, screenshot reading still works from the text descriptions in the prompt, just a bit less reliably.
+Place a reference image at `backend/assets/weapon-legend.png` (or override the path with `WEAPON_LEGEND_PATH`) showing each Throne & Liberty weapon icon next to its name. When present, it's sent as the first image on every screenshot parse so the model can compare each scoreboard icon against a labeled reference — the single biggest accuracy win for weapon detection. Without it, screenshot reading still works from the text descriptions in the prompt, just a bit less reliably.
 
 ## Deployment
 

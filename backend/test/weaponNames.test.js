@@ -1,4 +1,4 @@
-// backend/test/weaponNames.test.js — the seam between what Gemini answers and
+// backend/test/weaponNames.test.js — the seam between what the model answers and
 // the tokens shared/weaponClasses.json can resolve.
 //
 // A name that doesn't resolve doesn't throw. It survives as raw text, gets

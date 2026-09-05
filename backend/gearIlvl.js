@@ -1,10 +1,7 @@
 // backend/gearIlvl.js — extracts weapon/armor/accessory item levels from a
-// Throne & Liberty "Equipment Level" info window screenshot (Gemini vision),
+// Throne & Liberty "Equipment Level" info window screenshot (see vision.js),
 // and persists one entry per member (a new submission replaces their previous one).
-const { GoogleGenAI, Type } = require('@google/genai');
-
-const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+const vision = require('./vision');
 
 const PROMPT = `This is a screenshot of the "Equipment Level" info window from
 Throne and Liberty. It's a small popup/tooltip with the title "Equipment Level",
@@ -25,15 +22,18 @@ Read the number at the end of each of those four lines:
 Return ONLY a JSON object with this shape:
 { "equipmentLevel": <number>, "weapon": <number>, "armor": <number>, "accessory": <number> }`;
 
+// Strict-mode structured output: every property listed in `required`, and
+// `additionalProperties: false`. Both are mandatory, not stylistic.
 const RESPONSE_SCHEMA = {
-  type: Type.OBJECT,
+  type: 'object',
   properties: {
-    equipmentLevel: { type: Type.NUMBER },
-    weapon: { type: Type.NUMBER },
-    armor: { type: Type.NUMBER },
-    accessory: { type: Type.NUMBER },
+    equipmentLevel: { type: 'number' },
+    weapon: { type: 'number' },
+    armor: { type: 'number' },
+    accessory: { type: 'number' },
   },
   required: ['equipmentLevel', 'weapon', 'armor', 'accessory'],
+  additionalProperties: false,
 };
 
 // ── THE FULL EQUIPMENT WINDOW ───────────────────────────────────────────────
@@ -58,29 +58,13 @@ const RESPONSE_SCHEMA = {
 // average is its "Equipment Lv." line — the game itself defines that as the
 // mean of the other three, so there's no need to recompute it here.
 async function parseGearScreenshot(buffer, mimeType) {
-  if (!GEMINI_API_KEY) {
-    throw new Error('GEMINI_API_KEY is not set — gear reading is unavailable.');
-  }
-
-  const ai = new GoogleGenAI({ apiKey: GEMINI_API_KEY });
-  const response = await ai.models.generateContent({
-    model: GEMINI_MODEL,
-    contents: [{
-      role: 'user',
-      parts: [
-        { text: PROMPT },
-        { inlineData: { mimeType, data: buffer.toString('base64') } },
-      ],
-    }],
-    config: { responseMimeType: 'application/json', responseSchema: RESPONSE_SCHEMA, temperature: 0 },
+  const parsed = await vision.readImages({
+    prompt: PROMPT,
+    images: [{ buffer, mimeType }],
+    schema: RESPONSE_SCHEMA,
+    schemaName: 'equipment_level',
+    unavailable: 'gear reading',
   });
-
-  let parsed;
-  try {
-    parsed = JSON.parse(response.text);
-  } catch {
-    throw new Error('Gemini did not return valid JSON. Try a clearer screenshot.');
-  }
 
   const weapon = Number(parsed.weapon) || 0;
   const armor = Number(parsed.armor) || 0;
