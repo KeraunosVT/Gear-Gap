@@ -8,6 +8,7 @@
     { "key": "queen_ashen_carapace", "label": "Queen Ashen Carapace" },
     { "key": "thundercloud_scale", "label": "Thundercloud Scale" },
     { "key": "thunderstruck_snow_flowers", "label": "Thunderstruck Snow Flowers", "max": 270 },
-    { "key": "thunderstruck_giant_tree_branch", "label": "Thunderstruck Giant Tree Branch", "max": 270 }
+    { "key": "thunderstruck_giant_tree_branch", "label": "Thunderstruck Giant Tree Branch", "max": 270 },
+    { "key": "otherworldly_minds_eye", "label": "Otherworldly Mind's Eye", "max": 120 }
   ]
 }
