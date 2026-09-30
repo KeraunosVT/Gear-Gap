@@ -259,7 +259,13 @@ export default function LootItems() {
                                   .then((res) => {
                                     const items = res.data.items || [];
                                     if (items.length === 0) { setError(`No match for "${name}". Sync the item database first.`); return; }
-                                    const match = items.find((r) => r.name.toLowerCase() === name.toLowerCase()) || items[0];
+                                    // Several questlog items can share a name (a ring and a skill
+                                    // core are both "Divine Retribution"), so prefer an exact match
+                                    // that no other catalog item has claimed.
+                                    const free = (r) => !r.linked_key || r.linked_key === item.key;
+                                    const exact = items.filter((r) => r.name.toLowerCase() === name.toLowerCase());
+                                    const match = exact.find(free) || (exact.length ? null : items.find(free));
+                                    if (!match) { setError(`Every questlog item named "${name}" is already linked to another catalog item.`); return; }
                                     return axios.put(`/api/admin/loot/link-questlog/${item.key}`, { questlog_id: match.id })
                                       .then(() => { load(); flash(`Linked "${match.name}".`); });
                                   })

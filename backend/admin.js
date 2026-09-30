@@ -1282,7 +1282,16 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     query = query.limit(50);
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: 'Search failed.' });
-    res.json({ items: data || [] });
+    // Tag each result with the catalog item already linked to it, if any. Names
+    // aren't unique across item types (Divine Retribution is both a ring and a
+    // skill core), so Auto-link needs this to skip the one that's taken.
+    const ids = (data || []).map((r) => r.id);
+    const linkedKey = {};
+    if (ids.length) {
+      const { data: linked } = await supabase.from('loot_items').select('key, questlog_id').in('questlog_id', ids);
+      (linked || []).forEach((l) => { linkedKey[l.questlog_id] = l.key; });
+    }
+    res.json({ items: (data || []).map((r) => ({ ...r, linked_key: linkedKey[r.id] || null })) });
   });
 
   router.post('/loot/add-from-questlog', async (req, res) => {
