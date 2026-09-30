@@ -1324,6 +1324,13 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     const { data: ref } = await supabase.from('questlog_items').select('*').eq('id', questlog_id).single();
     if (!ref) return res.status(404).json({ error: 'Item not found in reference data.' });
 
+    // Same guard add-from-questlog has: one questlog item backs at most one
+    // catalog entry. Without it the update below fails on the DB side and the
+    // admin only sees a bare 500.
+    const { data: taken } = await supabase.from('loot_items').select('key, name')
+      .eq('questlog_id', ref.id).neq('key', req.params.key).limit(1).maybeSingle();
+    if (taken) return res.status(409).json({ error: `"${ref.name}" is already linked to catalog item "${taken.name}" (${taken.key}).` });
+
     const { error } = await supabase.from('loot_items').update({
       image_url: ref.icon,
       description: ref.description,
@@ -1331,7 +1338,10 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
       grade: ref.grade,
       questlog_data: ref.data,
     }).eq('key', req.params.key);
-    if (error) return res.status(500).json({ error: 'Failed to link item.' });
+    if (error) {
+      console.error('Questlog link error:', req.params.key, error.message);
+      return res.status(500).json({ error: `Failed to link item: ${error.message}` });
+    }
     res.json({ ok: true });
   });
 
