@@ -1661,6 +1661,24 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     return data; // number of player rows written
   }
 
+  // Notes ride on a separate UPDATE because save_match()'s body isn't in this
+  // repo to extend (see migrations/026_match_notes.sql). Runs only after the
+  // match is saved, so a failure here must not read as a failed save — the
+  // officer would upload it again and the war record would hold it twice.
+  // Returns an error message for the response, or null.
+  async function saveNotes(matchId, notes) {
+    const value = typeof notes === 'string' && notes.trim() ? notes.trim() : null;
+    const { error } = await supabase.from('wargame_matches').update({ notes: value }).eq('id', matchId);
+    if (!error) return null;
+    // Column missing = 026 not run. Nothing to lose when there was no note.
+    const missing = error.code === 'PGRST204' || error.code === '42703' || /column .*notes/i.test(error.message);
+    if (missing && value === null) return null;
+    console.error('Match notes error:', error.code, error.message);
+    return missing
+      ? 'The match was saved, but its notes were not — migration 026 (match notes) needs to be applied.'
+      : 'The match was saved, but its notes were not. Edit the match to try again.';
+  }
+
   // ── Commit reviewed rows: create match + insert players (atomic) ────────────
   router.post('/match/commit', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
@@ -1673,7 +1691,8 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     const matchId = crypto.randomUUID();
     try {
       const inserted = await saveMatch(matchId, req.body);
-      res.json({ match_id: matchId, inserted });
+      const notes_error = await saveNotes(matchId, req.body.notes);
+      res.json({ match_id: matchId, inserted, notes_error });
     } catch (err) {
       console.error('Match commit error:', err.message);
       res.status(500).json({ error: 'Failed to save the match. ' + err.message });
@@ -1711,7 +1730,8 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
 
     try {
       const updated = await saveMatch(matchId, req.body);
-      res.json({ match_id: matchId, updated });
+      const notes_error = await saveNotes(matchId, req.body.notes);
+      res.json({ match_id: matchId, updated, notes_error });
     } catch (err) {
       console.error('Match update error:', err.message);
       res.status(500).json({ error: 'Failed to update the match. ' + err.message });

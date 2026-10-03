@@ -1,4 +1,4 @@
-import { Sword, Swords, Target, Heart, Users, ShieldAlert, Pencil, Trash2, Share2, Map as MapIcon } from 'lucide-react';
+import { Sword, Swords, Target, Heart, Users, ShieldAlert, Pencil, Trash2, Share2, StickyNote, Map as MapIcon } from 'lucide-react';
 import { useState, useEffect, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
@@ -307,6 +307,15 @@ export default function MatchStats() {
               weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
             })}
           </p>
+
+          {selectedMatch.notes && (
+            <div className="panel rounded-lg p-4 mb-6 border-brass/40 -mt-3">
+              <div className="eyebrow text-brass text-[10px] mb-1.5 flex items-center gap-1.5">
+                <StickyNote className="w-3.5 h-3.5" /> Notes
+              </div>
+              <p className="text-bone text-sm whitespace-pre-wrap">{selectedMatch.notes}</p>
+            </div>
+          )}
 
           {/* Team cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
