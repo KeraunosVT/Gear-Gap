@@ -302,20 +302,19 @@ export default function MatchStats() {
               </>
             )}
           </div>
-          <p className="text-ash mb-6">
-            {new Date(selectedMatch.match_date + 'T12:00:00').toLocaleDateString('en-US', {
-              weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
-            })}
-          </p>
-
-          {selectedMatch.notes && (
-            <div className="panel rounded-lg p-4 mb-6 border-brass/40 -mt-3">
-              <div className="eyebrow text-brass text-[10px] mb-1.5 flex items-center gap-1.5">
-                <StickyNote className="w-3.5 h-3.5" /> Notes
-              </div>
-              <p className="text-bone text-sm whitespace-pre-wrap">{selectedMatch.notes}</p>
-            </div>
-          )}
+          <div className="mb-6">
+            <p className="text-ash">
+              {new Date(selectedMatch.match_date + 'T12:00:00').toLocaleDateString('en-US', {
+                weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+              })}
+            </p>
+            {selectedMatch.notes && (
+              <p className="mt-1 text-sm text-bone whitespace-pre-wrap flex items-start gap-1.5">
+                <StickyNote className="w-3.5 h-3.5 text-brass shrink-0 mt-0.5" />
+                <span>{selectedMatch.notes}</span>
+              </p>
+            )}
+          </div>
 
           {/* Team cards */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
