@@ -3,7 +3,7 @@ import axios from 'axios';
 import { useAuth } from '../auth';
 import SHARDS from '../../../shared/shards.json';
 import BOSS_WEAPONS from '../../../shared/archbossWeapons.json';
-import { Check, Loader2, AlertCircle, RefreshCw, Pencil } from 'lucide-react';
+import { Check, Loader2, AlertCircle, RefreshCw, Pencil, ArrowDown, ArrowUp } from 'lucide-react';
 import Modal from '../components/ui/Modal';
 import Button from '../components/ui/Button';
 import { PageShell } from '../components/ui/PageShell';
@@ -33,6 +33,23 @@ const normalizeShards = (s) => {
   return out;
 };
 const rowTotal = (s) => TYPES.reduce((a, t) => a + (Number(s[t.key]) || 0), 0);
+
+// A column is only sortable when someone has actually asked for that shard —
+// sorting an all-zero column would just shuffle names.
+function SortHeader({ sortKey, total, sort, onSort, children }) {
+  if (!(total > 0)) return children;
+  const active = sort?.key === sortKey;
+  const Arrow = active && sort.dir === 'asc' ? ArrowUp : ArrowDown;
+  return (
+    <button type="button" onClick={() => onSort(sortKey)}
+      className={`group inline-flex flex-col items-center uppercase tracking-[inherit] hover:text-brass ${active ? 'text-brass' : ''}`}
+      title="Sort by this column"
+    >
+      {children}
+      <Arrow className={`w-3 h-3 mt-1 ${active ? '' : 'opacity-0 group-hover:opacity-50'}`} />
+    </button>
+  );
+}
 
 export default function Shards() {
   const { user, can } = useAuth();
@@ -89,22 +106,52 @@ export default function Shards() {
     });
   };
 
-  // Self pinned to top, then alphabetical; then filtered.
+  // Column sort: { key, dir, order } where key is a shard key or 'total'. The row
+  // order is snapshotted when the header is clicked rather than recomputed from
+  // live values, so a row doesn't jump out from under someone mid-edit.
+  const [sort, setSort] = useState(null);
+  const sortValue = (m, key) => (key === 'total' ? rowTotal(m.shards) : Number(m.shards[key]) || 0);
+  const orderBy = (list, key, dir) => [...list]
+    .sort((a, b) => (sortValue(b, key) - sortValue(a, key)) * (dir === 'desc' ? 1 : -1)
+      || (a.name || '').localeCompare(b.name || ''))
+    .map((m) => m.id);
+
+  // Click cycles: highest first → lowest first → back to the default order.
+  const toggleSort = (key) => {
+    if (sort?.key === key && sort.dir === 'asc') return setSort(null);
+    const dir = sort?.key === key ? 'asc' : 'desc';
+    setSort({ key, dir, order: orderBy(members, key, dir) });
+  };
+
+  // Re-snapshot after a refresh so the order reflects freshly loaded values.
+  useEffect(() => {
+    setSort((s) => (s ? { ...s, order: orderBy(members, s.key, s.dir) } : s));
+  }, [loading]);
+
+  // Default: self pinned to top, then alphabetical. Sorted: the snapshot order.
+  // Either way, filtered after.
   const ordered = useMemo(() => {
-    const sorted = [...members].sort((a, b) => {
-      if (user && a.id === user.id) return -1;
-      if (user && b.id === user.id) return 1;
-      return (a.name || '').localeCompare(b.name || '');
-    });
+    let sorted;
+    if (sort) {
+      const rank = new Map(sort.order.map((id, i) => [id, i]));
+      sorted = [...members].sort((a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity));
+    } else {
+      sorted = [...members].sort((a, b) => {
+        if (user && a.id === user.id) return -1;
+        if (user && b.id === user.id) return 1;
+        return (a.name || '').localeCompare(b.name || '');
+      });
+    }
     const f = filter.toLowerCase();
     return sorted.filter((m) => (m.name || '').toLowerCase().includes(f));
-  }, [members, filter, user]);
+  }, [members, filter, user, sort]);
 
   const totals = useMemo(() => {
     const t = {};
     TYPES.forEach((ty) => { t[ty.key] = members.reduce((a, m) => a + (Number(m.shards[ty.key]) || 0), 0); });
     return t;
   }, [members]);
+  const grandTotal = TYPES.reduce((a, t) => a + totals[t.key], 0);
 
   const weaponModalMember = weaponModalId ? members.find((m) => m.id === weaponModalId) : null;
 
@@ -144,14 +191,18 @@ export default function Shards() {
                     bottom-align — otherwise a one-line header floats above a two-line one. */}
                 {TYPES.map((t) => (
                   <th key={t.key} className="sticky top-0 z-10 bg-panel px-2 py-4 text-center font-normal border-b border-line align-bottom">
-                    <span className="block mx-auto max-w-[104px] leading-tight">{t.label}</span>
-                    {/* The cap differs per shard now, so it belongs on the column
-                        rather than in one sentence above the table — a silent clamp
-                        from 200 down to 90 is otherwise just a number that changed. */}
-                    <span className="block mt-1 text-ash/50 normal-case tracking-normal">max {maxFor(t.key)}</span>
+                    <SortHeader sortKey={t.key} total={totals[t.key]} sort={sort} onSort={toggleSort}>
+                      <span className="block mx-auto max-w-[104px] leading-tight">{t.label}</span>
+                      {/* The cap differs per shard now, so it belongs on the column
+                          rather than in one sentence above the table — a silent clamp
+                          from 200 down to 90 is otherwise just a number that changed. */}
+                      <span className="block mt-1 text-ash/50 normal-case tracking-normal">max {maxFor(t.key)}</span>
+                    </SortHeader>
                   </th>
                 ))}
-                <th className="sticky top-0 z-10 bg-panel p-4 text-center font-normal border-b border-line align-bottom">Total</th>
+                <th className="sticky top-0 z-10 bg-panel p-4 text-center font-normal border-b border-line align-bottom">
+                  <SortHeader sortKey="total" total={grandTotal} sort={sort} onSort={toggleSort}>Total</SortHeader>
+                </th>
                 <th className="sticky top-0 z-10 bg-panel p-4 text-left font-normal border-b border-line align-bottom">Weapons</th>
                 <th className="sticky top-0 z-10 bg-panel p-3 w-8 border-b border-line"></th>
               </tr>
@@ -216,7 +267,7 @@ export default function Shards() {
               <tr className="[&>td]:border-t [&>td]:border-line bg-panelup/60">
                 <td className="p-4 eyebrow text-[10px] text-brass">Guild Total</td>
                 {TYPES.map((t) => <td key={t.key} className="px-2 py-4 text-center font-mono text-brassbright">{totals[t.key]}</td>)}
-                <td className="p-4 text-center font-mono text-brassbright">{TYPES.reduce((a, t) => a + totals[t.key], 0)}</td>
+                <td className="p-4 text-center font-mono text-brassbright">{grandTotal}</td>
                 <td></td>
                 <td></td>
               </tr>
