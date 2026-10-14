@@ -19,6 +19,9 @@ const ICON_KEYS = [
   'thundercloud_scale',
   'scorched_frostblooms',
   'scorched_branches',
+  'thunderstruck_snow_flowers',
+  'thunderstruck_giant_tree_branch',
+  'otherworldly_minds_eye',
 ];
 const ICONS = Object.fromEntries(ICON_KEYS.map((k) => [k, `${ICON_BASE}/${k}.webp`]));
 

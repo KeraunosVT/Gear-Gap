@@ -22,18 +22,13 @@ const ICON_PREFIX = 'currency-icons/';
 // Shard icons can be added here as their source URLs turn up, or passed on the
 // command line — the shard keys are in shared/shards.json.
 //
-// The archboss pieces are I_Arcboss_piece_001..003; only those three exist
-// (004+ are 404), so the shard types in shards.json can't each have their own.
-// Which piece belongs to which shard is a game-knowledge call, not something the
-// filenames give away.
-//
-// thunderstruck_snow_flowers and thunderstruck_giant_tree_branch have no icon
-// yet — CurrencyIcon falls back to a coin glyph, so the ledger renders either
-// way. Add them here (or pass them on the command line) once the URLs turn up;
-// they're the Thunderstruck variants of the two BFB_ assets below, so expect
-// similar filenames rather than an Arcboss piece.
+// The original archboss pieces are I_Arcboss_piece_001..003. The Thunderstruck
+// pair continue the numbering but under a corrected spelling — I_Archboss_piece_005
+// and _006 (the Arcboss spelling 404s past 003) — and the Otherworldly shards are
+// a separate I_Teraboss_Piece_ series.
 const MISC = 'https://cdn.questlog.gg/throne-and-liberty/assets/Game/Image/Icon/Item_128/Misc';
 const ARCBOSS_PIECE = (n) => `${MISC}/I_Arcboss_piece_${n}.webp`;
+const ARCHBOSS_PIECE = (n) => `${MISC}/I_Archboss_piece_${n}.webp`;
 
 const KNOWN = {
   lucent: 'https://cdn.questlog.gg/throne-and-liberty/assets/Game/Image/Icon/BM_Large/ICO_BMCoin_Gold_BM.webp',
@@ -42,14 +37,17 @@ const KNOWN = {
   thundercloud_scale: ARCBOSS_PIECE('003'),
   scorched_frostblooms: `${MISC}/BFB_Ice_Flower_001.webp`,
   scorched_branches: `${MISC}/BFB_IT_BroorkTree_001.webp`,
+  thunderstruck_snow_flowers: ARCHBOSS_PIECE('005'),
+  thunderstruck_giant_tree_branch: ARCHBOSS_PIECE('006'),
+  otherworldly_minds_eye: `${MISC}/I_Teraboss_Piece_001.webp`,
 };
 
-// If another currency is ever added: don't bother searching questlog's item API
-// for its icon. These are currency assets and appear nowhere in
-// database.getItems under any category, and the filenames aren't derivable
-// either — the set above spans ICO_BMCoin_Gold_BM, I_Arcboss_piece_00N,
-// BFB_Ice_Flower_001 and BFB_IT_BroorkTree_001. Take the path off a questlog
-// page by hand and pass it on the command line.
+// If another currency is ever added: the filenames aren't derivable (see the
+// spellings above), and these don't appear in database.getItems. Use questlog's
+// site search instead, which does return them with their icon path:
+//   GET https://questlog.gg/throne-and-liberty/api/trpc/database.searchEntities
+//     ?input={"searchTerm":"<name>","language":"en","extendSearch":true}
+// Strip the trailing ".<basename>" from `icon`, append .webp, prefix the CDN.
 
 async function mirror(supabase, key, url) {
   const res = await axios.get(url, { responseType: 'arraybuffer' });
