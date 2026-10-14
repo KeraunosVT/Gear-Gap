@@ -137,6 +137,7 @@ export default function LootItems() {
                       rewrites every description, this is 0 forever, and a
                       permanent "0 rewritten" is noise. */}
                   {importResult.rebuilt?.updated > 0 && `, ${importResult.rebuilt.updated} descriptions rewritten`}
+                  {importResult.currencyIcons?.mirrored > 0 && `, ${importResult.currencyIcons.mirrored} currency icons`}
                   {' '}({(importResult.duration_ms / 1000).toFixed(0)}s)
                 </span>
               )}

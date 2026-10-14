@@ -1,6 +1,7 @@
 const axios = require('axios');
 const STATS = require('../shared/stats.json');
 const { fetchAll } = require('./pagedRead');
+const { mirrorKnown: mirrorCurrencyIcons } = require('./scripts/mirrorCurrencyIcons');
 
 const BASE = 'https://questlog.gg/throne-and-liberty/api/trpc';
 const DELAY = 300;
@@ -453,7 +454,17 @@ module.exports = async function runImport(supabase) {
     errors.push(`Failed to import potentials: ${err.message}`);
   }
 
-  return { imported, skipped, rebuilt, potentials, errors, duration_ms: Date.now() - start };
+  // Lucent and shard icons. A handful of upserts, so it re-uploads the whole
+  // set every time rather than tracking which are already there — that also
+  // means a new key in KNOWN lands on the next press of the button.
+  const currencyIcons = await mirrorCurrencyIcons(supabase);
+  errors.push(...currencyIcons.errors);
+
+  return {
+    imported, skipped, rebuilt, potentials,
+    currencyIcons: { mirrored: currencyIcons.mirrored },
+    errors, duration_ms: Date.now() - start,
+  };
 };
 
 // Exported so the potentials pass can be run on its own. The item sync takes

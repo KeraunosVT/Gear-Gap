@@ -10,11 +10,13 @@
 //   node scripts/mirrorCurrencyIcons.js               # mirror the known set
 //   node scripts/mirrorCurrencyIcons.js <key> <url>    # mirror one more
 //
+// The Sync Item Database button also runs mirrorKnown() at the end of every
+// sync (see questlogImport.js), so adding a key to KNOWN and pressing the button
+// is enough — no shell on the server needed.
+//
 // Re-runnable: uploads use upsert, so the same key overwrites in place and the
 // public URL never changes.
-require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
 const axios = require('axios');
-const { createClient } = require('@supabase/supabase-js');
 
 const BUCKET = 'assets';
 const ICON_PREFIX = 'currency-icons/';
@@ -64,7 +66,29 @@ async function mirror(supabase, key, url) {
   return { publicUrl: data.publicUrl, bytes: buffer.length, contentType };
 }
 
+// The whole known set, for the sync. Never throws — one dead questlog URL
+// shouldn't fail the item sync it rides along with — so failures come back in
+// `errors` for the caller to report alongside its own.
+async function mirrorKnown(supabase) {
+  let mirrored = 0;
+  const errors = [];
+  for (const [key, url] of Object.entries(KNOWN)) {
+    try {
+      await mirror(supabase, key, url);
+      mirrored++;
+    } catch (err) {
+      errors.push(`Currency icon ${key}: ${err.message}`);
+    }
+  }
+  return { mirrored, errors };
+}
+
+module.exports = { KNOWN, mirror, mirrorKnown };
+
 async function main() {
+  require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') });
+  const { createClient } = require('@supabase/supabase-js');
+
   const [argKey, argUrl] = process.argv.slice(2);
   if (argKey && !argUrl) {
     console.error('Usage: node scripts/mirrorCurrencyIcons.js [<key> <url>]');
@@ -90,4 +114,6 @@ async function main() {
   }
 }
 
-main().catch((err) => { console.error(err.message); process.exit(1); });
+if (require.main === module) {
+  main().catch((err) => { console.error(err.message); process.exit(1); });
+}
