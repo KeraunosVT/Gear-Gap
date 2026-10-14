@@ -13,7 +13,7 @@ const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const {
   router: authRouter, requireAuth, requireAdminArea, requirePermission, userHas,
 } = require('./auth');
-const { listMembers } = require('./discord');
+const { listMembers, botConfigured } = require('./discord');
 const SHARDS = require('../shared/shards.json');
 const BOSS_WEAPONS = require('../shared/archbossWeapons.json');
 const BUILDS = ['PvP', 'PvE'];
@@ -33,6 +33,7 @@ const createAuditLog = require('./auditLog');
 const guildConfig = require('./guildConfig');
 const createLateAttendance = require('./lateAttendance');
 const createEventDetail = require('./eventDetail');
+const createDepartedRequests = require('./departedRequests');
 
 const gearUpload = multer({
   storage: multer.memoryStorage(),
@@ -1465,4 +1466,7 @@ guildConfig.load()
     app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
     });
+    // After the config load, not before: membership is the member-role check,
+    // and sweeping against the pre-load defaults would judge it on the wrong roles.
+    if (supabase && botConfigured) createDepartedRequests(supabase, listMembers).start();
   });
