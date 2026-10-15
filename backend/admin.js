@@ -2205,12 +2205,12 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
 
   router.post('/signups', async (req, res) => {
     if (!signups) return res.status(503).json({ error: 'Database not configured.' });
-    const { event_date, event_schedule_id, title, capacity, reminder_minutes, announce } = req.body || {};
+    const { event_date, event_schedule_id, title, event_time, capacity, reminder_minutes, announce } = req.body || {};
     try {
       const { row, created } = await signups.open({
         eventDate: event_date || todayInGuildTz(),
         eventScheduleId: event_schedule_id || null,
-        title, capacity, reminderMinutes: reminder_minutes,
+        title, eventTime: event_time || null, capacity, reminderMinutes: reminder_minutes,
         createdBy: req.user?.id || null,
       });
       res.json({ signup: row, created });

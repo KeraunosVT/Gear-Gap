@@ -2,15 +2,17 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import axios from 'axios';
 import {
-  CalendarRange, Check, ChevronLeft, ChevronRight, Clock, Loader2, Users, CalendarOff, AlertTriangle,
+  CalendarRange, Check, ChevronLeft, ChevronRight, Clock, Loader2, Users, CalendarOff, AlertTriangle, Plus,
 } from 'lucide-react';
 
 import {
   fmtTimeEst, todayInGuildTz, eventsForGuildDay, isAfterMidnight, daySlot, getGuildTz,
   withinLoaWindow, addDays, loaSkipsDate,
 } from '../timeUtils';
+import { useAuth } from '../auth';
 import { PageShell } from '../components/ui/PageShell';
 import Button from '../components/ui/Button';
+import Modal from '../components/ui/Modal';
 import EmptyState from '../components/ui/EmptyState';
 import ErrorState from '../components/ui/ErrorState';
 import Toast from '../components/ui/Toast';
@@ -84,6 +86,13 @@ function loaCovers(entry, { date, dow, scheduleId, eventTime }) {
 }
 
 export default function EventCalendar() {
+  const { can } = useAuth();
+  // Two kinds of event, each behind the capability its route already needs: a
+  // one-off is an opened signup ('attendance'), a weekly one is a schedule
+  // entry ('schedule'). The button shows for either.
+  const canOneOff = can('attendance');
+  const canWeekly = can('schedule');
+  const [creating, setCreating] = useState(false);
   const [occurrences, setOccurrences] = useState([]);
   const [schedule, setSchedule] = useState([]);
   const [loaEntries, setLoaEntries] = useState([]);
@@ -229,7 +238,21 @@ export default function EventCalendar() {
       <div className="flex items-center gap-3 mb-2">
         <CalendarRange className="w-6 h-6 text-brass" />
         <h1 className="font-display text-2xl tracking-wide text-bone">EVENT CALENDAR</h1>
+        {(canOneOff || canWeekly) && (
+          <Button size="none" className="ml-auto px-3 py-1.5 text-sm" onClick={() => setCreating(true)}>
+            <Plus className="w-4 h-4" /> New Event
+          </Button>
+        )}
       </div>
+
+      {creating && (
+        <NewEventModal
+          canOneOff={canOneOff} canWeekly={canWeekly}
+          defaultDate={days[0]}
+          onClose={() => setCreating(false)}
+          onCreated={(text) => { setCreating(false); flash(text); load(); }}
+        />
+      )}
       <p className="text-ash text-sm mb-6">
         The week ahead, whether or not signups have been opened. Saying you're in opens them.
         {' '}There's no way to say you're out here — <Link to="/loa" className="text-brass hover:text-brassbright underline">file an LOA</Link> for that.
@@ -304,6 +327,127 @@ function Night({ night, isTonight, busy, onJoin, onLeave }) {
         </div>
       )}
     </div>
+  );
+}
+
+const FIELD = 'w-full bg-hall border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass';
+
+// One form, two kinds of event. A one-off opens signups for a single date —
+// that is what an unscheduled event on this calendar already is, so it shows
+// up here the moment it's made. A weekly one is a schedule entry, the same as
+// adding it on the LOA page.
+//
+// Both take the NIGHT, not the calendar day: a 12:30am event picked for
+// Saturday is Saturday night's. For a weekly event that means storing it on
+// the next calendar day, which is how the schedule keeps after-midnight rows.
+function NewEventModal({ canOneOff, canWeekly, defaultDate, onClose, onCreated }) {
+  const [kind, setKind] = useState(canOneOff ? 'once' : 'weekly');
+  const [title, setTitle] = useState('');
+  const [date, setDate] = useState(defaultDate);
+  const [night, setNight] = useState(String(dowOf(defaultDate)));
+  const [time, setTime] = useState('');
+  const [capacity, setCapacity] = useState('');
+  const [announce, setAnnounce] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!title.trim()) { setError('Give the event a name.'); return; }
+    setSaving(true); setError('');
+    try {
+      if (kind === 'once') {
+        const res = await axios.post('/api/admin/signups', {
+          event_date: date, title: title.trim(), event_time: time || null,
+          capacity: capacity || null, announce,
+        });
+        onCreated(res.data.created
+          ? `${title.trim()} added for ${shortDate(date)}${announce ? ' and posted to Discord' : ''}.`
+          : 'That event was already on the calendar.');
+      } else {
+        const n = parseInt(night, 10);
+        await axios.post('/api/admin/event-schedule', {
+          name: title.trim(),
+          day_of_week: isAfterMidnight(time) ? (n + 1) % 7 : n,
+          event_time: time || null,
+        });
+        onCreated(`${title.trim()} added every ${DAY_NAME[n]}.`);
+      }
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not create that event.');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal onClose={onClose}>
+      <form onSubmit={submit} className="space-y-4">
+        <h2 className="font-display text-lg tracking-[0.08em] text-bone">NEW EVENT</h2>
+
+        {canOneOff && canWeekly && (
+          <div className="flex gap-2">
+            {[['once', 'One-off'], ['weekly', 'Weekly']].map(([key, label]) => (
+              <button
+                key={key} type="button" onClick={() => setKind(key)}
+                className={`flex-1 px-3 py-2 rounded-lg border text-sm transition-colors ${kind === key ? 'border-brass text-brass bg-panelup' : 'border-line text-ash hover:text-bone'}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div>
+          <label className="eyebrow text-[10px] text-ash block mb-2">Name</label>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Archboss — Morokai" className={FIELD} autoFocus />
+        </div>
+
+        <div className="flex gap-3">
+          {kind === 'once' ? (
+            <div className="flex-1">
+              <label className="eyebrow text-[10px] text-ash block mb-2">Night</label>
+              <input type="date" value={date} min={todayInGuildTz()} onChange={(e) => setDate(e.target.value)} required className={FIELD} />
+            </div>
+          ) : (
+            <div className="flex-1">
+              <label className="eyebrow text-[10px] text-ash block mb-2">Every</label>
+              <select value={night} onChange={(e) => setNight(e.target.value)} className={FIELD}>
+                {DAY_NAME.map((d, i) => <option key={d} value={i}>{d}</option>)}
+              </select>
+            </div>
+          )}
+          <div className="w-36">
+            <label className="eyebrow text-[10px] text-ash block mb-2">Time (optional)</label>
+            <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className={FIELD} />
+          </div>
+        </div>
+        {isAfterMidnight(time) && (
+          <p className="text-xs text-ash/70 -mt-2">After midnight — counted as part of the night before.</p>
+        )}
+
+        {kind === 'once' && (
+          <>
+            <div className="w-36">
+              <label className="eyebrow text-[10px] text-ash block mb-2">Cap (optional)</label>
+              <input type="number" min="1" value={capacity} onChange={(e) => setCapacity(e.target.value)} placeholder="No limit" className={FIELD} />
+            </div>
+            <label className="flex items-center gap-2 text-sm text-ash">
+              <input type="checkbox" checked={announce} onChange={(e) => setAnnounce(e.target.checked)} />
+              Post the signup to Discord
+            </label>
+          </>
+        )}
+
+        {error && <div className="text-sm text-oxblood">{error}</div>}
+
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="neutral" size="sm" onClick={onClose}>Cancel</Button>
+          <Button type="submit" size="sm" disabled={saving}>
+            {saving && <Loader2 className="w-4 h-4 animate-spin" />} Create
+          </Button>
+        </div>
+      </form>
+    </Modal>
   );
 }
 

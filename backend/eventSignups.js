@@ -141,10 +141,17 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
     // A second open for the same occasion returns the existing row rather than
     // erroring: an officer double-submitting wants the post they already made,
     // not a duplicate or a stack trace.
-    async open({ eventDate, eventScheduleId = null, title = '', capacity = null, reminderMinutes = null, createdBy = null }) {
+    async open({ eventDate, eventScheduleId = null, title = '', eventTime: rawTime = null, capacity = null, reminderMinutes = null, createdBy = null }) {
       if (!isValidDate(eventDate)) throw httpError(400, 'Date must be in YYYY-MM-DD format.');
 
+      // A one-off event's own time. Ignored when a schedule entry is given —
+      // the schedule's time is the event's time, and two sources for one fact
+      // is how they come to disagree.
       let eventTime = null;
+      if (!eventScheduleId && rawTime) {
+        eventTime = createLoa.parseTimeOfDay(rawTime);
+        if (!eventTime) throw httpError(400, 'Time must be a valid time, e.g. 9:00 PM.');
+      }
       let eventName = (title || '').trim();
       if (eventScheduleId) {
         const { data: ev, error } = await supabase.from('event_schedule')
