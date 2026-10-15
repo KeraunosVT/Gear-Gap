@@ -5,10 +5,10 @@
 -- so there is nothing to build events or event_attendance rows from. This holds
 -- those totals as they came, beside the app's own record rather than inside it.
 --
--- Deliberately not merged into the app's rates. If any of TLGM's activities were
--- also logged here, adding the two would count those nights twice, and nothing
--- in either source can tell which ones overlap. The Attendance page shows it as
--- its own column instead.
+-- Added to the app's own attendance only in the Attendance page's All-Time
+-- column, never in the dated windows (TLGM has no dates to filter by). The sum
+-- assumes TLGM and this app never logged the same night — true for this guild,
+-- since TLGM covers the time before the app.
 --
 -- One row per member per source. A re-import replaces the source's rows
 -- outright, because TLGM's numbers are cumulative — a newer export supersedes

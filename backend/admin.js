@@ -2042,31 +2042,32 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     }
   });
 
-  // The TLGM rows for the stats table, limited to current members — the import
-  // only takes current members, but people leave after it. Null when there is
-  // nothing to show, including when migration 027 hasn't been run: a missing
-  // history table must not take the app's own attendance down with it.
-  async function historyFor() {
-    let rows;
+  // The imported TLGM rows, keyed by Discord id. Empty when there are none,
+  // including when migration 027 hasn't been run: a missing history table must
+  // not take the app's own attendance down with it.
+  async function loadHistory() {
     try {
-      rows = await attendanceHistory.list();
+      const rows = await attendanceHistory.list();
+      return new Map(rows.map((r) => [String(r.discord_id), r]));
     } catch (err) {
       console.error('attendance history load failed:', err.message);
-      return null;
+      return new Map();
     }
-    if (!rows.length) return null;
-    const [current, ids] = await Promise.all([
-      listMembers().then((ms) => new Set(ms.map((m) => String(m.id)))).catch(() => null),
-      identities.load(),
+  }
+
+  // Every night ever logged here: how many there were, and each attendance row.
+  // Only fetched when the window isn't already "all" — then the window's own
+  // numbers are these.
+  async function loadAppAllTime() {
+    const [{ count, error }, att] = await Promise.all([
+      supabase.from('events').select('id', { count: 'exact', head: true }),
+      fetchAll(
+        () => supabase.from('event_attendance').select('discord_id, display_name').order('id'),
+        { label: 'event_attendance' },
+      ),
     ]);
-    const byId = new Map();
-    rows.forEach((r) => {
-      if (current && !current.has(String(r.discord_id))) return;
-      byId.set(String(r.discord_id), { ...r, display_name: ids.displayNameFor(r.discord_id, r.display_name) });
-    });
-    if (!byId.size) return null;
-    const importedAt = rows.reduce((max, r) => (r.imported_at > max ? r.imported_at : max), rows[0].imported_at);
-    return { byId, importedAt };
+    if (error) throw error;
+    return { total: count || 0, att };
   }
 
   router.get('/attendance-stats', async (req, res) => {
@@ -2079,8 +2080,6 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
       const { data: evts, error: eErr } = await eq;
       if (eErr) throw eErr;
       const totalEvents = (evts || []).length;
-      const history = await historyFor();
-      if (totalEvents === 0 && !history) return res.json({ window: days, totalEvents: 0, members: [], history: null });
 
       // The window has to narrow BOTH halves. Filtering only the denominator
       // leaves attendance rows from outside it counting against a smaller total
@@ -2105,23 +2104,50 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
         if (a.display_name) map[a.discord_id].display_name = a.display_name;
       });
 
-      // TLGM figures ride alongside, never folded into attended/rate — see
-      // migration 027. A member with TLGM history but nothing logged here in
-      // this window still gets a row, so their history isn't invisible.
-      if (history) {
-        history.byId.forEach((h, id) => {
-          if (!map[id]) map[id] = { discord_id: id, display_name: h.display_name || id, attended: 0 };
-          map[id].history = { attended: h.attended, total: h.total, rate: Math.round((h.attended / h.total) * 100) };
-        });
-      }
+      // ── All-time: TLGM history plus every night logged here ──
+      // Added straight together because the two never overlap — TLGM covers
+      // the time before this app, so no night is in both. If that ever stops
+      // being true, this sum counts the shared nights twice.
+      //
+      // The window above is untouched by this; all_time is its own figure and
+      // reads the same on every tab.
+      const [history, app, current, ids] = await Promise.all([
+        loadHistory(),
+        since ? loadAppAllTime() : Promise.resolve({ total: totalEvents, att }),
+        listMembers().then((ms) => new Set(ms.map((m) => String(m.id)))).catch(() => null),
+        identities.load(),
+      ]);
+      const appCount = new Map();
+      const appName = new Map();
+      (app.att || []).forEach((a) => {
+        const id = String(a.discord_id);
+        appCount.set(id, (appCount.get(id) || 0) + 1);
+        if (a.display_name) appName.set(id, a.display_name);
+      });
+
+      new Set([...history.keys(), ...appCount.keys()]).forEach((id) => {
+        const h = history.get(id);
+        const attended = (h?.attended || 0) + (appCount.get(id) || 0);
+        const total = (h?.total || 0) + app.total;
+        if (!total) return;
+        if (!map[id]) {
+          // Not seen in this window. Still listed so their all-time figure
+          // isn't hidden — but only if they're still in the guild, or every
+          // tab would fill up with people who left long ago.
+          if (current && !current.has(id)) return;
+          map[id] = { discord_id: id, display_name: ids.displayNameFor(id, appName.get(id) || h?.display_name || id), attended: 0 };
+        }
+        map[id].all_time = { attended, total, rate: Math.round((attended / total) * 100) };
+      });
 
       const members = Object.values(map)
         .map((m) => ({ ...m, rate: totalEvents ? Math.round((m.attended / totalEvents) * 100) : 0 }))
         .sort((a, b) => b.rate - a.rate || a.display_name.localeCompare(b.display_name));
 
+      const importedAt = [...history.values()].reduce((max, r) => (!max || r.imported_at > max ? r.imported_at : max), null);
       res.json({
         window: days, totalEvents, members,
-        history: history ? { source: 'TLGM', imported_at: history.importedAt, members: history.byId.size } : null,
+        history: importedAt ? { source: 'TLGM', imported_at: importedAt, members: history.size } : null,
       });
     } catch (err) {
       console.error('Attendance stats error:', err.message);

@@ -136,8 +136,8 @@ export default function Attendance() {
     const dir = statDir === 'asc' ? 1 : -1;
     return [...stats.members].sort((a, b) => {
       if (statSort === 'name') return a.display_name.localeCompare(b.display_name) * dir;
-      // No TLGM history sorts below 0%, whichever way the column is turned.
-      if (statSort === 'tlgm') return ((a.history?.rate ?? -1) - (b.history?.rate ?? -1)) * dir;
+      // No all-time figure sorts below 0%, whichever way the column is turned.
+      if (statSort === 'all_time') return ((a.all_time?.rate ?? -1) - (b.all_time?.rate ?? -1)) * dir;
       return ((a[statSort] || 0) - (b[statSort] || 0)) * dir;
     });
   }, [stats.members, statSort, statDir]);
@@ -656,11 +656,11 @@ export default function Attendance() {
             {/* The window is named here, not only in the tab, because a
                 percentage read out of context is assumed to be all-time. */}
             {stats.totalEvents} event{stats.totalEvents === 1 ? '' : 's'} · {WINDOW_LABEL[window_]}
-            {/* TLGM has no dates, so its column is the same in every window —
-                said here so nobody reads it as filtered. */}
+            {/* All-Time ignores the window — said here so nobody reads it as
+                filtered — and names where the pre-app part of it came from. */}
             {stats.history && (
               <span className="text-ash/70">
-                · All-Time column is from TLGM, imported {new Date(stats.history.imported_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                · All-Time includes TLGM history imported {new Date(stats.history.imported_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                 {' '}·{' '}
                 <button onClick={removeTlgm} className="hover:text-oxblood transition-colors">remove</button>
               </span>
@@ -679,9 +679,7 @@ export default function Attendance() {
                 <SortableTh label="Attended" sortKey="attended" activeKey={statSort} dir={statDir} onSort={toggleStatSort} align="right" />
                 <th className="p-4 font-normal w-[34%]">Rate</th>
                 <SortableTh label="%" sortKey="rate" activeKey={statSort} dir={statDir} onSort={toggleStatSort} align="right" />
-                {stats.history && (
-                  <SortableTh label="All-Time" sortKey="tlgm" activeKey={statSort} dir={statDir} onSort={toggleStatSort} align="right" />
-                )}
+                <SortableTh label="All-Time" sortKey="all_time" activeKey={statSort} dir={statDir} onSort={toggleStatSort} align="right" />
               </Thead>
               <tbody>
                 {sortedStats.map((m, i) => (
@@ -705,18 +703,16 @@ export default function Attendance() {
                     <td className={`p-4 text-right font-mono text-xs ${m.rate >= 75 ? 'text-emerald-400' : m.rate >= 40 ? 'text-brassbright' : 'text-oxblood'}`}>
                       {m.rate}%
                     </td>
-                    {stats.history && (
-                      <td className="p-4 text-right font-mono text-xs whitespace-nowrap">
-                        {m.history ? (
-                          <span title={`${m.history.attended} of ${m.history.total} TLGM activities`}>
-                            <span className="text-ash/60">{m.history.attended}/{m.history.total}</span>{' '}
-                            <span className={m.history.rate >= 75 ? 'text-emerald-400' : m.history.rate >= 40 ? 'text-brassbright' : 'text-oxblood'}>
-                              {m.history.rate}%
-                            </span>
+                    <td className="p-4 text-right font-mono text-xs whitespace-nowrap">
+                      {m.all_time ? (
+                        <span title={`${m.all_time.attended} of ${m.all_time.total} activities, all time`}>
+                          <span className="text-ash/60">{m.all_time.attended}/{m.all_time.total}</span>{' '}
+                          <span className={m.all_time.rate >= 75 ? 'text-emerald-400' : m.all_time.rate >= 40 ? 'text-brassbright' : 'text-oxblood'}>
+                            {m.all_time.rate}%
                           </span>
-                        ) : <span className="text-ash/40">—</span>}
-                      </td>
-                    )}
+                        </span>
+                      ) : <span className="text-ash/40">—</span>}
+                    </td>
                   </Tr>
                 ))}
               </tbody>
