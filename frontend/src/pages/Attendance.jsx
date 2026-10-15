@@ -4,7 +4,7 @@ import axios from 'axios';
 import { useAuth } from '../auth';
 import {
   RefreshCw, Camera, Trash2, Users, CalendarDays, Loader2,
-  BarChart3, Wand2, Swords, Check, X, Inbox, Volume2, AlertTriangle, Upload,
+  BarChart3, Wand2, Swords, Check, X, Inbox, Volume2, AlertTriangle, Upload, UserPlus, Search,
 } from 'lucide-react';
 import { fmtTimeEst, fmtDatetime, guildDayOfWeek, isAfterMidnight, todayInGuildTz, eventsForGuildDay } from '../timeUtils';
 import RestrictedGate from '../components/ui/RestrictedGate';
@@ -47,6 +47,7 @@ export default function Attendance() {
   const [rosters, setRosters] = useState([]);
   const [rosterId, setRosterId] = useState('auto');
   const [snapping, setSnapping] = useState(false);
+  const [picking, setPicking] = useState(false); // the "Add by hand" roster picker is open
   const [refreshing, setRefreshing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -259,6 +260,22 @@ export default function Attendance() {
     setRemoved((prev) => new Set(prev).add(id));
   };
 
+  // Hand-picked members join the same list a snap fills. Anyone picked here
+  // comes off the removed set too — choosing someone by name is a clearer
+  // statement of intent than an earlier removal, and refresh should keep them.
+  const addByHand = (members) => {
+    setSnapped((prev) => {
+      const have = new Set(prev.map((m) => m.id));
+      return [...prev, ...members.filter((m) => !have.has(m.id)).map((m) => ({ id: m.id, name: m.name, avatar: m.avatar || null }))];
+    });
+    setRemoved((prev) => {
+      const next = new Set(prev);
+      members.forEach((m) => next.delete(m.id));
+      return next;
+    });
+    flash(`Added ${members.length} by hand.`);
+  };
+
   const selectScheduleEvent = (id) => {
     setEventScheduleId(id);
     const ev = schedule.find((s) => s.id === id);
@@ -281,7 +298,7 @@ export default function Attendance() {
 
   const save = async () => {
     if (!title.trim()) { flash('Give this event a title.', false); return; }
-    if (snapped.length === 0) { flash('Snap the voice channel first.', false); return; }
+    if (snapped.length === 0) { flash('Snap the voice channel, or add people by hand, first.', false); return; }
     setSaving(true); setError('');
     try {
       const res = await axios.post('/api/admin/events', {
@@ -294,7 +311,7 @@ export default function Attendance() {
       flash(`Saved — ${res.data.attendees} attendees logged.`);
       // Back to tonight, not blank — the same reason the initial value isn't
       // blank, and logging two events on one night is the common case.
-      setSnapped([]); setRemoved(new Set());
+      setSnapped([]); setRemoved(new Set()); setPicking(false);
       setTitle(''); setEventDate(todayInGuildTz()); setEventScheduleId(''); setRosterId('auto');
       loadEvents(); loadStats();
     } catch (err) {
@@ -344,7 +361,10 @@ export default function Attendance() {
   return (
     <div className="max-w-6xl mx-auto px-6 py-12">
       <div className="flex items-center justify-between gap-4 flex-wrap mb-6">
-        <p className="text-sm text-ash">Snap the attendance channel to log who showed up. Set a title and date, then save.</p>
+        <p className="text-sm text-ash">
+          Snap the attendance channel to log who showed up — or, for a night nobody snapped, set its date and use
+          Add by hand. Set a title and date, then save.
+        </p>
         <div className="flex items-center gap-5 shrink-0">
           <label
             title="Carry over per-member attendance totals from a TLGM member export (CSV)"
@@ -492,6 +512,16 @@ export default function Attendance() {
           >
             {snapping ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />} Snap
           </button>
+          {/* For the night nobody snapped: pick who was there from the roster
+              instead. Adds to the same list a snap fills, so the two mix — snap
+              the stragglers still in voice, then add the people who left. */}
+          <button
+            onClick={() => setPicking((v) => !v)}
+            className={`inline-flex items-center gap-2 px-4 py-2.5 border rounded-lg transition-colors ${picking ? 'border-brass text-brass bg-panelup' : 'border-line text-ash hover:text-bone'}`}
+            title="Log attendance without a voice snap — pick members from the roster"
+          >
+            <UserPlus className="w-4 h-4" /> Add by hand
+          </button>
           <button
             onClick={save} disabled={saving || snapped.length === 0}
             className="px-5 py-2.5 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
@@ -552,10 +582,18 @@ export default function Attendance() {
           </span>
         </div>
 
+        {picking && (
+          <MemberPicker
+            exclude={snapped}
+            onAdd={addByHand}
+            onClose={() => setPicking(false)}
+          />
+        )}
+
         {snapped.length > 0 && (
           <div className="mt-4 pt-4 border-t border-line">
             <div className="eyebrow text-[10px] text-brass mb-3 flex items-center gap-2">
-              <Users className="w-3.5 h-3.5" /> Snapped ({snapped.length})
+              <Users className="w-3.5 h-3.5" /> Attendees ({snapped.length})
               {/* Says why refresh isn't bringing someone back — otherwise a
                   removal that keeps holding looks like the refresh missing them. */}
               {removed.size > 0 && (
@@ -768,6 +806,115 @@ export default function Attendance() {
           )}
         </aside>
       </div>
+    </div>
+  );
+}
+
+// ── ADD BY HAND ─────────────────────────────────────────────────────────────
+// Attendance for a night nobody snapped: tick who was there from the roster.
+// The roster is the member-role list (/api/admin/members, readable by any
+// officer), names already resolved to the guild's aliases.
+//
+// People already on the list are left out rather than shown ticked, so the
+// count on the button is exactly how many this adds.
+function MemberPicker({ exclude, onAdd, onClose }) {
+  const [members, setMembers] = useState(null);
+  const [error, setError] = useState('');
+  const [query, setQuery] = useState('');
+  const [picked, setPicked] = useState(() => new Set());
+
+  useEffect(() => {
+    axios.get('/api/admin/members')
+      .then((res) => setMembers(res.data.members || []))
+      .catch((err) => setError(err.response?.data?.error || 'Could not load the roster.'));
+  }, []);
+
+  const have = useMemo(() => new Set(exclude.map((m) => m.id)), [exclude]);
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return (members || [])
+      .filter((m) => !have.has(m.id))
+      .filter((m) => !q || String(m.name).toLowerCase().includes(q))
+      .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+  }, [members, have, query]);
+
+  const toggle = (id) => setPicked((prev) => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+  // "All" means all of what the search shows, so a filtered list can be taken
+  // in one go without sweeping in people the search hid.
+  const allShown = shown.length > 0 && shown.every((m) => picked.has(m.id));
+  const toggleAll = () => setPicked((prev) => {
+    const next = new Set(prev);
+    shown.forEach((m) => (allShown ? next.delete(m.id) : next.add(m.id)));
+    return next;
+  });
+
+  const add = () => {
+    const chosen = (members || []).filter((m) => picked.has(m.id) && !have.has(m.id));
+    if (!chosen.length) return;
+    onAdd(chosen);
+    setPicked(new Set());
+    setQuery('');
+  };
+
+  return (
+    <div className="mt-4 pt-4 border-t border-line">
+      <div className="flex items-center gap-3 flex-wrap mb-3">
+        <div className="eyebrow text-[10px] text-brass flex items-center gap-2">
+          <UserPlus className="w-3.5 h-3.5" /> Add by hand
+        </div>
+        <span className="text-xs text-ash">Tick who was there. They join the attendee list below; nothing is saved until you press Save.</span>
+        <button onClick={onClose} className="ml-auto text-ash hover:text-bone" aria-label="Close">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+
+      {error ? (
+        <p className="text-sm text-oxblood">{error}</p>
+      ) : !members ? (
+        <p className="text-sm text-ash"><Loader2 className="w-4 h-4 animate-spin inline mr-2" />Loading the roster…</p>
+      ) : (
+        <>
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
+            <div className="relative flex-1 min-w-[200px]">
+              <Search className="w-4 h-4 text-ash absolute left-3 top-1/2 -translate-y-1/2" />
+              <input
+                value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search members"
+                className="w-full bg-hall border border-line rounded-lg pl-9 pr-3 py-2 text-sm text-bone focus:outline-none focus:border-brass"
+              />
+            </div>
+            <label className="inline-flex items-center gap-2 text-xs text-ash cursor-pointer">
+              <input type="checkbox" checked={allShown} onChange={toggleAll} className="accent-[rgb(var(--color-brass))]" />
+              All shown
+            </label>
+            <button
+              onClick={add} disabled={picked.size === 0}
+              className="px-4 py-2 bg-brass hover:bg-brassbright text-ink text-sm font-semibold rounded-lg transition-colors disabled:opacity-40"
+            >
+              Add {picked.size || ''}
+            </button>
+          </div>
+
+          {shown.length === 0 ? (
+            <p className="text-sm text-ash py-3">{query ? 'Nobody matches that.' : 'Everyone on the roster is already on the list.'}</p>
+          ) : (
+            <div className="max-h-64 overflow-auto border border-line rounded-lg grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+              {shown.map((m) => (
+                <label key={m.id} className="flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer hover:bg-panelup">
+                  <input type="checkbox" checked={picked.has(m.id)} onChange={() => toggle(m.id)} className="accent-[rgb(var(--color-brass))]" />
+                  {m.avatar
+                    ? <img src={m.avatar} alt="" className="w-5 h-5 rounded-full border border-line" />
+                    : <span className="w-5 h-5 rounded-full bg-panelup border border-line flex items-center justify-center text-[9px] text-brass">{(m.name || '?')[0].toUpperCase()}</span>}
+                  <span className="text-bone truncate">{m.name}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
