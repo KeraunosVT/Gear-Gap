@@ -1468,5 +1468,5 @@ guildConfig.load()
     });
     // After the config load, not before: membership is the member-role check,
     // and sweeping against the pre-load defaults would judge it on the wrong roles.
-    if (supabase && botConfigured) createDepartedRequests(supabase, listMembers).start();
+    if (supabase && botConfigured) createDepartedRequests(supabase, listMembers, { deleteLoaMessage: gateway.deleteLoaMessage }).start();
   });

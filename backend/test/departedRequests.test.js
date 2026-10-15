@@ -9,7 +9,7 @@ const { test, describe, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
 const createDepartedRequests = require('../departedRequests');
 
-// Just enough of the supabase-js builder for the two tables the sweep reads
+// Just enough of the supabase-js builder for the tables the sweep reads
 // and deletes from: select / delete, then .in() filters, awaited.
 function fakeSupabase(tables) {
   return {
@@ -34,6 +34,7 @@ function fakeSupabase(tables) {
 let tables;
 let members;
 let departed;
+let deletedMessages;
 
 beforeEach(() => {
   tables = {
@@ -44,9 +45,17 @@ beforeEach(() => {
       { discord_id: 'b', status: 'paid' },
       { discord_id: 'b', status: 'denied' },
     ],
+    loa_entries: [
+      { discord_id: 'a', discord_message_id: 'msg-a' },
+      { discord_id: 'b', discord_message_id: 'msg-b1' },
+      { discord_id: 'b', discord_message_id: null },
+    ],
   };
   members = [{ id: 'a' }, { id: 'c' }, { id: 'd' }];
-  departed = createDepartedRequests(fakeSupabase(tables), async () => members);
+  deletedMessages = [];
+  departed = createDepartedRequests(fakeSupabase(tables), async () => members, {
+    deleteLoaMessage: async (id) => { deletedMessages.push(id); },
+  });
 });
 
 describe('departed-request sweep', () => {
@@ -62,6 +71,21 @@ describe('departed-request sweep', () => {
     assert.deepEqual(removed, ['b']);
     assert.deepEqual(tables.loot_wishlists.map((r) => r.discord_id), ['a', 'c', 'd']);
     assert.deepEqual(tables.lucent_requests.map((r) => r.status), ['paid', 'denied']);
+  });
+
+  test('second sighting clears their LOAs and deletes the announcements', async () => {
+    await departed.sweep();
+    await departed.sweep();
+    assert.deepEqual(tables.loa_entries.map((r) => r.discord_id), ['a']);
+    assert.deepEqual(deletedMessages, ['msg-b1']);
+  });
+
+  test('someone holding only an LOA is still cleared', async () => {
+    tables.loa_entries.push({ discord_id: 'e', discord_message_id: 'msg-e' });
+    await departed.sweep();
+    const { removed } = await departed.sweep();
+    assert.deepEqual(removed.sort(), ['b', 'e']);
+    assert.deepEqual(tables.loa_entries.map((r) => r.discord_id), ['a']);
   });
 
   test('getting the role back between sweeps resets the clock', async () => {
@@ -80,6 +104,7 @@ describe('departed-request sweep', () => {
     const result = await departed.sweep();
     assert.equal(result.skipped, 'mass removal');
     assert.equal(tables.loot_wishlists.length, 4);
+    assert.equal(tables.loa_entries.length, 3);
   });
 
   test('an empty member list never deletes', async () => {

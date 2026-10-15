@@ -1,14 +1,17 @@
-// backend/departedRequests.js — clear out the loot requests of members who
-// have left the guild.
+// backend/departedRequests.js — clear out the loot requests and LOAs of members
+// who have left the guild.
 //
 // "Left" means listMembers() no longer returns them, which is the member-role
 // check: losing the role is leaving, whether or not they're still in the
 // Discord server. Without this, someone who quits keeps their wishlist picks in
-// every Loot Tally count and their open Lucent asks on Loot Requests forever.
+// every Loot Tally count, their open Lucent asks on Loot Requests, and their
+// LOAs on the board (and in the LOA channel) forever.
 //
 // What goes:
 //   - their loot_wishlists row (every gear pick)
 //   - lucent_requests still open — pending, or approved but not yet paid
+//   - every loa_entries row, plus its Discord announcement — the same cleanup
+//     cancelling it by hand does
 // What stays:
 //   - paid and denied Lucent requests. Paid ones point at a currency_awards row
 //     and are history, the same as loot_awards, which this never touches.
@@ -19,25 +22,29 @@
 //     member their wishlist. The first sighting is in memory, so a restart just
 //     restarts the clock — the safe direction.
 //   - Mass guard: if a sweep would clear more than half the people holding
-//     requests, it does nothing and logs instead. That's a mis-set member role
-//     in Guild Settings, not half the guild quitting in an hour.
+//     requests or LOAs, it does nothing and logs instead. That's a mis-set
+//     member role in Guild Settings, not half the guild quitting in an hour.
 const SWEEP_MS = 60 * 60 * 1000;
 const FIRST_SWEEP_MS = 5 * 60 * 1000;
 const OPEN_STATUSES = ['pending', 'approved'];
 const MASS_FRACTION = 0.5;
 const MASS_MIN = 3; // a small guild losing 2 of 3 requesters is not a misconfig
 
-module.exports = function createDepartedRequests(supabase, listMembers) {
+// `deleteLoaMessage` is optional: without it the LOA rows still go, only their
+// channel announcements are left behind.
+module.exports = function createDepartedRequests(supabase, listMembers, { deleteLoaMessage = null } = {}) {
   const missingSince = new Map(); // discord_id -> first sweep it was missing
 
   async function requestHolders() {
-    const [wl, lr] = await Promise.all([
+    const [wl, lr, loa] = await Promise.all([
       supabase.from('loot_wishlists').select('discord_id'),
       supabase.from('lucent_requests').select('discord_id').in('status', OPEN_STATUSES),
+      supabase.from('loa_entries').select('discord_id'),
     ]);
     if (wl.error) throw new Error(`loot_wishlists: ${wl.error.message}`);
     if (lr.error) throw new Error(`lucent_requests: ${lr.error.message}`);
-    return new Set([...(wl.data || []), ...(lr.data || [])].map((r) => r.discord_id));
+    if (loa.error) throw new Error(`loa_entries: ${loa.error.message}`);
+    return new Set([...(wl.data || []), ...(lr.data || []), ...(loa.data || [])].map((r) => r.discord_id));
   }
 
   async function sweep() {
@@ -67,15 +74,29 @@ module.exports = function createDepartedRequests(supabase, listMembers) {
       return { removed: [], skipped: 'mass removal' };
     }
 
-    const [wl, lr] = await Promise.all([
+    // The announcement ids have to be read before the rows that hold them go.
+    const loaRows = await supabase.from('loa_entries').select('discord_message_id').in('discord_id', due);
+    if (loaRows.error) throw new Error(`loa_entries: ${loaRows.error.message}`);
+
+    const [wl, lr, loa] = await Promise.all([
       supabase.from('loot_wishlists').delete().in('discord_id', due),
       supabase.from('lucent_requests').delete().in('discord_id', due).in('status', OPEN_STATUSES),
+      supabase.from('loa_entries').delete().in('discord_id', due),
     ]);
     if (wl.error) throw new Error(`loot_wishlists: ${wl.error.message}`);
     if (lr.error) throw new Error(`lucent_requests: ${lr.error.message}`);
+    if (loa.error) throw new Error(`loa_entries: ${loa.error.message}`);
+
+    // Best-effort, after the delete — the same order cancel uses. A message
+    // that won't delete is logged by deleteLoaMessage and costs nothing else.
+    if (deleteLoaMessage) {
+      for (const { discord_message_id: messageId } of loaRows.data || []) {
+        if (messageId) await deleteLoaMessage(messageId);
+      }
+    }
 
     due.forEach((id) => missingSince.delete(id));
-    console.log(`Departed-request sweep: cleared loot requests for ${due.length} former member(s): ${due.join(', ')}`);
+    console.log(`Departed-request sweep: cleared loot requests and LOAs for ${due.length} former member(s): ${due.join(', ')}`);
     return { removed: due };
   }
 
