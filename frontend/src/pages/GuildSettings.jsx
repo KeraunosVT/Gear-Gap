@@ -416,8 +416,11 @@ function FormerMembers() {
   const [unticked, setUnticked] = useState(() => new Set());
   const [result, setResult] = useState('');
 
-  const check = () => {
-    setChecking(true); setError(''); setResult('');
+  // `keepMessages` for the refresh after a clear, so the outcome of the clear
+  // stays on screen instead of being wiped by the re-check it triggers.
+  const check = ({ keepMessages = false } = {}) => {
+    setChecking(true);
+    if (!keepMessages) { setError(''); setResult(''); }
     axios.get('/api/admin/settings/departed')
       .then((res) => { setData(res.data); setUnticked(new Set()); })
       .catch((err) => setError(err.response?.data?.error || 'Could not check for former members.'))
@@ -440,10 +443,19 @@ function FormerMembers() {
     try {
       const res = await axios.post('/api/admin/settings/departed/clear', { ids: chosen.map((p) => p.discord_id) });
       const kept = res.data.kept?.length || 0;
-      setResult(`Cleared ${res.data.removed.length}.${kept ? ` ${kept} kept — they have the roster role again.` : ''}`);
-      check();
+      const posts = res.data.posts || 0;
+      setResult(`Cleared ${res.data.removed.length}.`
+        + `${posts ? ` ${posts} LOA post${posts === 1 ? ' is' : 's are'} being removed from Discord in the background.` : ''}`
+        + `${kept ? ` ${kept} kept — they have the roster role again.` : ''}`);
+      check({ keepMessages: true });
     } catch (err) {
-      setError(err.response?.data?.error || 'Could not clear former members.');
+      // No error text means the reply came from something in front of the
+      // server (a gateway timeout, a proxy page), not from the route. Say what
+      // came back, and re-check: the delete may well have gone through anyway.
+      const status = err.response?.status;
+      setError(err.response?.data?.error
+        || (status ? `The server answered ${status} without saying why — re-checked below to show what's left.` : 'Could not reach the server.'));
+      check({ keepMessages: true });
     } finally {
       setClearing(false);
     }
