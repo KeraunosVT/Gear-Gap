@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import axios from 'axios';
 import {
   CalendarRange, Check, ChevronLeft, ChevronRight, Clock, Loader2, Users, CalendarOff, AlertTriangle, Plus,
-  LayoutGrid, List, Settings,
+  LayoutGrid, List, Settings, X,
 } from 'lucide-react';
 import ScheduleManager from '../components/ScheduleManager';
 import { CATEGORIES, OTHER, categoryOf } from '../eventCategories';
@@ -348,13 +348,19 @@ export default function EventCalendar() {
         </Modal>
       )}
 
+      {/* A popup only where there's no room beside the grid: the list view,
+          and phones (which get the list even in week view). On the grid the
+          same detail sits in the side panel instead — md:hidden keeps this
+          overlay from doubling it there. */}
       {selectedRow && (
-        <Modal onClose={() => setSelected(null)} scrollable>
-          <EventDetail
-            night={selectedNight} row={{ ...selectedRow, date: selectedNight.date }}
-            busy={busy} onJoin={signUp} onLeave={withdraw}
-          />
-        </Modal>
+        <div className={view === 'week' ? 'md:hidden' : ''}>
+          <Modal onClose={() => setSelected(null)} scrollable>
+            <EventDetail
+              night={selectedNight} row={{ ...selectedRow, date: selectedNight.date }}
+              busy={busy} onJoin={signUp} onLeave={withdraw}
+            />
+          </Modal>
+        </div>
       )}
       <p className="text-ash text-sm mb-6">
         The week ahead, whether or not signups have been opened. Saying you're in opens them.
@@ -392,11 +398,41 @@ export default function EventCalendar() {
         <>
           {/* Phones get the list either way — seven columns don't fit. */}
           <div className="md:hidden">{listView}</div>
-          <div className="hidden md:block">
-            {totalRows === 0
-              ? <EmptyState>Nothing on the schedule this week.</EmptyState>
-              : <WeekGrid nights={nights} today={today} nowSlot={nowSlot} showAway={showAway} onSelect={setSelected} />}
-          </div>
+          {totalRows === 0 ? (
+            <div className="hidden md:block"><EmptyState>Nothing on the schedule this week.</EmptyState></div>
+          ) : (
+            // Side by side from lg up; between md and lg the panel drops below
+            // the grid rather than squeezing seven columns narrower.
+            <div className="hidden md:flex flex-col lg:flex-row gap-5 items-start">
+              <div className="w-full lg:flex-1 min-w-0">
+                <WeekGrid
+                  nights={nights} today={today} nowSlot={nowSlot} showAway={showAway}
+                  selected={selected} onSelect={setSelected}
+                />
+              </div>
+              <aside className="w-full lg:w-[320px] shrink-0 panel rounded-lg p-5 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:overflow-auto">
+                {selectedRow ? (
+                  <div className="relative">
+                    <button
+                      onClick={() => setSelected(null)} aria-label="Close"
+                      className="absolute right-0 top-0 text-ash hover:text-bone"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                    <EventDetail
+                      night={selectedNight} row={{ ...selectedRow, date: selectedNight.date }}
+                      busy={busy} onJoin={signUp} onLeave={withdraw}
+                    />
+                  </div>
+                ) : (
+                  <div className="py-10 text-center text-sm text-ash">
+                    <CalendarRange className="w-6 h-6 text-brass/60 mx-auto mb-3" />
+                    Pick an event to see who's in and who's away.
+                  </div>
+                )}
+              </aside>
+            </div>
+          )}
         </>
       )}
     </PageShell>
@@ -476,7 +512,8 @@ function layoutLanes(items) {
   return out;
 }
 
-function WeekGrid({ nights, today, nowSlot, showAway, onSelect }) {
+function WeekGrid({ nights, today, nowSlot, showAway, selected, onSelect }) {
+  const isPicked = (date, key) => selected?.date === date && selected?.key === key;
   // Only the hours that hold something, an hour either side. A full 24-hour
   // column is mostly empty scrolling for a guild that plays in the evening.
   const slots = nights.flatMap((n) => n.rows.filter((r) => r.eventTime).map((r) => daySlot(r.eventTime)));
@@ -510,7 +547,7 @@ function WeekGrid({ nights, today, nowSlot, showAway, onSelect }) {
             {nights.map((n) => (
               <div key={n.date} className={`border-b border-l border-line p-1 space-y-1 ${n.date === today ? 'bg-brass/5' : ''}`}>
                 {n.rows.filter((r) => !r.eventTime).map((r) => (
-                  <Block key={r.key} row={r} showAway={showAway} onClick={() => onSelect({ date: n.date, key: r.key })} />
+                  <Block key={r.key} row={r} showAway={showAway} picked={isPicked(n.date, r.key)} onClick={() => onSelect({ date: n.date, key: r.key })} />
                 ))}
               </div>
             ))}
@@ -545,7 +582,7 @@ function WeekGrid({ nights, today, nowSlot, showAway, onSelect }) {
                     width: `${100 / lanes}%`,
                   }}
                 >
-                  <Block row={row} fill showAway={showAway} onClick={() => onSelect({ date: n.date, key: row.key })} />
+                  <Block row={row} fill showAway={showAway} picked={isPicked(n.date, row.key)} onClick={() => onSelect({ date: n.date, key: row.key })} />
                 </div>
               ))}
               {isToday && nowSlot >= start && nowSlot <= end && (
@@ -574,7 +611,7 @@ function WeekGrid({ nights, today, nowSlot, showAway, onSelect }) {
 // One event on the grid: its colour, name, and the facts worth a glance —
 // whether I'm in, how many are, and (with Who's away on) how many have an LOA
 // covering it. Everything else is a click away.
-function Block({ row, fill = false, showAway = false, onClick }) {
+function Block({ row, fill = false, showAway = false, picked = false, onClick }) {
   const cat = categoryOf(row.title);
   const mine = row.myStatus === 'going';
   const awayCount = row.awayList?.length || 0;
@@ -582,7 +619,8 @@ function Block({ row, fill = false, showAway = false, onClick }) {
     <button
       onClick={onClick}
       title={`${row.title}${row.eventTime ? ` · ${fmtTimeEst(row.eventTime)}` : ''} · ${row.going} in${awayCount ? ` · ${awayCount} away` : ''}`}
-      className={`w-full ${fill ? 'h-full' : ''} flex items-center gap-1 rounded px-1.5 py-0.5 text-left text-[11px] leading-tight text-white overflow-hidden transition-[filter] hover:brightness-125 ${row.started ? 'opacity-45' : ''} ${mine ? 'ring-1 ring-white/70' : ''}`}
+      className={`w-full ${fill ? 'h-full' : ''} flex items-center gap-1 rounded px-1.5 py-0.5 text-left text-[11px] leading-tight text-white overflow-hidden transition-[filter] hover:brightness-125 ${row.started ? 'opacity-45' : ''} ${picked ? 'ring-2 ring-bone ring-offset-1 ring-offset-panel' : mine ? 'ring-1 ring-white/70' : ''}`}
+      aria-pressed={picked}
       style={{ background: cat.color }}
     >
       <span className="truncate font-medium">{row.title}</span>
