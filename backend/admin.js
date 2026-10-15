@@ -17,6 +17,7 @@ const createGuildSettings = require('./guildSettings');
 const createLateAttendance = require('./lateAttendance');
 const createEventDetail = require('./eventDetail');
 const createAttendanceHistory = require('./attendanceHistory');
+const createDepartedRequests = require('./departedRequests');
 const { parseTlgm } = createAttendanceHistory;
 
 const ROLE_EMOJI = { Tank: '🛡️', DPS: '⚔️', Healer: '💚' };
@@ -127,6 +128,12 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
   const guildSettings = supabase ? createGuildSettings(supabase) : null;
   const lateAttendance = supabase ? createLateAttendance(supabase, identities) : null;
   const attendanceHistory = supabase ? createAttendanceHistory(supabase) : null;
+  // The officer-run half of the former-member cleanup. The hourly sweep is a
+  // separate instance started in server.js; the two share no state, and need
+  // none — clear() re-checks the member list itself.
+  const departed = supabase
+    ? createDepartedRequests(supabase, listMembers, { deleteLoaMessage: gateway?.deleteLoaMessage })
+    : null;
   // One assembler for a logged night, shared with the member-facing route in
   // server.js. Both must describe the same night; see eventDetail.js's header.
   const eventDetail = supabase
@@ -194,6 +201,29 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
       });
     } catch (err) {
       res.status(err.status || 500).json({ error: err.message || 'Failed to load settings.' });
+    }
+  });
+
+  // ── Former members: what they left behind, and clearing it ───────────────────
+  // Under /settings so it takes the 'settings' capability: deciding the member
+  // role is wrong versus people really having left is a Guild Settings call.
+  router.get('/settings/departed', async (req, res) => {
+    if (!departed) return res.status(503).json({ error: 'Database not configured.' });
+    try {
+      res.json(await departed.preview());
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message || 'Could not check for former members.' });
+    }
+  });
+
+  router.post('/settings/departed/clear', async (req, res) => {
+    if (!departed) return res.status(503).json({ error: 'Database not configured.' });
+    const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
+    if (!ids.length) return res.status(400).json({ error: 'Nobody selected.' });
+    try {
+      res.json(await departed.clear(ids));
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message || 'Could not clear former members.' });
     }
   });
 

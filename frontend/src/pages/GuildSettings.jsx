@@ -393,6 +393,122 @@ export default function GuildSettings() {
         </Button>
         <span className="text-ash/50 text-xs">Every change is recorded in the audit log.</span>
       </div>
+
+      <FormerMembers />
     </PageShell>
+  );
+}
+
+// ── FORMER MEMBERS ──────────────────────────────────────────────────────────
+// What people without the roster role still have on file: wishlists, open Lucent
+// requests, LOAs. The hourly cleanup normally clears these, but it holds back
+// when more than half of everyone looks gone (a mis-set role looks exactly like
+// that) and when the server restarts before its second look. This is the way
+// past both: an officer reads the list and decides.
+//
+// Its own section with its own button, apart from Save — it deletes records
+// rather than changing a setting, and nothing above needs saving first.
+function FormerMembers() {
+  const [data, setData] = useState(null);
+  const [error, setError] = useState('');
+  const [checking, setChecking] = useState(false);
+  const [clearing, setClearing] = useState(false);
+  const [unticked, setUnticked] = useState(() => new Set());
+  const [result, setResult] = useState('');
+
+  const check = () => {
+    setChecking(true); setError(''); setResult('');
+    axios.get('/api/admin/settings/departed')
+      .then((res) => { setData(res.data); setUnticked(new Set()); })
+      .catch((err) => setError(err.response?.data?.error || 'Could not check for former members.'))
+      .finally(() => setChecking(false));
+  };
+
+  const people = data?.people || [];
+  const chosen = people.filter((p) => !unticked.has(p.discord_id));
+  const toggle = (id) => setUnticked((prev) => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+
+  const clear = async () => {
+    const loas = chosen.reduce((n, p) => n + p.loas, 0);
+    if (!window.confirm(`Clear what ${chosen.length} former member${chosen.length === 1 ? '' : 's'} left behind?\n\n`
+      + `${loas} LOA${loas === 1 ? '' : 's'} (and their channel posts), wishlists and open Lucent requests will be deleted. This can't be undone.`)) return;
+    setClearing(true); setError('');
+    try {
+      const res = await axios.post('/api/admin/settings/departed/clear', { ids: chosen.map((p) => p.discord_id) });
+      const kept = res.data.kept?.length || 0;
+      setResult(`Cleared ${res.data.removed.length}.${kept ? ` ${kept} kept — they have the roster role again.` : ''}`);
+      check();
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not clear former members.');
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  // Half or more of everyone holding something looks gone: say so before the
+  // button, because a wrong roster role produces exactly this list.
+  const suspicious = data && people.length >= 3 && people.length > data.holders / 2;
+
+  return (
+    <section className="panel rounded-lg p-6 space-y-4 mt-10">
+      <div className="flex items-center justify-between gap-4 flex-wrap">
+        <div>
+          <div className="eyebrow text-brass text-[10px]">Former members</div>
+          <p className="text-ash text-xs mt-1">
+            People without a roster role who still have LOAs, wishlists or open Lucent requests. These are cleared
+            automatically every hour, except when a lot of people look gone at once.
+          </p>
+        </div>
+        <Button variant="secondary" size="sm" onClick={check} disabled={checking}
+          icon={checking ? <Loader2 className="w-4 h-4 animate-spin" /> : null}>
+          {data ? 'Check again' : 'Check now'}
+        </Button>
+      </div>
+
+      {error && <div className="text-sm text-oxblood">{error}</div>}
+      {result && <div className="text-sm text-brass">{result}</div>}
+
+      {data && people.length === 0 && <p className="text-sm text-ash">Nothing left behind — everyone on file has a roster role.</p>}
+
+      {people.length > 0 && (
+        <>
+          {suspicious && (
+            <div className="px-4 py-3 rounded-lg border border-brass/40 text-sm text-bone flex items-start gap-2">
+              <AlertTriangle className="w-4 h-4 text-brass shrink-0 mt-0.5" />
+              <span>
+                {people.length} of {data.holders} people with records look gone. That is either a long backlog that was never
+                cleared, or the roster roles above are wrong — check the list before clearing.
+              </span>
+            </div>
+          )}
+          <div className="max-h-72 overflow-auto divide-y divide-line border border-line rounded-lg">
+            {people.map((p) => (
+              <label key={p.discord_id} className="flex items-center gap-3 px-3 py-2 text-sm cursor-pointer hover:bg-panelup">
+                <input type="checkbox" checked={!unticked.has(p.discord_id)} onChange={() => toggle(p.discord_id)} className="accent-[rgb(var(--color-brass))]" />
+                <span className="text-bone flex-1 truncate">{p.display_name || <span className="font-mono text-ash">{p.discord_id}</span>}</span>
+                <span className="text-xs text-ash shrink-0">
+                  {[
+                    p.loas && `${p.loas} LOA${p.loas === 1 ? '' : 's'}`,
+                    p.wishlist && 'wishlist',
+                    p.lucent && `${p.lucent} Lucent request${p.lucent === 1 ? '' : 's'}`,
+                  ].filter(Boolean).join(' · ')}
+                </span>
+              </label>
+            ))}
+          </div>
+          <div className="flex items-center gap-3">
+            <Button size="sm" onClick={clear} disabled={clearing || chosen.length === 0}
+              icon={clearing ? <Loader2 className="w-4 h-4 animate-spin" /> : null}>
+              Clear {chosen.length} selected
+            </Button>
+            <span className="text-ash/50 text-xs">Anyone who gets the role back before you press this is skipped.</span>
+          </div>
+        </>
+      )}
+    </section>
   );
 }

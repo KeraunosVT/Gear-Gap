@@ -16,14 +16,22 @@
 //   - paid and denied Lucent requests. Paid ones point at a currency_awards row
 //     and are history, the same as loot_awards, which this never touches.
 //
-// Two guards, because the deletes can't be undone:
-//   - Grace: someone has to be missing on two sweeps in a row. A role briefly
-//     pulled and re-added (or swapped during a reshuffle) shouldn't cost a
-//     member their wishlist. The first sighting is in memory, so a restart just
-//     restarts the clock — the safe direction.
-//   - Mass guard: if a sweep would clear more than half the people holding
-//     requests or LOAs, it does nothing and logs instead. That's a mis-set
-//     member role in Guild Settings, not half the guild quitting in an hour.
+// Two ways in:
+//   - sweep(), hourly, on its own. Two guards, because the deletes can't be
+//     undone:
+//       · Grace: someone has to be missing on two sweeps in a row. A role
+//         briefly pulled and re-added shouldn't cost a member their wishlist.
+//         The first sighting is in memory, so a restart just restarts the clock
+//         — the safe direction, but a host that restarts or sleeps more often
+//         than the interval never gets past it.
+//       · Mass guard: if a sweep would clear more than half the people holding
+//         requests or LOAs, it does nothing and logs instead. That's a mis-set
+//         member role, not half the guild quitting in an hour — except on the
+//         first run against a backlog nobody ever pruned, when it can be both.
+//   - preview() and clear(ids), from Guild Settings. An officer looking at the
+//     list IS the check both guards stand in for, so clear() skips them — but
+//     it re-reads the member list and only removes ids that are still missing,
+//     so a stale page can't clear someone who has since come back.
 const SWEEP_MS = 60 * 60 * 1000;
 const FIRST_SWEEP_MS = 5 * 60 * 1000;
 const OPEN_STATUSES = ['pending', 'approved'];
@@ -35,25 +43,57 @@ const MASS_MIN = 3; // a small guild losing 2 of 3 requesters is not a misconfig
 module.exports = function createDepartedRequests(supabase, listMembers, { deleteLoaMessage = null } = {}) {
   const missingSince = new Map(); // discord_id -> first sweep it was missing
 
-  async function requestHolders() {
+  // Everything this module can clear, row by row, with the names on the rows —
+  // the preview needs to say who someone was after Discord has forgotten them.
+  async function holdings() {
     const [wl, lr, loa] = await Promise.all([
-      supabase.from('loot_wishlists').select('discord_id'),
-      supabase.from('lucent_requests').select('discord_id').in('status', OPEN_STATUSES),
-      supabase.from('loa_entries').select('discord_id'),
+      supabase.from('loot_wishlists').select('discord_id, display_name'),
+      supabase.from('lucent_requests').select('discord_id, display_name').in('status', OPEN_STATUSES),
+      supabase.from('loa_entries').select('discord_id, display_name'),
     ]);
     if (wl.error) throw new Error(`loot_wishlists: ${wl.error.message}`);
     if (lr.error) throw new Error(`lucent_requests: ${lr.error.message}`);
     if (loa.error) throw new Error(`loa_entries: ${loa.error.message}`);
-    return new Set([...(wl.data || []), ...(lr.data || []), ...(loa.data || [])].map((r) => r.discord_id));
+    return { wishlists: wl.data || [], lucent: lr.data || [], loas: loa.data || [] };
+  }
+
+  const holderIds = (h) => new Set([...h.wishlists, ...h.lucent, ...h.loas].map((r) => String(r.discord_id)));
+
+  // An empty list is a Discord or config failure, never a real answer.
+  async function currentIds() {
+    const members = await listMembers();
+    return members.length ? new Set(members.map((m) => String(m.id))) : null;
+  }
+
+  async function remove(ids) {
+    // The announcement ids have to be read before the rows that hold them go.
+    const loaRows = await supabase.from('loa_entries').select('discord_message_id').in('discord_id', ids);
+    if (loaRows.error) throw new Error(`loa_entries: ${loaRows.error.message}`);
+
+    const [wl, lr, loa] = await Promise.all([
+      supabase.from('loot_wishlists').delete().in('discord_id', ids),
+      supabase.from('lucent_requests').delete().in('discord_id', ids).in('status', OPEN_STATUSES),
+      supabase.from('loa_entries').delete().in('discord_id', ids),
+    ]);
+    if (wl.error) throw new Error(`loot_wishlists: ${wl.error.message}`);
+    if (lr.error) throw new Error(`lucent_requests: ${lr.error.message}`);
+    if (loa.error) throw new Error(`loa_entries: ${loa.error.message}`);
+
+    // Best-effort, after the delete — the same order cancel uses. A message
+    // that won't delete is logged by deleteLoaMessage and costs nothing else.
+    if (deleteLoaMessage) {
+      for (const { discord_message_id: messageId } of loaRows.data || []) {
+        if (messageId) await deleteLoaMessage(messageId);
+      }
+    }
+    ids.forEach((id) => missingSince.delete(id));
   }
 
   async function sweep() {
-    const members = await listMembers();
-    // An empty list is a Discord or config failure, never a real answer.
-    if (!members.length) return { removed: [], skipped: 'empty member list' };
-    const current = new Set(members.map((m) => m.id));
+    const current = await currentIds();
+    if (!current) return { removed: [], skipped: 'empty member list' };
 
-    const holders = await requestHolders();
+    const holders = holderIds(await holdings());
     const missing = [...holders].filter((id) => !current.has(id));
 
     // Anyone back in the guild (or with nothing left to clear) starts over.
@@ -70,34 +110,48 @@ module.exports = function createDepartedRequests(supabase, listMembers, { delete
 
     if (due.length >= MASS_MIN && due.length > holders.size * MASS_FRACTION) {
       console.warn(`Departed-request sweep skipped: ${due.length} of ${holders.size} requesters `
-        + 'look departed, which is more likely a wrong member role in Guild Settings than a real exodus.');
+        + 'look departed, which is more likely a wrong member role in Guild Settings than a real exodus. '
+        + 'If they really have left, review and clear them under Guild Settings → Former members.');
       return { removed: [], skipped: 'mass removal' };
     }
 
-    // The announcement ids have to be read before the rows that hold them go.
-    const loaRows = await supabase.from('loa_entries').select('discord_message_id').in('discord_id', due);
-    if (loaRows.error) throw new Error(`loa_entries: ${loaRows.error.message}`);
-
-    const [wl, lr, loa] = await Promise.all([
-      supabase.from('loot_wishlists').delete().in('discord_id', due),
-      supabase.from('lucent_requests').delete().in('discord_id', due).in('status', OPEN_STATUSES),
-      supabase.from('loa_entries').delete().in('discord_id', due),
-    ]);
-    if (wl.error) throw new Error(`loot_wishlists: ${wl.error.message}`);
-    if (lr.error) throw new Error(`lucent_requests: ${lr.error.message}`);
-    if (loa.error) throw new Error(`loa_entries: ${loa.error.message}`);
-
-    // Best-effort, after the delete — the same order cancel uses. A message
-    // that won't delete is logged by deleteLoaMessage and costs nothing else.
-    if (deleteLoaMessage) {
-      for (const { discord_message_id: messageId } of loaRows.data || []) {
-        if (messageId) await deleteLoaMessage(messageId);
-      }
-    }
-
-    due.forEach((id) => missingSince.delete(id));
+    await remove(due);
     console.log(`Departed-request sweep: cleared loot requests and LOAs for ${due.length} former member(s): ${due.join(', ')}`);
     return { removed: due };
+  }
+
+  // Who would be cleared right now, and what of theirs. No grace, no mass
+  // guard — this only reads; the officer decides.
+  async function preview() {
+    const current = await currentIds();
+    if (!current) throw Object.assign(new Error('The Discord member list came back empty, so nobody can be judged departed right now.'), { status: 503 });
+    const h = await holdings();
+    const byId = new Map();
+    const touch = (r) => {
+      const id = String(r.discord_id);
+      if (current.has(id)) return null;
+      if (!byId.has(id)) byId.set(id, { discord_id: id, display_name: null, wishlist: false, lucent: 0, loas: 0 });
+      const p = byId.get(id);
+      if (!p.display_name && r.display_name) p.display_name = r.display_name;
+      return p;
+    };
+    h.wishlists.forEach((r) => { const p = touch(r); if (p) p.wishlist = true; });
+    h.lucent.forEach((r) => { const p = touch(r); if (p) p.lucent += 1; });
+    h.loas.forEach((r) => { const p = touch(r); if (p) p.loas += 1; });
+    const people = [...byId.values()].sort((a, b) => String(a.display_name || a.discord_id).localeCompare(String(b.display_name || b.discord_id)));
+    return { people, holders: holderIds(h).size };
+  }
+
+  async function clear(ids) {
+    const wanted = new Set((ids || []).map(String));
+    if (!wanted.size) return { removed: [] };
+    const current = await currentIds();
+    if (!current) throw Object.assign(new Error('The Discord member list came back empty — nothing was cleared.'), { status: 503 });
+    const due = [...wanted].filter((id) => !current.has(id));
+    if (!due.length) return { removed: [], kept: [...wanted] };
+    await remove(due);
+    console.log(`Former-member cleanup (manual): cleared loot requests and LOAs for ${due.length}: ${due.join(', ')}`);
+    return { removed: due, kept: [...wanted].filter((id) => current.has(id)) };
   }
 
   // Never throws into the timer — this app has no unhandledRejection handler,
@@ -111,5 +165,5 @@ module.exports = function createDepartedRequests(supabase, listMembers, { delete
     }, FIRST_SWEEP_MS);
   }
 
-  return { sweep, start };
+  return { sweep, preview, clear, start };
 };

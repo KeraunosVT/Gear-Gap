@@ -107,6 +107,30 @@ describe('departed-request sweep', () => {
     assert.equal(tables.loa_entries.length, 3);
   });
 
+  test('preview lists who would go and what of theirs, without deleting', async () => {
+    tables.loa_entries.push({ discord_id: 'e', display_name: 'Gone', discord_message_id: null });
+    const { people } = await departed.preview();
+    assert.deepEqual(
+      people.map((p) => [p.discord_id, p.wishlist, p.lucent, p.loas]),
+      [['b', true, 2, 2], ['e', false, 0, 1]],
+    );
+    assert.equal(tables.loa_entries.length, 4);
+  });
+
+  test('clear skips both guards but keeps anyone who has come back', async () => {
+    members = [{ id: 'a' }]; // b, c and d look gone — the sweep would refuse this
+    const sweep = await departed.sweep();
+    assert.equal(sweep.removed.length, 0);
+
+    members = [{ id: 'a' }, { id: 'c' }]; // c came back after the page loaded
+    const { removed, kept } = await departed.clear(['b', 'c', 'd']);
+    assert.deepEqual(removed.sort(), ['b', 'd']);
+    assert.deepEqual(kept, ['c']);
+    assert.deepEqual(tables.loot_wishlists.map((r) => r.discord_id), ['a', 'c']);
+    assert.deepEqual(tables.loa_entries.map((r) => r.discord_id), ['a']);
+    assert.deepEqual(deletedMessages, ['msg-b1']);
+  });
+
   test('an empty member list never deletes', async () => {
     members = [];
     await departed.sweep();
