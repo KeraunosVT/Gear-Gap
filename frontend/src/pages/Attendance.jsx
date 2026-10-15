@@ -660,7 +660,7 @@ export default function Attendance() {
                 said here so nobody reads it as filtered. */}
             {stats.history && (
               <span className="text-ash/70">
-                · TLGM column is lifetime, imported {new Date(stats.history.imported_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                · All-Time column is from TLGM, imported {new Date(stats.history.imported_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                 {' '}·{' '}
                 <button onClick={removeTlgm} className="hover:text-oxblood transition-colors">remove</button>
               </span>
@@ -680,7 +680,7 @@ export default function Attendance() {
                 <th className="p-4 font-normal w-[34%]">Rate</th>
                 <SortableTh label="%" sortKey="rate" activeKey={statSort} dir={statDir} onSort={toggleStatSort} align="right" />
                 {stats.history && (
-                  <SortableTh label="TLGM" sortKey="tlgm" activeKey={statSort} dir={statDir} onSort={toggleStatSort} align="right" />
+                  <SortableTh label="All-Time" sortKey="tlgm" activeKey={statSort} dir={statDir} onSort={toggleStatSort} align="right" />
                 )}
               </Thead>
               <tbody>
