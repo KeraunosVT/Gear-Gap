@@ -94,6 +94,26 @@ export function loaSkipsDate(entry, dateStr) {
   return Array.isArray(skips) && skips.includes(dateStr);
 }
 
+// Does this LOA cover one event — `date` (a guild night), its day-of-week
+// `dow`, the event's schedule id and time? The type tests from backend loa.js's
+// unavailableOn, which is the authoritative reading; this is the client's copy
+// for pages that already hold the entries. An LOA scoped to one event doesn't
+// touch the others that night; an unscoped one covers everything. A date lifted
+// out of a recurring series is checked before scope and window, same order as
+// unavailableOn: a removed occurrence isn't in the series for any event.
+//
+// Lived in EventCalendar.jsx until the LOA page's week grid needed it too.
+export function loaCovers(entry, { date, dow, scheduleId, eventTime }) {
+  const inScope = !entry.event_schedule_id || !scheduleId || entry.event_schedule_id === scheduleId;
+  if (entry.type === 'range') return entry.start_date <= date && entry.end_date >= date;
+  if (entry.type === 'event') return entry.event_date === date && inScope && withinLoaWindow(entry, eventTime);
+  if (entry.type === 'recurring') {
+    return entry.day_of_week === dow && !loaSkipsDate(entry, date)
+      && inScope && withinLoaWindow(entry, eventTime);
+  }
+  return false;
+}
+
 // Does this LOA still apply on or after `today` (a guild-night YYYY-MM-DD)?
 // Recurring entries never expire — that is the point of them — so anything
 // counting "absences on file" has to treat them as permanently live rather

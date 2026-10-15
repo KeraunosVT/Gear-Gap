@@ -6,6 +6,7 @@ import { CalendarOff, CalendarX2, Trash2, Settings, X, Repeat, ChevronDown, Cale
 
 import { fmtTimeEst, fmtDatetime, todayInGuildTz, eventsForGuildDay, loaSkipsDate } from '../timeUtils';
 import Tabs from '../components/ui/Tabs';
+import LoaWeekGrid from '../components/LoaWeekGrid';
 import { PageShell } from '../components/ui/PageShell';
 import { useFlash } from '../components/ui/useFlash';
 import Toast from '../components/ui/Toast';
@@ -495,6 +496,7 @@ export default function LOA() {
               { key: 'mine', label: 'My LOAs' },
               { key: 'board', label: 'LOA Board' },
               { key: 'calendar', label: 'Calendar' },
+              { key: 'week', label: 'Week' },
             ]}
             active={tab}
             onChange={setTab}
@@ -900,6 +902,9 @@ export default function LOA() {
               )}
             </div>
           )}
+
+          {/* Week — members × nights */}
+          {tab === 'week' && <LoaWeekGrid entries={allEntries} schedule={schedule} />}
 
           {/* Calendar */}
           {tab === 'calendar' && (

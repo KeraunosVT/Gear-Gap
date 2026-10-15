@@ -10,7 +10,7 @@ import { CATEGORIES, OTHER, categoryOf } from '../eventCategories';
 
 import {
   fmtTimeEst, todayInGuildTz, eventsForGuildDay, isAfterMidnight, daySlot, getGuildTz,
-  withinLoaWindow, addDays, loaSkipsDate,
+  addDays, loaCovers,
 } from '../timeUtils';
 import { useAuth } from '../auth';
 import { PageShell } from '../components/ui/PageShell';
@@ -31,9 +31,10 @@ import { useFlash } from '../components/ui/useFlash';
 // one behaviour is the whole point — without it the calendar could only ever
 // display the same handful of rows the other page already does.
 //
-// It reads three endpoints that already exist and adds no fourth. Nothing here
-// fetches another member's data: /api/signups carries only my_status and
-// headcounts, and /api/loa is scoped to the caller in its WHERE clause.
+// It reads three endpoints that already exist and adds no fourth. Everyone's
+// LOAs come from /api/loa/all — the same list the LOA board already shows every
+// member, with reasons stripped for anyone without loa.admin — so each event
+// can say who will be missing it.
 
 const DAY_NAME = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -70,32 +71,37 @@ function guildNowSlot() {
   return daySlot(`${h}:${m}`);
 }
 
-// ── LOA, MATCHED CLIENT-SIDE ────────────────────────────────────────────────
-// The type tests from loa.js's unavailableOn, run against the caller's OWN
-// entries only — this never sees anyone else's, and deliberately doesn't ask
-// for them. The time-window half is withinLoaWindow, imported from timeUtils
-// rather than restated here: it used to be a verbatim copy of the backend's,
-// and a copy of the one rule where a mistake doesn't error, it just quietly
-// stops warning the person it exists to warn.
-function loaCovers(entry, { date, dow, scheduleId, eventTime }) {
-  // An LOA scoped to one event doesn't touch the others that night; an unscoped
-  // one covers everything. Same test as unavailableOn's inScope.
-  const inScope = !entry.event_schedule_id || !scheduleId || entry.event_schedule_id === scheduleId;
-  if (entry.type === 'range') return entry.start_date <= date && entry.end_date >= date;
-  if (entry.type === 'event') return entry.event_date === date && inScope && withinLoaWindow(entry, eventTime);
-  // A date lifted out of the series doesn't warn you're away — you told us you
-  // could make this one. Same order as unavailableOn: the exception is checked
-  // before scope and window, because a removed occurrence isn't in the series
-  // for any event that night.
-  if (entry.type === 'recurring') {
-    return entry.day_of_week === dow && !loaSkipsDate(entry, date)
-      && inScope && withinLoaWindow(entry, eventTime);
-  }
-  return false;
+const AWAY_KEY = 'calendarShowAway';
+const readShowAway = () => {
+  try { return localStorage.getItem(AWAY_KEY) !== '0'; } catch { return true; }
+};
+
+// How an LOA reads in one line: what kind it is, and when on the night.
+function describeLoa(e) {
+  const hours = e.start_time
+    ? (e.end_time ? `${fmtTimeEst(e.start_time)} – ${fmtTimeEst(e.end_time)}` : `From ${fmtTimeEst(e.start_time)}`)
+    : null;
+  if (e.type === 'range') return { when: 'All night', what: `${shortDate(e.start_date)} – ${shortDate(e.end_date)}` };
+  if (e.type === 'recurring') return { when: hours || 'All night', what: `Every ${DAY_NAME[e.day_of_week]}` };
+  return { when: hours || 'All night', what: e.event_schedule_id ? 'This event only' : 'One night' };
+}
+
+// One entry per member, for one event. A member can match several (a range
+// plus a standing night off); the one without a time window says the most, so
+// it wins — the same preference unavailableOn uses.
+function awayFor(entries, ctx) {
+  const byMember = new Map();
+  entries.forEach((e) => {
+    if (!loaCovers(e, ctx)) return;
+    const prev = byMember.get(e.discord_id);
+    if (!prev || (prev.start_time && !e.start_time)) byMember.set(e.discord_id, e);
+  });
+  return [...byMember.values()].sort((a, b) => String(a.display_name).localeCompare(String(b.display_name)));
 }
 
 export default function EventCalendar() {
-  const { can } = useAuth();
+  const { user, can } = useAuth();
+  const [showAway, setShowAway] = useState(readShowAway);
   // Two kinds of event, each behind the capability its route already needs: a
   // one-off is an opened signup ('attendance'), a weekly one is a schedule
   // entry ('schedule'). The button shows for either.
@@ -122,7 +128,7 @@ export default function EventCalendar() {
     Promise.all([
       axios.get('/api/signups'),
       axios.get('/api/event-schedule'),
-      axios.get('/api/loa'),
+      axios.get('/api/loa/all'),
     ])
       .then(([sig, sched, loa]) => {
         setOccurrences(sig.data.signups || []);
@@ -182,16 +188,16 @@ export default function EventCalendar() {
 
     const rows = [...scheduled, ...extra]
       .map((r) => {
-        const away = loaEntries.filter((e) => loaCovers(e, {
-          date, dow, scheduleId: r.scheduleId, eventTime: r.eventTime,
-        }));
+        const awayList = awayFor(loaEntries, { date, dow, scheduleId: r.scheduleId, eventTime: r.eventTime });
         return {
           ...r,
           myStatus: r.occ?.my_status || null,
           going: r.occ?.going_count || 0,
           waitlist: r.occ?.waitlist_count || 0,
           capacity: r.occ?.capacity ?? null,
-          away: away.length > 0,
+          // `away` is still "am I away" — the warning on my own row.
+          away: awayList.some((e) => e.discord_id === user?.id),
+          awayList,
           // A week starts on Monday now, so earlier nights of this week are on
           // screen too — everything on them is over. Tonight's events are over
           // once their time has passed.
@@ -202,7 +208,7 @@ export default function EventCalendar() {
         || String(a.title).localeCompare(String(b.title)));
 
     return { date, dow, rows };
-  }), [days, occurrences, schedule, loaEntries, nowSlot, today]);
+  }), [days, occurrences, schedule, loaEntries, nowSlot, today, user?.id]);
 
   const totalRows = nights.reduce((n, d) => n + d.rows.length, 0);
   const myCount = nights.reduce((n, d) => n + d.rows.filter((r) => r.myStatus).length, 0);
@@ -256,6 +262,13 @@ export default function EventCalendar() {
     try { localStorage.setItem(VIEW_KEY, v); } catch { /* per-viewer nicety only */ }
   };
 
+  const toggleShowAway = () => {
+    setShowAway((v) => {
+      try { localStorage.setItem(AWAY_KEY, v ? '0' : '1'); } catch { /* per-viewer nicety only */ }
+      return !v;
+    });
+  };
+
   // The list keeps its old shape: the nights still to come. Earlier nights of
   // this week only earn their place on the grid, where an empty column would
   // look like a gap.
@@ -270,6 +283,7 @@ export default function EventCalendar() {
           key={night.date} night={night}
           isTonight={night.date === today}
           busy={busy} onJoin={signUp} onLeave={withdraw}
+          showAway={showAway} onDetails={(row) => setSelected({ date: night.date, key: row.key })}
         />
       ))}
     </div>
@@ -283,7 +297,14 @@ export default function EventCalendar() {
       <div className="flex items-center gap-3 mb-2">
         <CalendarRange className="w-6 h-6 text-brass" />
         <h1 className="font-display text-2xl tracking-wide text-bone">EVENT CALENDAR</h1>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-2 flex-wrap justify-end">
+          <button
+            onClick={toggleShowAway} aria-pressed={showAway}
+            title="Show how many people have an LOA covering each event"
+            className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border transition-colors ${showAway ? 'border-brass/60 text-brass bg-panelup' : 'border-line text-ash hover:text-bone'}`}
+          >
+            <CalendarOff className="w-4 h-4" /> Who's away
+          </button>
           {/* Week/List only where the grid can actually be shown. */}
           <div className="hidden md:flex rounded-lg border border-line overflow-hidden">
             {[['week', LayoutGrid, 'Week'], ['list', List, 'List']].map(([key, Icon, label]) => (
@@ -328,15 +349,11 @@ export default function EventCalendar() {
       )}
 
       {selectedRow && (
-        <Modal onClose={() => setSelected(null)}>
-          <div className="flex items-baseline gap-2 mb-3">
-            <span className="w-2.5 h-2.5 rounded-full self-center" style={{ background: categoryOf(selectedRow.title).color }} />
-            <h2 className="font-display text-lg tracking-[0.08em] text-bone">{DAY_NAME[selectedNight.dow]}</h2>
-            <span className="text-ash text-sm">{shortDate(selectedNight.date)}</span>
-          </div>
-          <div className="border border-line rounded-lg">
-            <EventRow row={{ ...selectedRow, date: selectedNight.date }} busy={busy} onJoin={signUp} onLeave={withdraw} />
-          </div>
+        <Modal onClose={() => setSelected(null)} scrollable>
+          <EventDetail
+            night={selectedNight} row={{ ...selectedRow, date: selectedNight.date }}
+            busy={busy} onJoin={signUp} onLeave={withdraw}
+          />
         </Modal>
       )}
       <p className="text-ash text-sm mb-6">
@@ -378,7 +395,7 @@ export default function EventCalendar() {
           <div className="hidden md:block">
             {totalRows === 0
               ? <EmptyState>Nothing on the schedule this week.</EmptyState>
-              : <WeekGrid nights={nights} today={today} nowSlot={nowSlot} onSelect={setSelected} />}
+              : <WeekGrid nights={nights} today={today} nowSlot={nowSlot} showAway={showAway} onSelect={setSelected} />}
           </div>
         </>
       )}
@@ -389,7 +406,7 @@ export default function EventCalendar() {
 // One night's agenda. Nights with nothing scheduled still get a heading — a
 // week that silently skips Tuesday reads as a loading bug, and "nothing on"
 // is a real answer to "what's on Tuesday".
-function Night({ night, isTonight, busy, onJoin, onLeave }) {
+function Night({ night, isTonight, busy, onJoin, onLeave, showAway, onDetails }) {
   return (
     <div>
       <div className="flex items-baseline gap-2 mb-2">
@@ -406,6 +423,7 @@ function Night({ night, isTonight, busy, onJoin, onLeave }) {
             <EventRow
               key={row.key} row={{ ...row, date: night.date }}
               busy={busy} onJoin={onJoin} onLeave={onLeave}
+              showAway={showAway} onDetails={onDetails}
             />
           ))}
         </div>
@@ -458,7 +476,7 @@ function layoutLanes(items) {
   return out;
 }
 
-function WeekGrid({ nights, today, nowSlot, onSelect }) {
+function WeekGrid({ nights, today, nowSlot, showAway, onSelect }) {
   // Only the hours that hold something, an hour either side. A full 24-hour
   // column is mostly empty scrolling for a guild that plays in the evening.
   const slots = nights.flatMap((n) => n.rows.filter((r) => r.eventTime).map((r) => daySlot(r.eventTime)));
@@ -492,7 +510,7 @@ function WeekGrid({ nights, today, nowSlot, onSelect }) {
             {nights.map((n) => (
               <div key={n.date} className={`border-b border-l border-line p-1 space-y-1 ${n.date === today ? 'bg-brass/5' : ''}`}>
                 {n.rows.filter((r) => !r.eventTime).map((r) => (
-                  <Block key={r.key} row={r} onClick={() => onSelect({ date: n.date, key: r.key })} />
+                  <Block key={r.key} row={r} showAway={showAway} onClick={() => onSelect({ date: n.date, key: r.key })} />
                 ))}
               </div>
             ))}
@@ -527,7 +545,7 @@ function WeekGrid({ nights, today, nowSlot, onSelect }) {
                     width: `${100 / lanes}%`,
                   }}
                 >
-                  <Block row={row} fill onClick={() => onSelect({ date: n.date, key: row.key })} />
+                  <Block row={row} fill showAway={showAway} onClick={() => onSelect({ date: n.date, key: row.key })} />
                 </div>
               ))}
               {isToday && nowSlot >= start && nowSlot <= end && (
@@ -553,24 +571,111 @@ function WeekGrid({ nights, today, nowSlot, onSelect }) {
   );
 }
 
-// One event on the grid: its colour, name, and the two facts worth a glance —
-// whether I'm in, and how many are. Everything else is a click away.
-function Block({ row, fill = false, onClick }) {
+// One event on the grid: its colour, name, and the facts worth a glance —
+// whether I'm in, how many are, and (with Who's away on) how many have an LOA
+// covering it. Everything else is a click away.
+function Block({ row, fill = false, showAway = false, onClick }) {
   const cat = categoryOf(row.title);
   const mine = row.myStatus === 'going';
+  const awayCount = row.awayList?.length || 0;
   return (
     <button
       onClick={onClick}
-      title={`${row.title}${row.eventTime ? ` · ${fmtTimeEst(row.eventTime)}` : ''} · ${row.going} in`}
+      title={`${row.title}${row.eventTime ? ` · ${fmtTimeEst(row.eventTime)}` : ''} · ${row.going} in${awayCount ? ` · ${awayCount} away` : ''}`}
       className={`w-full ${fill ? 'h-full' : ''} flex items-center gap-1 rounded px-1.5 py-0.5 text-left text-[11px] leading-tight text-white overflow-hidden transition-[filter] hover:brightness-125 ${row.started ? 'opacity-45' : ''} ${mine ? 'ring-1 ring-white/70' : ''}`}
       style={{ background: cat.color }}
     >
       <span className="truncate font-medium">{row.title}</span>
       {mine && <Check className="w-3 h-3 shrink-0" />}
       {row.myStatus === 'waitlist' && <Clock className="w-3 h-3 shrink-0" />}
-      {row.away && <CalendarOff className="w-3 h-3 shrink-0" />}
+      {/* Without the guild-wide count, still say when I'm the one away. */}
+      {row.away && !showAway && <CalendarOff className="w-3 h-3 shrink-0" />}
       <span className="ml-auto shrink-0 font-mono text-white/80">{row.going}{row.capacity ? `/${row.capacity}` : ''}</span>
+      {showAway && awayCount > 0 && (
+        <span className={`shrink-0 inline-flex items-center gap-0.5 rounded-full px-1.5 font-mono text-[10px] ${row.away ? 'bg-white text-ink' : 'bg-black/35'}`}>
+          <CalendarOff className="w-2.5 h-2.5" />{awayCount}
+        </span>
+      )}
     </button>
+  );
+}
+
+// ── ONE EVENT, OPENED ───────────────────────────────────────────────────────
+// The row's own controls, then who is away for it. The away list is computed
+// here from everyone's LOAs; reasons only arrive for officers (/api/loa/all
+// strips them otherwise), so they show exactly when the server sent them.
+//
+// Who is signed up needs the signup's own detail — /api/signups carries only
+// counts — so it is fetched when the event has been opened. It is used for one
+// thing: flagging anyone who is both on LOA and signed up, which the officer
+// has to resolve and which the server already works out as `conflicts`.
+function EventDetail({ night, row, busy, onJoin, onLeave }) {
+  const [conflictIds, setConflictIds] = useState(() => new Set());
+
+  useEffect(() => {
+    setConflictIds(new Set());
+    if (!row.signupId) return undefined;
+    let live = true;
+    axios.get(`/api/signups/${row.signupId}`)
+      .then((res) => {
+        if (live) setConflictIds(new Set((res.data.conflicts || []).map((c) => String(c.discord_id))));
+      })
+      .catch(() => {});
+    return () => { live = false; };
+  }, [row.signupId, row.going]);
+
+  const away = row.awayList || [];
+  return (
+    <div>
+      <div className="flex items-baseline gap-2 mb-3">
+        <span className="w-2.5 h-2.5 rounded-full self-center" style={{ background: categoryOf(row.title).color }} />
+        <h2 className="font-display text-lg tracking-[0.08em] text-bone">{DAY_NAME[night.dow]}</h2>
+        <span className="text-ash text-sm">{shortDate(night.date)}</span>
+      </div>
+      <div className="border border-line rounded-lg">
+        <EventRow row={row} busy={busy} onJoin={onJoin} onLeave={onLeave} />
+      </div>
+
+      <div className="grid grid-cols-3 gap-2 mt-4">
+        {[
+          ['signed up', row.going, 'text-bone'],
+          ['away', away.length, away.length ? 'text-brassbright' : 'text-bone'],
+          ['waitlist', row.waitlist, 'text-bone'],
+        ].map(([label, n, tone]) => (
+          <div key={label} className="bg-panelup rounded-lg py-2 text-center">
+            <div className={`font-mono text-lg ${tone}`}>{n}</div>
+            <div className="text-[11px] text-ash">{label}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="eyebrow text-[10px] text-brass mt-5 mb-2">Away ({away.length})</div>
+      {away.length === 0 ? (
+        <p className="text-sm text-ash">Nobody has an LOA covering this.</p>
+      ) : (
+        <div className="space-y-1.5">
+          {away.map((e) => {
+            const { when, what } = describeLoa(e);
+            const clash = conflictIds.has(String(e.discord_id));
+            return (
+              <div
+                key={e.discord_id}
+                className={`rounded-lg border px-3 py-2 text-sm ${clash ? 'border-oxblood/60 bg-oxblooddeep/30' : 'border-line bg-hall'}`}
+              >
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-bone truncate">{e.display_name || 'Member'}</span>
+                  <span className={`text-xs shrink-0 ${clash ? 'text-brassbright' : 'text-ash'}`}>{clash ? 'Signed up' : when}</span>
+                </div>
+                <div className="text-xs text-ash mt-0.5">
+                  {clash ? <>On LOA <em>and</em> signed up · {when} · {what}</> : what}
+                </div>
+                {e.reason && <div className="text-xs text-ash/80 italic mt-0.5">“{e.reason}”</div>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -695,7 +800,7 @@ function NewEventModal({ canOneOff, canWeekly, defaultDate, onClose, onCreated }
   );
 }
 
-function EventRow({ row, busy, onJoin, onLeave }) {
+function EventRow({ row, busy, onJoin, onLeave, showAway = false, onDetails = null }) {
   const joining = busy === `join:${row.key}`;
   const leaving = busy === `leave:${row.key}`;
   const working = joining || leaving;
@@ -748,6 +853,12 @@ function EventRow({ row, busy, onJoin, onLeave }) {
           {/* No number: the member list doesn't carry a waitlist position, and
               inventing one would be worse than not saying. */}
           {isWaitlisted && <span className="text-brass">waitlisted</span>}
+          {/* The list view's way into the same detail the grid opens on click. */}
+          {showAway && onDetails && row.awayList?.length > 0 && (
+            <button onClick={() => onDetails(row)} className="inline-flex items-center gap-1 text-ash hover:text-brass transition-colors">
+              <CalendarOff className="w-3 h-3" /> {row.awayList.length} away
+            </button>
+          )}
         </div>
       </div>
 
