@@ -3,7 +3,9 @@ import { Link } from 'react-router-dom';
 import axios from 'axios';
 import {
   CalendarRange, Check, ChevronLeft, ChevronRight, Clock, Loader2, Users, CalendarOff, AlertTriangle, Plus,
+  LayoutGrid, List,
 } from 'lucide-react';
+import { CATEGORIES, OTHER, categoryOf } from '../eventCategories';
 
 import {
   fmtTimeEst, todayInGuildTz, eventsForGuildDay, isAfterMidnight, daySlot, getGuildTz,
@@ -34,11 +36,17 @@ import { useFlash } from '../components/ui/useFlash';
 
 const DAY_NAME = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-// Four weeks of paging against the server's 30-day member-open horizon. The
-// last day reachable is 27 days out, so the arrows can never land on a week
-// whose buttons the API would refuse — a cap you can page into and then be
-// rejected by is worse than one you can't reach.
+// Four weeks of paging against the server's 30-day member-open horizon. Weeks
+// run Monday to Sunday, so the last day reachable is at most 27 days out (when
+// today is a Monday) — the arrows can never land on a week whose buttons the
+// API would refuse. A cap you can page into and then be rejected by is worse
+// than one you can't reach.
 const WEEKS_AHEAD = 4;
+
+const VIEW_KEY = 'calendarView';
+const readView = () => {
+  try { return localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'week'; } catch { return 'week'; }
+};
 
 const dowOf = (dateStr) => new Date(`${dateStr}T12:00:00`).getDay();
 
@@ -93,6 +101,11 @@ export default function EventCalendar() {
   const canOneOff = can('attendance');
   const canWeekly = can('schedule');
   const [creating, setCreating] = useState(false);
+  const [view, setView] = useState(readView);
+  // The grid's blocks are too small for buttons, so a click opens the event's
+  // row in a modal. Held as a key and re-found each render, so the modal shows
+  // the fresh row after signing up rather than the one that was clicked.
+  const [selected, setSelected] = useState(null);
   const [occurrences, setOccurrences] = useState([]);
   const [schedule, setSchedule] = useState([]);
   const [loaEntries, setLoaEntries] = useState([]);
@@ -120,17 +133,18 @@ export default function EventCalendar() {
 
   useEffect(() => { load(); }, [load]);
 
-  // Seven nights from the start of the shown week. Guild nights, not calendar
-  // days — todayInGuildTz rolls at the configured day start, so at 12:30am the
-  // week still begins with the night in progress rather than skipping it.
+  // Monday to Sunday of the shown week. Guild nights, not calendar days —
+  // todayInGuildTz rolls at the configured day start, so at 12:30am "today" is
+  // still the night in progress.
+  const today = todayInGuildTz();
   const days = useMemo(() => {
-    const start = addDays(todayInGuildTz(), offset * 7);
-    return Array.from({ length: 7 }, (_, i) => addDays(start, i));
-  }, [offset]);
+    const monday = addDays(today, -((dowOf(today) + 6) % 7) + offset * 7);
+    return Array.from({ length: 7 }, (_, i) => addDays(monday, i));
+  }, [offset, today]);
 
   const nowSlot = guildNowSlot();
 
-  const nights = useMemo(() => days.map((date, dayIndex) => {
+  const nights = useMemo(() => days.map((date) => {
     const dow = dowOf(date);
     const opened = occurrences.filter((o) => o.event_date === date);
     const byScheduleId = new Map(opened.filter((o) => o.event_schedule_id).map((o) => [o.event_schedule_id, o]));
@@ -176,15 +190,17 @@ export default function EventCalendar() {
           waitlist: r.occ?.waitlist_count || 0,
           capacity: r.occ?.capacity ?? null,
           away: away.length > 0,
-          // Only tonight can contain something that already ran.
-          started: dayIndex === 0 && offset === 0 && Boolean(r.eventTime) && daySlot(r.eventTime) <= nowSlot,
+          // A week starts on Monday now, so earlier nights of this week are on
+          // screen too — everything on them is over. Tonight's events are over
+          // once their time has passed.
+          started: date < today || (date === today && Boolean(r.eventTime) && daySlot(r.eventTime) <= nowSlot),
         };
       })
       .sort((a, b) => (a.eventTime ? daySlot(a.eventTime) : -1) - (b.eventTime ? daySlot(b.eventTime) : -1)
         || String(a.title).localeCompare(String(b.title)));
 
     return { date, dow, rows };
-  }), [days, occurrences, schedule, loaEntries, nowSlot, offset]);
+  }), [days, occurrences, schedule, loaEntries, nowSlot, today]);
 
   const totalRows = nights.reduce((n, d) => n + d.rows.length, 0);
   const myCount = nights.reduce((n, d) => n + d.rows.filter((r) => r.myStatus).length, 0);
@@ -233,25 +249,78 @@ export default function EventCalendar() {
     );
   }
 
+  const changeView = (v) => {
+    setView(v);
+    try { localStorage.setItem(VIEW_KEY, v); } catch { /* per-viewer nicety only */ }
+  };
+
+  // The list keeps its old shape: the nights still to come. Earlier nights of
+  // this week only earn their place on the grid, where an empty column would
+  // look like a gap.
+  const upcoming = nights.filter((n) => n.date >= today);
+  const upcomingRows = upcoming.reduce((n, d) => n + d.rows.length, 0);
+  const listView = upcomingRows === 0 ? (
+    <EmptyState>Nothing on the schedule this week.</EmptyState>
+  ) : (
+    <div className="space-y-6">
+      {upcoming.map((night) => (
+        <Night
+          key={night.date} night={night}
+          isTonight={night.date === today}
+          busy={busy} onJoin={signUp} onLeave={withdraw}
+        />
+      ))}
+    </div>
+  );
+
+  const selectedNight = selected && nights.find((n) => n.date === selected.date);
+  const selectedRow = selectedNight?.rows.find((r) => r.key === selected.key);
+
   return (
-    <PageShell maxWidth="max-w-3xl">
+    <PageShell maxWidth={view === 'week' ? 'max-w-7xl' : 'max-w-3xl'}>
       <div className="flex items-center gap-3 mb-2">
         <CalendarRange className="w-6 h-6 text-brass" />
         <h1 className="font-display text-2xl tracking-wide text-bone">EVENT CALENDAR</h1>
-        {(canOneOff || canWeekly) && (
-          <Button size="none" className="ml-auto px-3 py-1.5 text-sm" onClick={() => setCreating(true)}>
-            <Plus className="w-4 h-4" /> New Event
-          </Button>
-        )}
+        <div className="ml-auto flex items-center gap-2">
+          {/* Week/List only where the grid can actually be shown. */}
+          <div className="hidden md:flex rounded-lg border border-line overflow-hidden">
+            {[['week', LayoutGrid, 'Week'], ['list', List, 'List']].map(([key, Icon, label]) => (
+              <button
+                key={key} onClick={() => changeView(key)} title={`${label} view`}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm transition-colors ${view === key ? 'bg-panelup text-brass' : 'text-ash hover:text-bone'}`}
+              >
+                <Icon className="w-4 h-4" /> {label}
+              </button>
+            ))}
+          </div>
+          {(canOneOff || canWeekly) && (
+            <Button size="none" className="px-3 py-1.5 text-sm" onClick={() => setCreating(true)}>
+              <Plus className="w-4 h-4" /> New Event
+            </Button>
+          )}
+        </div>
       </div>
 
       {creating && (
         <NewEventModal
           canOneOff={canOneOff} canWeekly={canWeekly}
-          defaultDate={days[0]}
+          defaultDate={days[0] < today ? today : days[0]}
           onClose={() => setCreating(false)}
           onCreated={(text) => { setCreating(false); flash(text); load(); }}
         />
+      )}
+
+      {selectedRow && (
+        <Modal onClose={() => setSelected(null)}>
+          <div className="flex items-baseline gap-2 mb-3">
+            <span className="w-2.5 h-2.5 rounded-full self-center" style={{ background: categoryOf(selectedRow.title).color }} />
+            <h2 className="font-display text-lg tracking-[0.08em] text-bone">{DAY_NAME[selectedNight.dow]}</h2>
+            <span className="text-ash text-sm">{shortDate(selectedNight.date)}</span>
+          </div>
+          <div className="border border-line rounded-lg">
+            <EventRow row={{ ...selectedRow, date: selectedNight.date }} busy={busy} onJoin={signUp} onLeave={withdraw} />
+          </div>
+        </Modal>
       )}
       <p className="text-ash text-sm mb-6">
         The week ahead, whether or not signups have been opened. Saying you're in opens them.
@@ -285,18 +354,16 @@ export default function EventCalendar() {
         </Button>
       </div>
 
-      {totalRows === 0 ? (
-        <EmptyState>Nothing on the schedule this week.</EmptyState>
-      ) : (
-        <div className="space-y-6">
-          {nights.map((night, i) => (
-            <Night
-              key={night.date} night={night}
-              isTonight={i === 0 && offset === 0}
-              busy={busy} onJoin={signUp} onLeave={withdraw}
-            />
-          ))}
-        </div>
+      {view === 'list' ? listView : (
+        <>
+          {/* Phones get the list either way — seven columns don't fit. */}
+          <div className="md:hidden">{listView}</div>
+          <div className="hidden md:block">
+            {totalRows === 0
+              ? <EmptyState>Nothing on the schedule this week.</EmptyState>
+              : <WeekGrid nights={nights} today={today} nowSlot={nowSlot} onSelect={setSelected} />}
+          </div>
+        </>
       )}
     </PageShell>
   );
@@ -327,6 +394,166 @@ function Night({ night, isTonight, busy, onJoin, onLeave }) {
         </div>
       )}
     </div>
+  );
+}
+
+// ── THE WEEK GRID ───────────────────────────────────────────────────────────
+// Time runs down in guild-night slots (daySlot), not clock hours, so a 12:30am
+// event sits at the bottom of the night it belongs to instead of at the top of
+// the next column. Events have no stored length; every block is drawn as
+// BLOCK_MIN long, which is also what decides whether two of them overlap.
+const HOUR_PX = 52;
+const BLOCK_MIN = 30;
+const DEFAULT_RANGE = [18 * 60, 24 * 60]; // 6pm–midnight when nothing is timed
+
+const shortDay = (dateStr) =>
+  new Date(`${dateStr}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
+
+function hourLabel(slot) {
+  const h = Math.floor(slot / 60) % 24;
+  return `${h % 12 || 12}${h >= 12 ? 'pm' : 'am'}`;
+}
+
+// Side-by-side lanes for blocks that would otherwise sit on top of each other.
+// Greedy per cluster of overlapping blocks: each takes the first free lane,
+// and every block in the cluster is narrowed to the cluster's lane count.
+function layoutLanes(items) {
+  const out = [];
+  let cluster = [];
+  let clusterEnd = -1;
+  const flush = () => {
+    const laneEnds = [];
+    const placed = cluster.map((it) => {
+      let lane = laneEnds.findIndex((end) => end <= it.slot);
+      if (lane === -1) { lane = laneEnds.length; laneEnds.push(0); }
+      laneEnds[lane] = it.slot + BLOCK_MIN;
+      return { ...it, lane };
+    });
+    placed.forEach((p) => out.push({ ...p, lanes: laneEnds.length }));
+    cluster = [];
+  };
+  [...items].sort((a, b) => a.slot - b.slot).forEach((it) => {
+    if (cluster.length && it.slot >= clusterEnd) flush();
+    cluster.push(it);
+    clusterEnd = Math.max(clusterEnd, it.slot + BLOCK_MIN);
+  });
+  if (cluster.length) flush();
+  return out;
+}
+
+function WeekGrid({ nights, today, nowSlot, onSelect }) {
+  // Only the hours that hold something, an hour either side. A full 24-hour
+  // column is mostly empty scrolling for a guild that plays in the evening.
+  const slots = nights.flatMap((n) => n.rows.filter((r) => r.eventTime).map((r) => daySlot(r.eventTime)));
+  const [lo, hi] = slots.length ? [Math.min(...slots), Math.max(...slots) + BLOCK_MIN] : DEFAULT_RANGE;
+  const start = Math.max(0, Math.floor(lo / 60) * 60 - 60);
+  const end = Math.ceil(hi / 60) * 60 + 60;
+  const hours = Array.from({ length: (end - start) / 60 }, (_, i) => start + i * 60);
+  const height = ((end - start) / 60) * HOUR_PX;
+  const anyUntimed = nights.some((n) => n.rows.some((r) => !r.eventTime));
+  const present = new Set(nights.flatMap((n) => n.rows.map((r) => categoryOf(r.title).key)));
+
+  return (
+    <div className="panel rounded-lg overflow-hidden">
+      <div className="grid grid-cols-[56px_repeat(7,minmax(0,1fr))]">
+        {/* Header row */}
+        <div className="border-b border-line" />
+        {nights.map((n) => (
+          <div
+            key={n.date}
+            className={`border-b border-l border-line px-2 py-2 text-center text-sm ${n.date === today ? 'text-brass font-semibold' : n.date < today ? 'text-ash/50' : 'text-bone'}`}
+          >
+            {shortDay(n.date)}
+          </div>
+        ))}
+
+        {/* Events with no time can't be placed on the axis; they get a strip
+            of their own rather than being guessed into a slot. */}
+        {anyUntimed && (
+          <>
+            <div className="border-b border-line text-[10px] text-ash/60 px-1 py-1.5 text-right">any time</div>
+            {nights.map((n) => (
+              <div key={n.date} className={`border-b border-l border-line p-1 space-y-1 ${n.date === today ? 'bg-brass/5' : ''}`}>
+                {n.rows.filter((r) => !r.eventTime).map((r) => (
+                  <Block key={r.key} row={r} onClick={() => onSelect({ date: n.date, key: r.key })} />
+                ))}
+              </div>
+            ))}
+          </>
+        )}
+
+        {/* Hour gutter */}
+        <div className="relative" style={{ height }}>
+          {hours.map((h, i) => (
+            <div key={h} className="absolute right-1.5 text-[11px] text-ash/70 -translate-y-1/2" style={{ top: i * HOUR_PX }}>
+              {i === 0 ? '' : hourLabel(h)}
+            </div>
+          ))}
+        </div>
+
+        {nights.map((n) => {
+          const placed = layoutLanes(n.rows.filter((r) => r.eventTime).map((r) => ({ row: r, slot: daySlot(r.eventTime) })));
+          const isToday = n.date === today;
+          return (
+            <div key={n.date} className={`relative border-l border-line ${isToday ? 'bg-brass/5' : ''}`} style={{ height }}>
+              {hours.map((h, i) => (
+                <div key={h} className="absolute inset-x-0 border-t border-line/60" style={{ top: i * HOUR_PX }} />
+              ))}
+              {placed.map(({ row, slot, lane, lanes }) => (
+                <div
+                  key={row.key}
+                  className="absolute px-0.5"
+                  style={{
+                    top: ((slot - start) / 60) * HOUR_PX + 1,
+                    height: (BLOCK_MIN / 60) * HOUR_PX - 2,
+                    left: `${(lane / lanes) * 100}%`,
+                    width: `${100 / lanes}%`,
+                  }}
+                >
+                  <Block row={row} fill onClick={() => onSelect({ date: n.date, key: row.key })} />
+                </div>
+              ))}
+              {isToday && nowSlot >= start && nowSlot <= end && (
+                <div className="absolute inset-x-0 h-px bg-oxblood pointer-events-none" style={{ top: ((nowSlot - start) / 60) * HOUR_PX }}>
+                  <div className="absolute -left-1 -top-1 w-2 h-2 rounded-full bg-oxblood" />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Legend — only the kinds this week actually has, so it explains what
+          is on screen rather than listing every activity in the game. */}
+      <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 py-3 border-t border-line text-xs text-ash">
+        {[...CATEGORIES, OTHER].filter((c) => present.has(c.key)).map((c) => (
+          <span key={c.key} className="inline-flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full" style={{ background: c.color }} /> {c.label}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// One event on the grid: its colour, name, and the two facts worth a glance —
+// whether I'm in, and how many are. Everything else is a click away.
+function Block({ row, fill = false, onClick }) {
+  const cat = categoryOf(row.title);
+  const mine = row.myStatus === 'going';
+  return (
+    <button
+      onClick={onClick}
+      title={`${row.title}${row.eventTime ? ` · ${fmtTimeEst(row.eventTime)}` : ''} · ${row.going} in`}
+      className={`w-full ${fill ? 'h-full' : ''} flex items-center gap-1 rounded px-1.5 py-0.5 text-left text-[11px] leading-tight text-white overflow-hidden transition-[filter] hover:brightness-125 ${row.started ? 'opacity-45' : ''} ${mine ? 'ring-1 ring-white/70' : ''}`}
+      style={{ background: cat.color }}
+    >
+      <span className="truncate font-medium">{row.title}</span>
+      {mine && <Check className="w-3 h-3 shrink-0" />}
+      {row.myStatus === 'waitlist' && <Clock className="w-3 h-3 shrink-0" />}
+      {row.away && <CalendarOff className="w-3 h-3 shrink-0" />}
+      <span className="ml-auto shrink-0 font-mono text-white/80">{row.going}{row.capacity ? `/${row.capacity}` : ''}</span>
+    </button>
   );
 }
 
