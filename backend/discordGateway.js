@@ -207,7 +207,7 @@ async function registerCommands() {
           .addChannelTypes(ChannelType.GuildVoice).setRequired(false)
       )
       .addStringOption((opt) =>
-        opt.setName('date').setDescription('Event date, YYYY-MM-DD (defaults to today)').setRequired(false)
+        opt.setName('date').setDescription('Night, YYYY-MM-DD (defaults to tonight) — fill this in before the event for another night').setRequired(false)
       );
 
     commands.push(attendanceCommand.toJSON());
@@ -820,10 +820,22 @@ async function handleAutocomplete(interaction) {
   return interaction.respond([]).catch(() => {});
 }
 
+// Only the events on the night being logged: tonight, or the night in the
+// `date` option when the officer has filled that in first. The whole week used
+// to be offered, and picking Tuesday's event while logging Wednesday filed the
+// snap against the wrong event. eventsForDate maps after-midnight events back
+// to their night, so tonight's 12:30am boss is offered and tomorrow's isn't.
 async function autocompleteAttendanceEvent(interaction) {
-  if (!attendance) return interaction.respond([]).catch(() => {});
+  if (!attendance || !loa) return interaction.respond([]).catch(() => {});
   const focused = interaction.options.getFocused().toLowerCase();
-  const events = await attendance.listSchedule();
+  const dateInput = interaction.options.getString('date');
+  const date = dateInput && loa.isValidDate(dateInput) ? dateInput : createLoa.todayInGuildTz();
+  const events = await loa.eventsForDate(date);
+  if (events.length === 0) {
+    // A placeholder, not an empty list: Discord shows "no options" for an
+    // empty one, which reads as broken rather than "nothing runs tonight".
+    return interaction.respond([{ name: `— nothing scheduled on ${date} —`, value: 'none' }]).catch(() => {});
+  }
   const choices = events
     .filter((e) => e.name.toLowerCase().includes(focused))
     .slice(0, 25)
@@ -910,8 +922,22 @@ async function handleAttendance(interaction) {
   if (!isAdminMember(interaction)) return interaction.editReply('Officers only.');
 
   const eventScheduleId = interaction.options.getString('event');
+  const dateInput = interaction.options.getString('date');
+  const eventDate = dateInput || createLoa.todayInGuildTz();
+  if (!loa.isValidDate(eventDate)) return interaction.editReply('Date must be in YYYY-MM-DD format.');
+
+  if (eventScheduleId === 'none') {
+    return interaction.editReply(`Nothing is scheduled on ${eventDate}. Add it to the schedule on the Event Calendar first.`);
+  }
   const ev = await attendance.getScheduleEvent(eventScheduleId);
   if (!ev) return interaction.editReply('Unknown event — pick one from the list.');
+  // The list only offers this night's events, but a value can still arrive
+  // from a stale list (the date changed after the event was picked). Refused
+  // rather than filed: the wrong event against a night is a quiet error that
+  // misreports everyone's attendance for it.
+  if (createLoa.guildDayOfWeek(ev.day_of_week, ev.event_time) !== new Date(`${eventDate}T12:00:00`).getDay()) {
+    return interaction.editReply(`${ev.name} doesn't run on ${eventDate}. Pick the event again after setting the date.`);
+  }
 
   // Three ways to find the channel, in order of how specific the intent is:
   // what the officer named on the command, where they are sitting, and the
@@ -929,10 +955,6 @@ async function handleAttendance(interaction) {
       + 'or pick an attendance voice channel in Guild Settings.'
     );
   }
-
-  const dateInput = interaction.options.getString('date');
-  const eventDate = dateInput || createLoa.todayInGuildTz();
-  if (!loa.isValidDate(eventDate)) return interaction.editReply('Date must be in YYYY-MM-DD format.');
 
   const members = getVoiceMembers(channel.id);
   if (members.length === 0) return interaction.editReply('No one is in that voice channel right now.');
