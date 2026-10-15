@@ -16,6 +16,8 @@ const guildConfig = require('./guildConfig');
 const createGuildSettings = require('./guildSettings');
 const createLateAttendance = require('./lateAttendance');
 const createEventDetail = require('./eventDetail');
+const createAttendanceHistory = require('./attendanceHistory');
+const { parseTlgm } = createAttendanceHistory;
 
 const ROLE_EMOJI = { Tank: '🛡️', DPS: '⚔️', Healer: '💚' };
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -124,6 +126,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
   const signups = supabase ? createEventSignups(supabase, identities, loa) : null;
   const guildSettings = supabase ? createGuildSettings(supabase) : null;
   const lateAttendance = supabase ? createLateAttendance(supabase, identities) : null;
+  const attendanceHistory = supabase ? createAttendanceHistory(supabase) : null;
   // One assembler for a logged night, shared with the member-facing route in
   // server.js. Both must describe the same night; see eventDetail.js's header.
   const eventDetail = supabase
@@ -1993,6 +1996,79 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     res.json({ checked: (rows || []).length, updated: toFix.length - failed });
   });
 
+  // ── Attendance carried over from TLGM ────────────────────────────────────────
+  // Two passes over the same file: ?dry_run=1 returns who matched and who
+  // didn't, and only the confirmed second post writes. Matching against the
+  // live member list is the whole job, so an unreachable Discord is a 503
+  // rather than an import that silently skips everyone.
+  router.post('/attendance/history/import', upload.single('file'), async (req, res) => {
+    if (!attendanceHistory) return res.status(503).json({ error: 'Database not configured.' });
+    if (!req.file) return res.status(400).json({ error: 'CSV file required.' });
+
+    let members;
+    try {
+      members = await listMembers();
+    } catch (err) {
+      console.error('TLGM import listMembers failed:', err.message);
+      return res.status(503).json({ error: 'Could not load the Discord member list to match against.' });
+    }
+    if (!members.length) return res.status(503).json({ error: 'The Discord member list came back empty.' });
+
+    const ids = await identities.load();
+    const result = parseTlgm(req.file.buffer, members, ids);
+    if (result.error) return res.status(400).json({ error: result.error });
+
+    const dryRun = req.query.dry_run === '1' || req.query.dry_run === 'true';
+    if (dryRun) return res.json({ dry_run: true, ...result });
+
+    if (!result.rows.length) return res.status(400).json({ error: 'Nobody in that file matched a current member.' });
+    try {
+      await attendanceHistory.replace(result.rows, req.user.username || req.user.id);
+    } catch (err) {
+      console.error('TLGM import error:', err.message);
+      return res.status(500).json({ error: 'Failed to save the TLGM history: ' + err.message });
+    }
+    res.json({ imported: result.rows.length, skipped: result.skipped });
+  });
+
+  router.delete('/attendance/history', async (req, res) => {
+    if (!attendanceHistory) return res.status(503).json({ error: 'Database not configured.' });
+    try {
+      await attendanceHistory.clear();
+      res.json({ ok: true });
+    } catch (err) {
+      console.error('TLGM history clear error:', err.message);
+      res.status(500).json({ error: 'Failed to remove the TLGM history.' });
+    }
+  });
+
+  // The TLGM rows for the stats table, limited to current members — the import
+  // only takes current members, but people leave after it. Null when there is
+  // nothing to show, including when migration 027 hasn't been run: a missing
+  // history table must not take the app's own attendance down with it.
+  async function historyFor() {
+    let rows;
+    try {
+      rows = await attendanceHistory.list();
+    } catch (err) {
+      console.error('attendance history load failed:', err.message);
+      return null;
+    }
+    if (!rows.length) return null;
+    const [current, ids] = await Promise.all([
+      listMembers().then((ms) => new Set(ms.map((m) => String(m.id)))).catch(() => null),
+      identities.load(),
+    ]);
+    const byId = new Map();
+    rows.forEach((r) => {
+      if (current && !current.has(String(r.discord_id))) return;
+      byId.set(String(r.discord_id), { ...r, display_name: ids.displayNameFor(r.discord_id, r.display_name) });
+    });
+    if (!byId.size) return null;
+    const importedAt = rows.reduce((max, r) => (r.imported_at > max ? r.imported_at : max), rows[0].imported_at);
+    return { byId, importedAt };
+  }
+
   router.get('/attendance-stats', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
     try {
@@ -2003,7 +2079,8 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
       const { data: evts, error: eErr } = await eq;
       if (eErr) throw eErr;
       const totalEvents = (evts || []).length;
-      if (totalEvents === 0) return res.json({ window: days, totalEvents: 0, members: [] });
+      const history = await historyFor();
+      if (totalEvents === 0 && !history) return res.json({ window: days, totalEvents: 0, members: [], history: null });
 
       // The window has to narrow BOTH halves. Filtering only the denominator
       // leaves attendance rows from outside it counting against a smaller total
@@ -2028,11 +2105,24 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
         if (a.display_name) map[a.discord_id].display_name = a.display_name;
       });
 
+      // TLGM figures ride alongside, never folded into attended/rate — see
+      // migration 027. A member with TLGM history but nothing logged here in
+      // this window still gets a row, so their history isn't invisible.
+      if (history) {
+        history.byId.forEach((h, id) => {
+          if (!map[id]) map[id] = { discord_id: id, display_name: h.display_name || id, attended: 0 };
+          map[id].history = { attended: h.attended, total: h.total, rate: Math.round((h.attended / h.total) * 100) };
+        });
+      }
+
       const members = Object.values(map)
-        .map((m) => ({ ...m, rate: Math.round((m.attended / totalEvents) * 100) }))
+        .map((m) => ({ ...m, rate: totalEvents ? Math.round((m.attended / totalEvents) * 100) : 0 }))
         .sort((a, b) => b.rate - a.rate || a.display_name.localeCompare(b.display_name));
 
-      res.json({ window: days, totalEvents, members });
+      res.json({
+        window: days, totalEvents, members,
+        history: history ? { source: 'TLGM', imported_at: history.importedAt, members: history.byId.size } : null,
+      });
     } catch (err) {
       console.error('Attendance stats error:', err.message);
       res.status(500).json({ error: 'Failed to compute attendance stats.' });

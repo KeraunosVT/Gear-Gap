@@ -194,6 +194,9 @@ select '026 · wargame_matches.notes',
        (select count(*) from information_schema.columns
         where table_schema = 'public' and table_name = 'wargame_matches' and column_name = 'notes') = 1
 union all
+select '027 · attendance_history table',
+       to_regclass('public.attendance_history') is not null
+union all
 select '019 · normalise_guild_name(text)',
        (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.proname = 'normalise_guild_name') = 1

@@ -84,6 +84,9 @@ async function fetchAllMembers() {
     .map((m) => ({
       id: m.user.id,
       name: m.nick || m.user.global_name || m.user.username,
+      // The account handle, separate from the display name above — other
+      // tools (TLGM's export) identify members by it.
+      username: m.user.username,
       avatar: m.user.avatar
         ? `https://cdn.discordapp.com/avatars/${m.user.id}/${m.user.avatar}.png`
         : null,

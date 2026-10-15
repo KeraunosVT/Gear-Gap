@@ -4,7 +4,7 @@ import axios from 'axios';
 import { useAuth } from '../auth';
 import {
   RefreshCw, Camera, Trash2, Users, CalendarDays, Loader2,
-  BarChart3, Wand2, Swords, Check, X, Inbox, Volume2, AlertTriangle,
+  BarChart3, Wand2, Swords, Check, X, Inbox, Volume2, AlertTriangle, Upload,
 } from 'lucide-react';
 import { fmtTimeEst, fmtDatetime, guildDayOfWeek, isAfterMidnight, todayInGuildTz } from '../timeUtils';
 import RestrictedGate from '../components/ui/RestrictedGate';
@@ -56,11 +56,17 @@ export default function Attendance() {
   const [events, setEvents] = useState([]);
   const [loadingEvents, setLoadingEvents] = useState(true);
 
-  const [stats, setStats] = useState({ totalEvents: 0, members: [] });
+  const [stats, setStats] = useState({ totalEvents: 0, members: [], history: null });
   const [loadingStats, setLoadingStats] = useState(true);
   const [statSort, setStatSort] = useState('rate'); // 'rate' | 'name' | 'attended'
   const [statDir, setStatDir] = useState('desc');
   const [backfilling, setBackfilling] = useState(false);
+
+  // A TLGM import is previewed before anything is written: the file and the
+  // server's dry-run result are held here until the officer confirms.
+  const [tlgmFile, setTlgmFile] = useState(null);
+  const [tlgmPreview, setTlgmPreview] = useState(null);
+  const [tlgmBusy, setTlgmBusy] = useState(false);
 
   const [lateRequests, setLateRequests] = useState([]);
   const [deciding, setDeciding] = useState('');
@@ -93,7 +99,7 @@ export default function Attendance() {
   const loadStats = useCallback(() => {
     setLoadingStats(true);
     axios.get('/api/admin/attendance-stats', { params: { window: window_ } })
-      .then((res) => setStats(res.data || { totalEvents: 0, members: [] }))
+      .then((res) => setStats(res.data || { totalEvents: 0, members: [], history: null }))
       .catch(() => {})
       .finally(() => setLoadingStats(false));
   }, [window_]);
@@ -122,6 +128,8 @@ export default function Attendance() {
     const dir = statDir === 'asc' ? 1 : -1;
     return [...stats.members].sort((a, b) => {
       if (statSort === 'name') return a.display_name.localeCompare(b.display_name) * dir;
+      // No TLGM history sorts below 0%, whichever way the column is turned.
+      if (statSort === 'tlgm') return ((a.history?.rate ?? -1) - (b.history?.rate ?? -1)) * dir;
       return ((a[statSort] || 0) - (b[statSort] || 0)) * dir;
     });
   }, [stats.members, statSort, statDir]);
@@ -141,6 +149,53 @@ export default function Attendance() {
       flash(err.response?.data?.error || 'Backfill failed.', false);
     } finally {
       setBackfilling(false);
+    }
+  };
+
+  const tlgmPost = (file, dryRun) => {
+    const form = new FormData();
+    form.append('file', file);
+    return axios.post('/api/admin/attendance/history/import', form, { params: dryRun ? { dry_run: 1 } : {} });
+  };
+
+  const previewTlgm = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // so picking the same file again still fires
+    if (!file) return;
+    setTlgmBusy(true);
+    try {
+      const res = await tlgmPost(file, true);
+      setTlgmFile(file);
+      setTlgmPreview(res.data);
+    } catch (err) {
+      flash(err.response?.data?.error || 'Could not read that file.', false);
+    } finally {
+      setTlgmBusy(false);
+    }
+  };
+
+  const confirmTlgm = async () => {
+    setTlgmBusy(true);
+    try {
+      const res = await tlgmPost(tlgmFile, false);
+      flash(`Imported TLGM history for ${res.data.imported} member${res.data.imported === 1 ? '' : 's'}.`);
+      setTlgmFile(null); setTlgmPreview(null);
+      loadStats();
+    } catch (err) {
+      flash(err.response?.data?.error || 'Import failed.', false);
+    } finally {
+      setTlgmBusy(false);
+    }
+  };
+
+  const removeTlgm = async () => {
+    if (!window.confirm('Remove the imported TLGM history for everyone? You can import the file again afterwards.')) return;
+    try {
+      await axios.delete('/api/admin/attendance/history');
+      flash('TLGM history removed.');
+      loadStats();
+    } catch (err) {
+      flash(err.response?.data?.error || 'Could not remove the TLGM history.', false);
     }
   };
 
@@ -268,14 +323,87 @@ export default function Attendance() {
     <div className="max-w-6xl mx-auto px-6 py-12">
       <div className="flex items-center justify-between gap-4 flex-wrap mb-6">
         <p className="text-sm text-ash">Snap the attendance channel to log who showed up. Set a title and date, then save.</p>
-        <button
-          onClick={backfillNames} disabled={backfilling}
-          title="Re-check past attendance records against mapped display names"
-          className="inline-flex items-center gap-2 text-sm text-brass hover:text-brassbright transition-colors disabled:opacity-40 shrink-0"
-        >
-          <Wand2 className="w-4 h-4" /> {backfilling ? 'Fixing…' : 'Fix past names'}
-        </button>
+        <div className="flex items-center gap-5 shrink-0">
+          <label
+            title="Carry over per-member attendance totals from a TLGM member export (CSV)"
+            className={`inline-flex items-center gap-2 text-sm text-brass hover:text-brassbright transition-colors cursor-pointer ${tlgmBusy ? 'opacity-40 pointer-events-none' : ''}`}
+          >
+            {tlgmBusy && !tlgmPreview ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />} Import TLGM
+            <input type="file" accept=".csv,text/csv" onChange={previewTlgm} className="hidden" />
+          </label>
+          <button
+            onClick={backfillNames} disabled={backfilling}
+            title="Re-check past attendance records against mapped display names"
+            className="inline-flex items-center gap-2 text-sm text-brass hover:text-brassbright transition-colors disabled:opacity-40"
+          >
+            <Wand2 className="w-4 h-4" /> {backfilling ? 'Fixing…' : 'Fix past names'}
+          </button>
+        </div>
       </div>
+
+      {/* ── TLGM import preview ───────────────────────────────────────
+          Nothing is written until Import is pressed. The skipped list is the
+          point of the preview: it's what an officer fixes (an alias on the
+          Names page, a typo in the file) before committing. */}
+      {tlgmPreview && (
+        <div className="panel rounded-lg p-5 mb-6">
+          <div className="flex items-start justify-between gap-4 flex-wrap">
+            <div>
+              <div className="text-bone font-medium">TLGM import — {tlgmFile?.name}</div>
+              <div className="text-sm text-ash mt-1">
+                {tlgmPreview.rows.length} matched
+                {tlgmPreview.skipped.length > 0 && <> · <span className="text-brassbright">{tlgmPreview.skipped.length} skipped</span></>}
+                {' '}· replaces any TLGM history already imported
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={confirmTlgm} disabled={tlgmBusy || tlgmPreview.rows.length === 0}
+                className="inline-flex items-center gap-2 px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40"
+              >
+                {tlgmBusy && <Loader2 className="w-4 h-4 animate-spin" />} Import {tlgmPreview.rows.length}
+              </button>
+              <button
+                onClick={() => { setTlgmPreview(null); setTlgmFile(null); }} disabled={tlgmBusy}
+                className="px-4 py-2 border border-line text-ash hover:text-bone rounded-lg transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+
+          {tlgmPreview.skipped.length > 0 && (
+            <div className="mt-4 pt-4 border-t border-line">
+              <div className="eyebrow text-[10px] text-brassbright mb-2">Skipped</div>
+              <ul className="text-sm space-y-1 max-h-60 overflow-auto">
+                {tlgmPreview.skipped.map((s) => (
+                  <li key={s.row} className="text-ash">
+                    <span className="font-mono text-xs text-ash/50">row {s.row}</span>{' '}
+                    <span className="text-bone">{s.name}</span>
+                    {s.discord_username && s.discord_username !== s.name && <span className="text-ash/70"> ({s.discord_username})</span>}
+                    {' '}— {s.reason}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {tlgmPreview.rows.length > 0 && (
+            <details className="mt-4 pt-4 border-t border-line">
+              <summary className="eyebrow text-[10px] text-brass cursor-pointer">Matched</summary>
+              <ul className="text-sm space-y-1 max-h-60 overflow-auto mt-2">
+                {tlgmPreview.rows.map((r) => (
+                  <li key={r.row} className="text-ash">
+                    <span className="text-bone">{r.display_name}</span>
+                    {r.source_name && r.source_name !== r.display_name && <span className="text-ash/70"> ← {r.source_name}</span>}
+                    {' '}· {r.attended}/{r.total} · <span className="text-ash/60">by {r.matched_by}</span>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
+      )}
 
       {msg && (
         <div className={`mb-6 px-5 py-3 rounded-lg border text-sm ${msg.ok ? 'border-brass/40 bg-panel text-bone' : 'border-oxblood/50 bg-oxblooddeep/20 text-bone'}`}>{msg.text}</div>
@@ -506,6 +634,15 @@ export default function Attendance() {
             {/* The window is named here, not only in the tab, because a
                 percentage read out of context is assumed to be all-time. */}
             {stats.totalEvents} event{stats.totalEvents === 1 ? '' : 's'} · {WINDOW_LABEL[window_]}
+            {/* TLGM has no dates, so its column is the same in every window —
+                said here so nobody reads it as filtered. */}
+            {stats.history && (
+              <span className="text-ash/70">
+                · TLGM column is lifetime, imported {new Date(stats.history.imported_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                {' '}·{' '}
+                <button onClick={removeTlgm} className="hover:text-oxblood transition-colors">remove</button>
+              </span>
+            )}
           </div>
 
           {loadingStats ? (
@@ -520,6 +657,9 @@ export default function Attendance() {
                 <SortableTh label="Attended" sortKey="attended" activeKey={statSort} dir={statDir} onSort={toggleStatSort} align="right" />
                 <th className="p-4 font-normal w-[34%]">Rate</th>
                 <SortableTh label="%" sortKey="rate" activeKey={statSort} dir={statDir} onSort={toggleStatSort} align="right" />
+                {stats.history && (
+                  <SortableTh label="TLGM" sortKey="tlgm" activeKey={statSort} dir={statDir} onSort={toggleStatSort} align="right" />
+                )}
               </Thead>
               <tbody>
                 {sortedStats.map((m, i) => (
@@ -543,6 +683,18 @@ export default function Attendance() {
                     <td className={`p-4 text-right font-mono text-xs ${m.rate >= 75 ? 'text-emerald-400' : m.rate >= 40 ? 'text-brassbright' : 'text-oxblood'}`}>
                       {m.rate}%
                     </td>
+                    {stats.history && (
+                      <td className="p-4 text-right font-mono text-xs whitespace-nowrap">
+                        {m.history ? (
+                          <span title={`${m.history.attended} of ${m.history.total} TLGM activities`}>
+                            <span className="text-ash/60">{m.history.attended}/{m.history.total}</span>{' '}
+                            <span className={m.history.rate >= 75 ? 'text-emerald-400' : m.history.rate >= 40 ? 'text-brassbright' : 'text-oxblood'}>
+                              {m.history.rate}%
+                            </span>
+                          </span>
+                        ) : <span className="text-ash/40">—</span>}
+                      </td>
+                    )}
                   </Tr>
                 ))}
               </tbody>
