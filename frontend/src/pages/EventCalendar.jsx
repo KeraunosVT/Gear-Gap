@@ -3,8 +3,9 @@ import { Link } from 'react-router-dom';
 import axios from 'axios';
 import {
   CalendarRange, Check, ChevronLeft, ChevronRight, Clock, Loader2, Users, CalendarOff, AlertTriangle, Plus,
-  LayoutGrid, List,
+  LayoutGrid, List, Settings,
 } from 'lucide-react';
+import ScheduleManager from '../components/ScheduleManager';
 import { CATEGORIES, OTHER, categoryOf } from '../eventCategories';
 
 import {
@@ -101,6 +102,7 @@ export default function EventCalendar() {
   const canOneOff = can('attendance');
   const canWeekly = can('schedule');
   const [creating, setCreating] = useState(false);
+  const [managing, setManaging] = useState(false);
   const [view, setView] = useState(readView);
   // The grid's blocks are too small for buttons, so a click opens the event's
   // row in a modal. Held as a key and re-found each render, so the modal shows
@@ -293,6 +295,11 @@ export default function EventCalendar() {
               </button>
             ))}
           </div>
+          {canWeekly && (
+            <Button variant="secondary" size="none" className="px-3 py-1.5 text-sm" onClick={() => setManaging(true)}>
+              <Settings className="w-4 h-4" /> Manage schedule
+            </Button>
+          )}
           {(canOneOff || canWeekly) && (
             <Button size="none" className="px-3 py-1.5 text-sm" onClick={() => setCreating(true)}>
               <Plus className="w-4 h-4" /> New Event
@@ -308,6 +315,16 @@ export default function EventCalendar() {
           onClose={() => setCreating(false)}
           onCreated={(text) => { setCreating(false); flash(text); load(); }}
         />
+      )}
+
+      {managing && (
+        <Modal onClose={() => setManaging(false)} maxWidth="max-w-2xl" scrollable>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-display text-lg tracking-[0.08em] text-bone">EVENT SCHEDULE</h2>
+            <button onClick={() => setManaging(false)} className="text-ash hover:text-bone text-sm">Close</button>
+          </div>
+          <ScheduleManager schedule={schedule} onChanged={load} />
+        </Modal>
       )}
 
       {selectedRow && (

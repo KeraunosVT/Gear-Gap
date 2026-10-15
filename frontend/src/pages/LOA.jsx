@@ -1,9 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../auth';
-import { CalendarOff, CalendarX2, Plus, Trash2, Settings, X, Repeat, ChevronDown, Pencil, Check, CalendarCheck, Undo2 } from 'lucide-react';
+import { CalendarOff, CalendarX2, Trash2, Settings, X, Repeat, ChevronDown, CalendarCheck, Undo2 } from 'lucide-react';
 
-import { fmtTimeEst, fmtDatetime, todayInGuildTz, eventsForGuildDay, isAfterMidnight, guildDayOfWeek, loaSkipsDate } from '../timeUtils';
+import { fmtTimeEst, fmtDatetime, todayInGuildTz, eventsForGuildDay, loaSkipsDate } from '../timeUtils';
 import Tabs from '../components/ui/Tabs';
 import { PageShell } from '../components/ui/PageShell';
 import { useFlash } from '../components/ui/useFlash';
@@ -34,17 +35,6 @@ export default function LOA() {
   const [recurEndTime, setRecurEndTime] = useState('');
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
-
-  const [showScheduleAdmin, setShowScheduleAdmin] = useState(false);
-  const [newEventName, setNewEventName] = useState('');
-  const [newEventDay, setNewEventDay] = useState('');
-  const [newEventTime, setNewEventTime] = useState('');
-
-  const [editingEventId, setEditingEventId] = useState(null);
-  const [editEventName, setEditEventName] = useState('');
-  const [editEventDay, setEditEventDay] = useState('');
-  const [editEventTime, setEditEventTime] = useState('');
-  const [savingEvent, setSavingEvent] = useState(false);
 
   // Officers can submit an LOA on someone else's behalf; '' means "myself".
   // submitFor is the resolved member id (only ever set by picking a suggestion
@@ -255,55 +245,6 @@ export default function LOA() {
       load();
     } catch (err) {
       flash(err.response?.data?.error || 'Failed to restore that occurrence.', false);
-    }
-  };
-
-  const addScheduleEvent = async () => {
-    if (!newEventName.trim() || newEventDay === '') return;
-    try {
-      await axios.post('/api/admin/event-schedule', { name: newEventName.trim(), day_of_week: parseInt(newEventDay, 10), event_time: newEventTime || null });
-      setNewEventName(''); setNewEventDay(''); setNewEventTime('');
-      load();
-      flash('Event added to schedule.');
-    } catch (err) {
-      flash(err.response?.data?.error || 'Failed to add event.', false);
-    }
-  };
-
-  const deleteScheduleEvent = async (id) => {
-    try {
-      await axios.delete(`/api/admin/event-schedule/${id}`);
-      load();
-      flash('Event removed from schedule.');
-    } catch (err) {
-      flash(err.response?.data?.error || 'Failed to delete.', false);
-    }
-  };
-
-  const startEditEvent = (s) => {
-    setEditingEventId(s.id);
-    setEditEventName(s.name);
-    setEditEventDay(String(s.day_of_week));
-    setEditEventTime(s.event_time || '');
-  };
-  const cancelEditEvent = () => setEditingEventId(null);
-
-  const saveScheduleEvent = async (id) => {
-    if (!editEventName.trim() || editEventDay === '') return;
-    setSavingEvent(true);
-    try {
-      await axios.put(`/api/admin/event-schedule/${id}`, {
-        name: editEventName.trim(),
-        day_of_week: parseInt(editEventDay, 10),
-        event_time: editEventTime || null,
-      });
-      setEditingEventId(null);
-      load();
-      flash('Event updated.');
-    } catch (err) {
-      flash(err.response?.data?.error || 'Failed to update event.', false);
-    } finally {
-      setSavingEvent(false);
     }
   };
 
@@ -526,90 +467,21 @@ export default function LOA() {
     <PageShell maxWidth="max-w-4xl">
       <div className="flex items-center justify-between gap-4 flex-wrap mb-6">
         <p className="text-sm text-ash">Let officers know when you'll be missing events.</p>
+        {/* The schedule is managed from the Event Calendar now; this keeps the
+            old way in working for officers who look for it here. */}
         {can('schedule') && (
-          <button
-            onClick={() => setShowScheduleAdmin((v) => !v)}
+          <Link
+            to="/attendance/calendar"
             className="inline-flex items-center gap-2 text-sm text-brass hover:text-brassbright transition-colors shrink-0"
           >
-            <Settings className="w-4 h-4" /> {showScheduleAdmin ? 'Close schedule' : 'Manage schedule'}
-          </button>
+            <Settings className="w-4 h-4" /> Manage schedule on the Event Calendar
+          </Link>
         )}
       </div>
 
       <Toast msg={msg} />
 
       {error && <div className="mb-6 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
-
-      {/* Admin: event schedule config */}
-      {showScheduleAdmin && (
-        <div className="mb-8 panel rounded-lg p-6">
-          <div className="eyebrow text-brass text-[10px] mb-4">Event Schedule</div>
-          <div className="flex gap-2 mb-4">
-            <input value={newEventName} onChange={(e) => setNewEventName(e.target.value)} placeholder="Event name"
-              className="bg-hall border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass flex-1" />
-            <select value={newEventDay} onChange={(e) => setNewEventDay(e.target.value)}
-              className="bg-hall border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass">
-              <option value="">— day —</option>
-              {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
-            </select>
-            <div className="flex items-center gap-1">
-              <input type="time" value={newEventTime} onChange={(e) => setNewEventTime(e.target.value)}
-                className="bg-hall border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass"
-                title="Event time in ET (optional)" />
-              <span className="text-ash text-xs shrink-0">ET</span>
-            </div>
-            <button onClick={addScheduleEvent} disabled={!newEventName.trim() || newEventDay === ''}
-              className="px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40">
-              <Plus className="w-4 h-4" />
-            </button>
-          </div>
-          <div className="space-y-2">
-            {schedule.length === 0 ? (
-              <p className="text-ash text-sm">No events scheduled. Add your recurring events above.</p>
-            ) : schedule.map((s) => (
-              editingEventId === s.id ? (
-                <div key={s.id} className="flex gap-2 bg-hall border border-brass/50 rounded-lg px-3 py-2">
-                  <input value={editEventName} onChange={(e) => setEditEventName(e.target.value)} placeholder="Event name"
-                    className="bg-panel border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass flex-1" />
-                  <select value={editEventDay} onChange={(e) => setEditEventDay(e.target.value)}
-                    className="bg-panel border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass">
-                    {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
-                  </select>
-                  <div className="flex items-center gap-1">
-                    <input type="time" value={editEventTime} onChange={(e) => setEditEventTime(e.target.value)}
-                      className="bg-panel border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass"
-                      title="Event time in ET (optional)" />
-                    <span className="text-ash text-xs shrink-0">ET</span>
-                  </div>
-                  <button onClick={() => saveScheduleEvent(s.id)} disabled={savingEvent || !editEventName.trim()}
-                    className="px-3 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40">
-                    <Check className="w-4 h-4" />
-                  </button>
-                  <button onClick={cancelEditEvent} disabled={savingEvent} className="px-3 py-2 text-ash hover:text-bone transition-colors disabled:opacity-40">
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              ) : (
-                <div key={s.id} className="flex items-center justify-between bg-hall border border-line rounded-lg px-3 py-2">
-                  {/* Day shown is the calendar day the event is stored under,
-                      which is what the edit form expects. For an after-midnight
-                      event that isn't the night it belongs to, so spell that
-                      out rather than leave "Sunday at 12:30 AM" to be misread. */}
-                  <span className="text-bone text-sm">{s.name} <span className="text-ash">— {DAYS[s.day_of_week]}{s.event_time ? ` at ${fmtTimeEst(s.event_time)}` : ''}</span>
-                    {isAfterMidnight(s.event_time) && (
-                      <span className="text-brass"> · {DAYS[guildDayOfWeek(s.day_of_week, s.event_time)]} night</span>
-                    )}
-                  </span>
-                  <div className="flex items-center gap-1">
-                    <button onClick={() => startEditEvent(s)} className="text-ash hover:text-brass p-0.5"><Pencil className="w-3.5 h-3.5" /></button>
-                    <button onClick={() => deleteScheduleEvent(s.id)} className="text-ash hover:text-oxblood p-0.5"><Trash2 className="w-3.5 h-3.5" /></button>
-                  </div>
-                </div>
-              )
-            ))}
-          </div>
-        </div>
-      )}
 
       {loading ? (
         <div className="py-20 text-center text-ash">Loading…</div>
