@@ -122,8 +122,8 @@ module.exports = function createLateAttendance(supabase, identities = null) {
           .eq('discord_id', String(discordId)).in('event_id', ids),
         supabase.from('late_attendance_requests').select('*')
           .eq('discord_id', String(discordId)).in('event_id', ids),
-        // The scheduled time, so My Attendance can place a night on its time
-        // grid. Best-effort: a night whose schedule entry is gone just has no
+        // The scheduled time, so the Event Calendar can place a logged night
+        // on its time grid. Best-effort: a night whose schedule entry is gone just has no
         // time, and the page falls back to when attendance was taken.
         scheduleIds.length
           ? supabase.from('event_schedule').select('id, event_time').in('id', scheduleIds)

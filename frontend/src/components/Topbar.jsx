@@ -30,7 +30,7 @@ function trailFor(pathname, house) {
   // One night's roll. Without this it falls through to the house name, which
   // reads as "you're nowhere" on a page reached by clicking a link.
   if (pathname.startsWith('/attendance/')) {
-    return [{ label: 'Attendance', to: '/attendance' }, { label: 'Event' }];
+    return [{ label: 'Event Calendar', to: '/attendance/calendar' }, { label: 'Event' }];
   }
   // Resolver route: redirects to /roster/<name>, but is the active path for
   // an instant before that lands.

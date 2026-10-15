@@ -92,7 +92,7 @@ export default function YourStanding() {
   if (canClaim.length) {
     actions.push(
       <Action
-        key="claim" tone="text-brassbright" to="/attendance" cta="Ask to be added"
+        key="claim" tone="text-brassbright" to="/attendance/calendar" cta="Ask to be added"
         icon={<AlertTriangle className="w-4 h-4 shrink-0" />}
       >
         Attendance missed you on {canClaim.length} night{canClaim.length === 1 ? '' : 's'} you can still claim.
@@ -146,7 +146,7 @@ export default function YourStanding() {
               value={rate === null ? '—' : `${rate}%`}
               label="attendance · 30d"
               tone={rate === null ? 'text-ash/50' : rate >= 70 ? 'text-bone' : 'text-brassbright'}
-              to="/attendance"
+              to="/attendance/calendar"
               title={rate === null ? 'No events logged in the last 30 days' : `${attended} of ${logged.length} nights`}
             />
             <Fact

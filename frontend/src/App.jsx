@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { BrowserRouter as Router, Routes, Route, Outlet } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Outlet, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth';
 import Sidebar, { SIDEBAR_COLLAPSE_KEY, getInitialSidebarCollapsed } from './components/Sidebar';
 import ErrorBoundary, { RouteErrorBoundary } from './components/ErrorBoundary';
@@ -30,7 +30,6 @@ import Attendance from './pages/Attendance';
 import PlayerProfile from './pages/PlayerProfile';
 import LOA from './pages/LOA';
 import Signups from './pages/Signups';
-import MyAttendance from './pages/MyAttendance';
 import EventAttendance from './pages/EventAttendance';
 import EventCalendar from './pages/EventCalendar';
 import Classes from './pages/Classes';
@@ -99,7 +98,10 @@ function Gate() {
           <Route path="/loot" element={<Loot />} />
           <Route path="/loa" element={<LOA />} />
           <Route path="/signups" element={<Signups />} />
-          <Route path="/attendance" element={<MyAttendance />} />
+          {/* The old My Attendance page. The Event Calendar shows your
+              attendance on its past nights now; this keeps bookmarks and any
+              link still pointing here working. */}
+          <Route path="/attendance" element={<Navigate to="/attendance/calendar" replace />} />
           {/* Above /attendance/:id in the file for readability only — router
               ranking already prefers the static segment over the dynamic one,
               so EventAttendance can never be handed id="calendar". */}

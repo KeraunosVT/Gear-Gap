@@ -12,8 +12,7 @@ import { getDisplayTimezone, setDisplayTimezone, TIMEZONE_OPTIONS } from '../tim
 export const guildLinks = [
   { to: '/', label: 'Dashboard', end: true, icon: LayoutDashboard },
   // `end` because /war-record/feuds sits beneath it — without it this NavLink
-  // prefix-matches the child and two sibling items light at once, the same
-  // thing that forced `end` onto /attendance when the calendar landed under it.
+  // prefix-matches the child and two sibling items light at once.
   { to: '/war-record', label: 'War Record', icon: Swords, end: true, children: [
     { to: '/war-record/feuds', label: 'Feuds' },
   ] },
@@ -27,17 +26,11 @@ export const memberLinks = [
   // gate themselves inline on 'attendance'.
   { to: '/signups', label: 'Signups', icon: ClipboardList },
   // The week ahead including nights nobody has opened yet — the answer to
-  // "what's on Thursday", which Signups can't give.
+  // "what's on Thursday", which Signups can't give — and, looking back, your
+  // own attendance on the nights already run. It took over the separate
+  // Attendance page, which showed those same past nights; /attendance now
+  // redirects here.
   { to: '/attendance/calendar', label: 'Event Calendar', icon: CalendarRange },
-  // Beside Signups and LOA on purpose: those three are the whole of "will you
-  // be there / were you there" from a member's side. No `perm` — reading your
-  // own attendance is not an officer action.
-  //
-  // `end` is required now that /attendance/calendar exists: without it this
-  // NavLink prefix-matches the calendar's path and two sibling items light at
-  // once. The cost is that viewing one event's page (/attendance/:id) no longer
-  // highlights anything, which is the quieter of the two wrong answers.
-  { to: '/attendance', label: 'Attendance', icon: ClipboardCheck, end: true },
   { to: '/loa', label: 'LOA', icon: CalendarOff },
   { to: '/classes', label: 'Classes', icon: Layers },
   { to: '/gear', label: 'Gear Level', icon: Gauge },

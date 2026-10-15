@@ -726,6 +726,20 @@ app.post('/api/loa/:id/occurrences/:date', loaOccurrence(false));
 app.get('/api/signups', async (req, res) => {
   if (!signups) return res.status(503).json({ error: 'Database not configured.' });
   try {
+    // ?past_days=N: the finished nights instead — the last N, closed ones
+    // included, up to yesterday. The Event Calendar uses it to tell "you signed
+    // up but aren't on the roll" on nights already run. The default (no param)
+    // is unchanged: open signups from tonight on, the only ones anyone can act on.
+    const pastDays = parseInt(req.query.past_days, 10);
+    if (Number.isFinite(pastDays) && pastDays > 0) {
+      const today = createLoa.todayInGuildTz();
+      const shift = (d, n) => { const t = new Date(`${d}T12:00:00Z`); t.setUTCDate(t.getUTCDate() + n); return t.toISOString().slice(0, 10); };
+      return res.json({
+        signups: await signups.list({
+          from: shift(today, -Math.min(pastDays, 60)), to: shift(today, -1), includeClosed: true, discordId: req.user.id,
+        }),
+      });
+    }
     res.json({ signups: await signups.list({ discordId: req.user.id }) });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });

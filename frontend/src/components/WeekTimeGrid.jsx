@@ -1,9 +1,9 @@
 import { daySlot } from '../timeUtils';
 
 // ── A WEEK, LAID OUT ON TIME ────────────────────────────────────────────────
-// Seven columns of guild nights with time running down the side. Shared by the
-// Event Calendar and My Attendance, which put different things in the cells
-// but must agree on where a time sits.
+// Seven columns of guild nights with time running down the side. Pulled out of
+// the Event Calendar so anything else laid out by night and time puts a night
+// in the same place.
 //
 // Time runs down in guild-night slots (daySlot), not clock hours, so a 12:30am
 // event sits at the bottom of the night it belongs to instead of at the top of

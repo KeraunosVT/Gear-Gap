@@ -7,6 +7,9 @@ import {
 } from 'lucide-react';
 import ScheduleManager from '../components/ScheduleManager';
 import WeekTimeGrid from '../components/WeekTimeGrid';
+import {
+  NightCard, placeTime, standing, timeLeft, STANDING_ICON, STANDING_LABEL,
+} from '../components/AttendanceNight';
 import { CATEGORIES, OTHER, categoryOf } from '../eventCategories';
 
 import {
@@ -32,10 +35,16 @@ import { useFlash } from '../components/ui/useFlash';
 // one behaviour is the whole point — without it the calendar could only ever
 // display the same handful of rows the other page already does.
 //
-// It reads three endpoints that already exist and adds no fourth. Everyone's
-// LOAs come from /api/loa/all — the same list the LOA board already shows every
-// member, with reasons stripped for anyone without loa.admin — so each event
-// can say who will be missing it.
+// Everyone's LOAs come from /api/loa/all — the same list the LOA board already
+// shows every member, with reasons stripped for anyone without loa.admin — so
+// each event can say who will be missing it.
+//
+// ── AND LOOKING BACK ────────────────────────────────────────────────────────
+// Past nights carry your own attendance (/api/attendance/mine), which used to
+// be its own My Attendance page: filled when you were counted, outlined when
+// you weren't, and the late-attendance request in the side panel. The page
+// asked "will you be there", that one asked "were you there", over the same
+// nights on the same grid — so they are one page now.
 
 const DAY_NAME = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
@@ -45,6 +54,10 @@ const DAY_NAME = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Frida
 // API would refuse. A cap you can page into and then be rejected by is worse
 // than one you can't reach.
 const WEEKS_AHEAD = 4;
+// And back, for your attendance. The fetch covers whole weeks, so the oldest
+// week on screen is never half-loaded.
+const WEEKS_BACK = 6;
+const ATTENDANCE_DAYS = WEEKS_BACK * 7;
 
 const VIEW_KEY = 'calendarView';
 const readView = () => {
@@ -52,6 +65,7 @@ const readView = () => {
 };
 
 const dowOf = (dateStr) => new Date(`${dateStr}T12:00:00`).getDay();
+const norm = (s) => String(s || '').trim().toLowerCase();
 
 const shortDate = (dateStr) =>
   new Date(`${dateStr}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
@@ -118,6 +132,11 @@ export default function EventCalendar() {
   const [occurrences, setOccurrences] = useState([]);
   const [schedule, setSchedule] = useState([]);
   const [loaEntries, setLoaEntries] = useState([]);
+  const [myAttendance, setMyAttendance] = useState([]);
+  // Late-attendance request state, owned here and handed to NightCard.
+  const [asking, setAsking] = useState(null); // logged event id the reason box is open for
+  const [reason, setReason] = useState('');
+  const [lateBusy, setLateBusy] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState('');
@@ -130,11 +149,19 @@ export default function EventCalendar() {
       axios.get('/api/signups'),
       axios.get('/api/event-schedule'),
       axios.get('/api/loa/all'),
+      // Soft-failed, both: the week ahead is still worth showing without them.
+      axios.get('/api/attendance/mine', { params: { days: ATTENDANCE_DAYS } })
+        .catch((err) => { console.error('attendance load failed:', err.message); return { data: { events: [] } }; }),
+      // Finished nights' signups, so a past night can say "you signed up for
+      // this one" beside your attendance on it.
+      axios.get('/api/signups', { params: { past_days: ATTENDANCE_DAYS } })
+        .catch((err) => { console.error('past signups load failed:', err.message); return { data: { signups: [] } }; }),
     ])
-      .then(([sig, sched, loa]) => {
-        setOccurrences(sig.data.signups || []);
+      .then(([sig, sched, loa, att, pastSig]) => {
+        setOccurrences([...(pastSig.data.signups || []), ...(sig.data.signups || [])]);
         setSchedule(sched.data.schedule || []);
         setLoaEntries(loa.data.entries || []);
+        setMyAttendance(att.data.events || []);
       })
       .catch((err) => setError(err.response?.data?.error || 'Failed to load the calendar.'))
       .finally(() => setLoading(false));
@@ -158,6 +185,14 @@ export default function EventCalendar() {
     const opened = occurrences.filter((o) => o.event_date === date);
     const byScheduleId = new Map(opened.filter((o) => o.event_schedule_id).map((o) => [o.event_schedule_id, o]));
 
+    // The nights attendance was logged for, matched onto the rows below and
+    // taken off this list as they are; whatever is left gets a block of its own.
+    const logged = myAttendance.filter((a) => a.event_date === date);
+    const claim = (pred) => {
+      const i = logged.findIndex(pred);
+      return i === -1 ? null : logged.splice(i, 1)[0];
+    };
+
     // Every scheduled event that runs this night, whether or not anyone has
     // opened it. This is the half /signups can't show.
     const scheduled = eventsForGuildDay(schedule, dow).map((s) => {
@@ -169,6 +204,7 @@ export default function EventCalendar() {
         title: occ?.title || s.name,
         eventTime: occ?.event_time || s.event_time || null,
         occ,
+        attendance: claim((a) => String(a.event_schedule_id) === String(s.id)),
       };
     });
 
@@ -185,9 +221,24 @@ export default function EventCalendar() {
       title: o.title,
       eventTime: o.event_time || null,
       occ: o,
+      // A one-off signup and the night logged for it share no id, only a
+      // night and a name.
+      attendance: claim((a) => !a.event_schedule_id && norm(a.title) === norm(o.title)),
     }));
 
-    const rows = [...scheduled, ...extra]
+    // Logged nights nothing above accounted for: one-offs nobody opened
+    // signups for, and nights whose schedule entry has since changed.
+    const loggedOnly = logged.map((a) => ({
+      key: `att:${a.id}`,
+      signupId: null,
+      scheduleId: a.event_schedule_id || null,
+      title: a.title,
+      eventTime: placeTime(a),
+      occ: null,
+      attendance: a,
+    }));
+
+    const rows = [...scheduled, ...extra, ...loggedOnly]
       .map((r) => {
         const awayList = awayFor(loaEntries, { date, dow, scheduleId: r.scheduleId, eventTime: r.eventTime });
         return {
@@ -203,13 +254,22 @@ export default function EventCalendar() {
           // screen too — everything on them is over. Tonight's events are over
           // once their time has passed.
           started: date < today || (date === today && Boolean(r.eventTime) && daySlot(r.eventTime) <= nowSlot),
+          // A finished night nobody took attendance for — "no record", which
+          // is not the same as "you missed it".
+          noRoll: date < today && !r.attendance,
         };
       })
       .sort((a, b) => (a.eventTime ? daySlot(a.eventTime) : -1) - (b.eventTime ? daySlot(b.eventTime) : -1)
         || String(a.title).localeCompare(String(b.title)));
 
     return { date, dow, rows };
-  }), [days, occurrences, schedule, loaEntries, nowSlot, today, user?.id]);
+  }), [days, occurrences, schedule, loaEntries, myAttendance, nowSlot, today, user?.id]);
+
+  // Logged nights you can still ask to be added to — the one thing on this
+  // page with a deadline, so it is offered above the grid whichever week is
+  // showing.
+  const askable = myAttendance.filter((a) => a.can_request);
+  const loggedThisWeek = nights.flatMap((n) => n.rows.map((r) => r.attendance).filter(Boolean));
 
   const totalRows = nights.reduce((n, d) => n + d.rows.length, 0);
   const myCount = nights.reduce((n, d) => n + d.rows.filter((r) => r.myStatus).length, 0);
@@ -249,6 +309,52 @@ export default function EventCalendar() {
       : 'Withdrawn.');
   });
 
+  // ── Late attendance ──
+  const fileLateRequest = async (ev) => {
+    setLateBusy(ev.id);
+    try {
+      await axios.post('/api/attendance/late', { event_id: ev.id, reason: reason.trim() || null });
+      flash('Asked. An officer will approve or deny it — you\'ll get a DM either way.');
+      setAsking(null); setReason('');
+      load();
+    } catch (err) {
+      flash(err.response?.data?.error || 'Could not file that request.', false);
+      // The window may have closed, or an officer may have added you already —
+      // either way what's on screen is out of date.
+      if (err.response?.status === 409 || err.response?.status === 400) load();
+    } finally {
+      setLateBusy('');
+    }
+  };
+
+  const withdrawLateRequest = async (ev) => {
+    setLateBusy(ev.id);
+    try {
+      await axios.delete(`/api/attendance/late/${ev.request.id}`);
+      flash('Withdrawn.');
+    } catch (err) {
+      flash(err.response?.data?.error || 'Could not withdraw that request.', false);
+    } finally {
+      setLateBusy('');
+      load();
+    }
+  };
+
+  const late = {
+    asking, setAsking, reason, setReason, busy: lateBusy,
+    onRequest: fileLateRequest, onWithdraw: withdrawLateRequest,
+  };
+
+  // Jump to a logged night's week and open it — the "you can still ask" links,
+  // which may point at last week. Selected by attendance id, because the row's
+  // key isn't known until that week's rows are built.
+  const openLogged = (a) => {
+    const monday = (d) => addDays(d, -((dowOf(d) + 6) % 7));
+    const weeks = Math.round((new Date(`${monday(a.event_date)}T12:00:00Z`) - new Date(`${monday(today)}T12:00:00Z`)) / (7 * 86_400_000));
+    setOffset(Math.max(-(WEEKS_BACK - 1), Math.min(WEEKS_AHEAD - 1, weeks)));
+    setSelected({ date: a.event_date, attId: a.id });
+  };
+
   if (loading) return <PageShell maxWidth="max-w-3xl"><EmptyState>Reading the week ahead…</EmptyState></PageShell>;
   if (error) {
     return (
@@ -270,16 +376,19 @@ export default function EventCalendar() {
     });
   };
 
-  // The list keeps its old shape: the nights still to come. Earlier nights of
-  // this week only earn their place on the grid, where an empty column would
-  // look like a gap.
-  const upcoming = nights.filter((n) => n.date >= today);
-  const upcomingRows = upcoming.reduce((n, d) => n + d.rows.length, 0);
-  const listView = upcomingRows === 0 ? (
-    <EmptyState>Nothing on the schedule this week.</EmptyState>
+  // The list shows the nights still to come, plus any finished night that has
+  // your attendance on it — the list is all a phone gets, so it has to carry
+  // the looking-back half too. A finished night with no record would only be
+  // a row saying so, and an empty past week reads fine as "nothing".
+  const listed = nights
+    .map((n) => (n.date >= today ? n : { ...n, rows: n.rows.filter((r) => r.attendance) }))
+    .filter((n) => n.date >= today || n.rows.length);
+  const listedRows = listed.reduce((n, d) => n + d.rows.length, 0);
+  const listView = listedRows === 0 ? (
+    <EmptyState>{offset < 0 ? 'No attendance was taken that week.' : 'Nothing on the schedule this week.'}</EmptyState>
   ) : (
     <div className="space-y-6">
-      {upcoming.map((night) => (
+      {listed.map((night) => (
         <Night
           key={night.date} night={night}
           isTonight={night.date === today}
@@ -291,7 +400,9 @@ export default function EventCalendar() {
   );
 
   const selectedNight = selected && nights.find((n) => n.date === selected.date);
-  const selectedRow = selectedNight?.rows.find((r) => r.key === selected.key);
+  const selectedRow = selectedNight?.rows.find((r) => (selected.attId
+    ? String(r.attendance?.id) === String(selected.attId)
+    : r.key === selected.key));
 
   return (
     // Week view takes the same full width as the Parties board: seven columns
@@ -361,33 +472,49 @@ export default function EventCalendar() {
           <Modal onClose={() => setSelected(null)} scrollable>
             <EventDetail
               night={selectedNight} row={{ ...selectedRow, date: selectedNight.date }}
-              busy={busy} onJoin={signUp} onLeave={withdraw}
+              busy={busy} onJoin={signUp} onLeave={withdraw} late={late}
             />
           </Modal>
         </div>
       )}
       <p className="text-ash text-sm mb-6">
-        The week ahead, whether or not signups have been opened. Saying you're in opens them.
+        The week ahead, whether or not signups have been opened — saying you're in opens them. Past nights show
+        whether you were counted; if attendance missed you, you can ask to be added for 24 hours after it was taken.
         {' '}There's no way to say you're out here — <Link to="/loa" className="text-brass hover:text-brassbright underline">file an LOA</Link> for that.
       </p>
 
       <Toast msg={msg} />
 
-      {/* Week pager. Bounded on both sides: back past this week is history the
-          member can't act on, forward past the horizon is a button the server
-          would refuse. */}
+      {askable.length > 0 && (
+        <div className="panel rounded-lg px-4 py-3 mb-4 text-sm flex flex-wrap items-center gap-x-3 gap-y-2 border-brass/40">
+          <Clock className="w-4 h-4 text-brass" />
+          <span className="text-bone">Attendance missed you — you can still ask to be added:</span>
+          {askable.map((a) => (
+            <button key={a.id} onClick={() => openLogged(a)} className="text-brass hover:text-brassbright underline underline-offset-2">
+              {a.title} ({new Date(`${a.event_date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short' })}, {timeLeft(a.window_closes_at)})
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Week pager. Forward to the signup horizon — past it is a button the
+          server would refuse — and back as far as your attendance is loaded. */}
       <div className="flex items-center justify-between gap-4 mb-6 panel rounded-lg px-4 py-3">
         <Button
           variant="ghost" size="none" className="px-2 py-1 text-sm"
-          onClick={() => setOffset((o) => Math.max(0, o - 1))} disabled={offset === 0}
+          onClick={() => setOffset((o) => Math.max(-(WEEKS_BACK - 1), o - 1))} disabled={offset <= -(WEEKS_BACK - 1)}
         >
           <ChevronLeft className="w-4 h-4" /> Previous
         </Button>
         <div className="text-center">
           <div className="text-bone text-sm">{shortDate(days[0])} – {shortDate(days[6])}</div>
           <div className="eyebrow text-[10px] text-ash/75 mt-0.5">
-            {offset === 0 ? 'This week' : `In ${offset} week${offset === 1 ? '' : 's'}`}
-            {myCount > 0 && <> · you're in for {myCount}</>}
+            {offset === 0 ? 'This week' : offset > 0 ? `In ${offset} week${offset === 1 ? '' : 's'}` : `${-offset} week${offset === -1 ? '' : 's'} ago`}
+            {myCount > 0 && offset >= 0 && <> · you're in for {myCount}</>}
+            {loggedThisWeek.length > 0 && <> · attended {loggedThisWeek.filter((a) => a.attended).length} of {loggedThisWeek.length}</>}
+            {offset !== 0 && (
+              <button onClick={() => setOffset(0)} className="ml-2 text-brass hover:text-brassbright normal-case tracking-normal">this week</button>
+            )}
           </div>
         </div>
         <Button
@@ -411,7 +538,8 @@ export default function EventCalendar() {
               <div className="w-full lg:flex-1 min-w-0">
                 <WeekGrid
                   nights={nights} today={today} nowSlot={nowSlot} showAway={showAway}
-                  selected={selected} onSelect={setSelected}
+                  selected={selectedRow ? { date: selectedNight.date, key: selectedRow.key } : null}
+                  onSelect={setSelected}
                 />
               </div>
               <aside className="w-full lg:w-[320px] shrink-0 panel rounded-lg p-5 lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)] lg:overflow-auto">
@@ -425,13 +553,13 @@ export default function EventCalendar() {
                     </button>
                     <EventDetail
                       night={selectedNight} row={{ ...selectedRow, date: selectedNight.date }}
-                      busy={busy} onJoin={signUp} onLeave={withdraw}
+                      busy={busy} onJoin={signUp} onLeave={withdraw} late={late}
                     />
                   </div>
                 ) : (
                   <div className="py-10 text-center text-sm text-ash">
                     <CalendarRange className="w-6 h-6 text-brass/60 mx-auto mb-3" />
-                    Pick an event to see who's in and who's away.
+                    Pick an event to see who's in and who's away — or, for a past night, whether you were counted.
                   </div>
                 )}
               </aside>
@@ -473,8 +601,8 @@ function Night({ night, isTonight, busy, onJoin, onLeave, showAway, onDetails })
 }
 
 // ── THE WEEK GRID ───────────────────────────────────────────────────────────
-// Layout lives in WeekTimeGrid, shared with My Attendance; this supplies the
-// blocks and the category legend.
+// Layout lives in WeekTimeGrid; this supplies the blocks and the category
+// legend.
 function WeekGrid({ nights, today, nowSlot, showAway, selected, onSelect }) {
   const isPicked = (date, key) => selected?.date === date && selected?.key === key;
   const present = new Set(nights.flatMap((n) => n.rows.map((r) => categoryOf(r.title).key)));
@@ -504,15 +632,43 @@ function WeekGrid({ nights, today, nowSlot, showAway, selected, onSelect }) {
 // One event on the grid: its colour, name, and the facts worth a glance —
 // whether I'm in, how many are, and (with Who's away on) how many have an LOA
 // covering it. Everything else is a click away.
+//
+// A night attendance was taken for shows your attendance instead, because
+// once it's over that is the only fact about it worth a glance: filled when
+// you were counted, outlined when you weren't (dashed while you can still ask).
 function Block({ row, fill = false, showAway = false, picked = false, onClick }) {
   const cat = categoryOf(row.title);
   const mine = row.myStatus === 'going';
   const awayCount = row.awayList?.length || 0;
+  const ring = picked ? 'ring-2 ring-bone ring-offset-1 ring-offset-panel' : '';
+
+  if (row.attendance) {
+    const s = standing(row.attendance);
+    const Icon = STANDING_ICON[s];
+    const filled = s === 'attended';
+    // Signed up, then not counted — the likeliest night to be worth a late
+    // request, and nothing else on the page connects the two.
+    const promisedButMissing = mine && !filled;
+    return (
+      <button
+        onClick={onClick}
+        aria-pressed={picked}
+        title={`${row.title} · ${STANDING_LABEL[s]}${promisedButMissing ? ' · you signed up for this one' : ''}`}
+        className={`w-full ${fill ? 'h-full' : ''} flex items-center gap-1 rounded px-1.5 py-0.5 text-left text-[11px] leading-tight overflow-hidden transition-[filter] hover:brightness-125 ${filled ? 'text-white' : 'bg-panel text-bone'} ${ring}`}
+        style={filled ? { background: cat.color } : { border: `1px ${s === 'askable' ? 'dashed' : 'solid'} ${cat.color}` }}
+      >
+        <Icon className={`w-3 h-3 shrink-0 ${filled ? '' : s === 'pending' || s === 'askable' ? 'text-brass' : s === 'denied' ? 'text-oxblood' : 'text-ash'}`} />
+        <span className="truncate font-medium">{row.title}</span>
+        {promisedButMissing && <AlertTriangle className="w-3 h-3 shrink-0 ml-auto text-brassbright" />}
+      </button>
+    );
+  }
+
   return (
     <button
       onClick={onClick}
       title={`${row.title}${row.eventTime ? ` · ${fmtTimeEst(row.eventTime)}` : ''} · ${row.going} in${awayCount ? ` · ${awayCount} away` : ''}`}
-      className={`w-full ${fill ? 'h-full' : ''} flex items-center gap-1 rounded px-1.5 py-0.5 text-left text-[11px] leading-tight text-white overflow-hidden transition-[filter] hover:brightness-125 ${row.started ? 'opacity-45' : ''} ${picked ? 'ring-2 ring-bone ring-offset-1 ring-offset-panel' : mine ? 'ring-1 ring-white/70' : ''}`}
+      className={`w-full ${fill ? 'h-full' : ''} flex items-center gap-1 rounded px-1.5 py-0.5 text-left text-[11px] leading-tight text-white overflow-hidden transition-[filter] hover:brightness-125 ${row.started ? 'opacity-45' : ''} ${ring || (mine ? 'ring-1 ring-white/70' : '')}`}
       aria-pressed={picked}
       style={{ background: cat.color }}
     >
@@ -540,7 +696,7 @@ function Block({ row, fill = false, showAway = false, picked = false, onClick })
 // counts — so it is fetched when the event has been opened. It is used for one
 // thing: flagging anyone who is both on LOA and signed up, which the officer
 // has to resolve and which the server already works out as `conflicts`.
-function EventDetail({ night, row, busy, onJoin, onLeave }) {
+function EventDetail({ night, row, busy, onJoin, onLeave, late }) {
   const [conflictIds, setConflictIds] = useState(() => new Set());
 
   useEffect(() => {
@@ -566,6 +722,27 @@ function EventDetail({ night, row, busy, onJoin, onLeave }) {
       <div className="border border-line rounded-lg">
         <EventRow row={row} busy={busy} onJoin={onJoin} onLeave={onLeave} />
       </div>
+
+      {/* The looking-back half: where you stand on a night attendance was
+          taken for, and the late request if it missed you. */}
+      {row.attendance && (
+        <div className="mt-4">
+          <div className="eyebrow text-[10px] text-brass mb-2">Your attendance</div>
+          <div className="border border-line rounded-lg px-3 py-3">
+            <NightCard ev={row.attendance} late={late} showTitle={false} />
+          </div>
+          {row.myStatus === 'going' && !row.attendance.attended && (
+            <p className="text-xs text-brassbright mt-2 flex items-start gap-1.5">
+              <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
+              You signed up for this one but aren&apos;t on the roll.
+              {row.attendance.can_request ? ' If you were there, ask to be added.' : ''}
+            </p>
+          )}
+        </div>
+      )}
+      {row.noRoll && (
+        <p className="text-sm text-ash mt-4">No attendance was taken for this night.</p>
+      )}
 
       <div className="grid grid-cols-3 gap-2 mt-4">
         {[
@@ -784,6 +961,18 @@ function EventRow({ row, busy, onJoin, onLeave, showAway = false, onDetails = nu
           {/* No number: the member list doesn't carry a waitlist position, and
               inventing one would be worse than not saying. */}
           {isWaitlisted && <span className="text-brass">waitlisted</span>}
+          {/* Your attendance on a logged night, opening the same detail —
+              where the late request lives — on tap. */}
+          {row.attendance && onDetails && (() => {
+            const s = standing(row.attendance);
+            const Icon = STANDING_ICON[s];
+            const tone = { attended: 'text-emerald-400', pending: 'text-brass', askable: 'text-brassbright', denied: 'text-oxblood', missed: 'text-ash' }[s];
+            return (
+              <button onClick={() => onDetails(row)} className={`inline-flex items-center gap-1 hover:underline ${tone}`}>
+                <Icon className="w-3 h-3" /> {STANDING_LABEL[s]}
+              </button>
+            );
+          })()}
           {/* The list view's way into the same detail the grid opens on click. */}
           {showAway && onDetails && row.awayList?.length > 0 && (
             <button onClick={() => onDetails(row)} className="inline-flex items-center gap-1 text-ash hover:text-brass transition-colors">

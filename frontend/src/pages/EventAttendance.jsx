@@ -249,8 +249,8 @@ export default function EventAttendance() {
     return (
       <PageShell maxWidth="max-w-[1400px]">
         <div className="px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>
-        <Link to="/attendance" className="inline-flex items-center gap-2 text-sm text-brass hover:text-brassbright mt-4">
-          <ArrowLeft className="w-4 h-4" /> Back to attendance
+        <Link to="/attendance/calendar" className="inline-flex items-center gap-2 text-sm text-brass hover:text-brassbright mt-4">
+          <ArrowLeft className="w-4 h-4" /> Back to the Event Calendar
         </Link>
       </PageShell>
     );
@@ -269,8 +269,8 @@ export default function EventAttendance() {
 
   return (
     <PageShell maxWidth="max-w-[1400px]">
-      <Link to="/attendance" className="inline-flex items-center gap-1.5 text-xs text-ash hover:text-brass mb-4">
-        <ArrowLeft className="w-3 h-3" /> Attendance
+      <Link to="/attendance/calendar" className="inline-flex items-center gap-1.5 text-xs text-ash hover:text-brass mb-4">
+        <ArrowLeft className="w-3 h-3" /> Event Calendar
       </Link>
 
       {/* ── Header ─────────────────────────────────────────────────── */}
