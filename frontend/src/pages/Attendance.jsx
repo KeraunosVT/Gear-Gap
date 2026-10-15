@@ -6,7 +6,7 @@ import {
   RefreshCw, Camera, Trash2, Users, CalendarDays, Loader2,
   BarChart3, Wand2, Swords, Check, X, Inbox, Volume2, AlertTriangle, Upload,
 } from 'lucide-react';
-import { fmtTimeEst, fmtDatetime, guildDayOfWeek, isAfterMidnight, todayInGuildTz } from '../timeUtils';
+import { fmtTimeEst, fmtDatetime, guildDayOfWeek, isAfterMidnight, todayInGuildTz, eventsForGuildDay } from '../timeUtils';
 import RestrictedGate from '../components/ui/RestrictedGate';
 import Tabs from '../components/ui/Tabs';
 import { Table, Thead, SortableTh, Tr } from '../components/ui/Table';
@@ -123,6 +123,14 @@ export default function Attendance() {
     () => channels.find((c) => c.id === configuredId) || null,
     [channels, configuredId],
   );
+
+  // Only the events on the night being logged. The date is a guild night, so
+  // eventsForGuildDay pulls in that night's after-midnight event and leaves out
+  // the next evening's. No date picked falls back to the whole week.
+  const nightSchedule = useMemo(() => {
+    if (!eventDate) return schedule;
+    return eventsForGuildDay(schedule, new Date(eventDate + 'T12:00:00').getDay());
+  }, [schedule, eventDate]);
 
   const sortedStats = useMemo(() => {
     const dir = statDir === 'asc' ? 1 : -1;
@@ -255,6 +263,20 @@ export default function Attendance() {
     setEventScheduleId(id);
     const ev = schedule.find((s) => s.id === id);
     if (ev) setTitle(ev.name);
+  };
+
+  // Moving the date to another night drops a scheduled event that isn't on it —
+  // otherwise the select shows "custom" while a hidden id from the old night
+  // still gets saved. The title goes too, but only if it was the event's name
+  // filled in automatically; one the officer typed is theirs.
+  const changeDate = (date) => {
+    setEventDate(date);
+    if (!eventScheduleId || !date) return;
+    const onNight = eventsForGuildDay(schedule, new Date(date + 'T12:00:00').getDay());
+    if (onNight.some((s) => s.id === eventScheduleId)) return;
+    const ev = schedule.find((s) => s.id === eventScheduleId);
+    if (ev && title === ev.name) setTitle('');
+    setEventScheduleId('');
   };
 
   const save = async () => {
@@ -427,7 +449,7 @@ export default function Attendance() {
               {/* Labelled by the night it belongs to: an after-midnight event
                   is stored on the next calendar day, so its raw day_of_week
                   would name the wrong night to whoever is logging it. */}
-              {schedule.map((s) => (
+              {nightSchedule.map((s) => (
                 <option key={s.id} value={s.id}>
                   {s.name} — {DAYS[guildDayOfWeek(s.day_of_week, s.event_time)]}
                   {isAfterMidnight(s.event_time) ? ' night' : ''}
@@ -447,7 +469,7 @@ export default function Attendance() {
           <div className="w-[150px]">
             <label className="eyebrow text-[10px] text-ash block mb-2">Date</label>
             <input
-              type="date" value={eventDate} onChange={(e) => setEventDate(e.target.value)}
+              type="date" value={eventDate} onChange={(e) => changeDate(e.target.value)}
               className="w-full bg-hall border border-line rounded-lg px-3 py-2.5 text-bone focus:outline-none focus:border-brass"
             />
           </div>
