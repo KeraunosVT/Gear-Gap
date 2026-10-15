@@ -293,7 +293,10 @@ export default function EventCalendar() {
   const selectedRow = selectedNight?.rows.find((r) => r.key === selected.key);
 
   return (
-    <PageShell maxWidth={view === 'week' ? 'max-w-7xl' : 'max-w-3xl'}>
+    // Week view takes the same full width as the Parties board: seven columns
+    // plus the side panel are cramped at 7xl. The list stays narrow — it's
+    // one column of rows, and long lines are harder to read.
+    <PageShell maxWidth={view === 'week' ? 'max-w-[1600px]' : 'max-w-3xl'}>
       <div className="flex items-center gap-3 mb-2">
         <CalendarRange className="w-6 h-6 text-brass" />
         <h1 className="font-display text-2xl tracking-wide text-bone">EVENT CALENDAR</h1>
