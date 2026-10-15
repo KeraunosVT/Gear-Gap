@@ -6,6 +6,7 @@ import {
   LayoutGrid, List, Settings, X,
 } from 'lucide-react';
 import ScheduleManager from '../components/ScheduleManager';
+import WeekTimeGrid from '../components/WeekTimeGrid';
 import { CATEGORIES, OTHER, categoryOf } from '../eventCategories';
 
 import {
@@ -472,142 +473,31 @@ function Night({ night, isTonight, busy, onJoin, onLeave, showAway, onDetails })
 }
 
 // ── THE WEEK GRID ───────────────────────────────────────────────────────────
-// Time runs down in guild-night slots (daySlot), not clock hours, so a 12:30am
-// event sits at the bottom of the night it belongs to instead of at the top of
-// the next column. Events have no stored length; every block is drawn as
-// BLOCK_MIN long, which is also what decides whether two of them overlap.
-const HOUR_PX = 52;
-const BLOCK_MIN = 30;
-const DEFAULT_RANGE = [18 * 60, 24 * 60]; // 6pm–midnight when nothing is timed
-
-const shortDay = (dateStr) =>
-  new Date(`${dateStr}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
-
-function hourLabel(slot) {
-  const h = Math.floor(slot / 60) % 24;
-  return `${h % 12 || 12}${h >= 12 ? 'pm' : 'am'}`;
-}
-
-// Side-by-side lanes for blocks that would otherwise sit on top of each other.
-// Greedy per cluster of overlapping blocks: each takes the first free lane,
-// and every block in the cluster is narrowed to the cluster's lane count.
-function layoutLanes(items) {
-  const out = [];
-  let cluster = [];
-  let clusterEnd = -1;
-  const flush = () => {
-    const laneEnds = [];
-    const placed = cluster.map((it) => {
-      let lane = laneEnds.findIndex((end) => end <= it.slot);
-      if (lane === -1) { lane = laneEnds.length; laneEnds.push(0); }
-      laneEnds[lane] = it.slot + BLOCK_MIN;
-      return { ...it, lane };
-    });
-    placed.forEach((p) => out.push({ ...p, lanes: laneEnds.length }));
-    cluster = [];
-  };
-  [...items].sort((a, b) => a.slot - b.slot).forEach((it) => {
-    if (cluster.length && it.slot >= clusterEnd) flush();
-    cluster.push(it);
-    clusterEnd = Math.max(clusterEnd, it.slot + BLOCK_MIN);
-  });
-  if (cluster.length) flush();
-  return out;
-}
-
+// Layout lives in WeekTimeGrid, shared with My Attendance; this supplies the
+// blocks and the category legend.
 function WeekGrid({ nights, today, nowSlot, showAway, selected, onSelect }) {
   const isPicked = (date, key) => selected?.date === date && selected?.key === key;
-  // Only the hours that hold something, an hour either side. A full 24-hour
-  // column is mostly empty scrolling for a guild that plays in the evening.
-  const slots = nights.flatMap((n) => n.rows.filter((r) => r.eventTime).map((r) => daySlot(r.eventTime)));
-  const [lo, hi] = slots.length ? [Math.min(...slots), Math.max(...slots) + BLOCK_MIN] : DEFAULT_RANGE;
-  const start = Math.max(0, Math.floor(lo / 60) * 60 - 60);
-  const end = Math.ceil(hi / 60) * 60 + 60;
-  const hours = Array.from({ length: (end - start) / 60 }, (_, i) => start + i * 60);
-  const height = ((end - start) / 60) * HOUR_PX;
-  const anyUntimed = nights.some((n) => n.rows.some((r) => !r.eventTime));
   const present = new Set(nights.flatMap((n) => n.rows.map((r) => categoryOf(r.title).key)));
 
   return (
-    <div className="panel rounded-lg overflow-hidden">
-      <div className="grid grid-cols-[56px_repeat(7,minmax(0,1fr))]">
-        {/* Header row */}
-        <div className="border-b border-line" />
-        {nights.map((n) => (
-          <div
-            key={n.date}
-            className={`border-b border-l border-line px-2 py-2 text-center text-sm ${n.date === today ? 'text-brass font-semibold' : n.date < today ? 'text-ash/50' : 'text-bone'}`}
-          >
-            {shortDay(n.date)}
-          </div>
-        ))}
-
-        {/* Events with no time can't be placed on the axis; they get a strip
-            of their own rather than being guessed into a slot. */}
-        {anyUntimed && (
-          <>
-            <div className="border-b border-line text-[10px] text-ash/60 px-1 py-1.5 text-right">any time</div>
-            {nights.map((n) => (
-              <div key={n.date} className={`border-b border-l border-line p-1 space-y-1 ${n.date === today ? 'bg-brass/5' : ''}`}>
-                {n.rows.filter((r) => !r.eventTime).map((r) => (
-                  <Block key={r.key} row={r} showAway={showAway} picked={isPicked(n.date, r.key)} onClick={() => onSelect({ date: n.date, key: r.key })} />
-                ))}
-              </div>
-            ))}
-          </>
-        )}
-
-        {/* Hour gutter */}
-        <div className="relative" style={{ height }}>
-          {hours.map((h, i) => (
-            <div key={h} className="absolute right-1.5 text-[11px] text-ash/70 -translate-y-1/2" style={{ top: i * HOUR_PX }}>
-              {i === 0 ? '' : hourLabel(h)}
-            </div>
+    <WeekTimeGrid
+      columns={nights.map((n) => ({ date: n.date, items: n.rows }))}
+      today={today} nowSlot={nowSlot}
+      renderItem={(r, { date, fill }) => (
+        <Block row={r} fill={fill} showAway={showAway} picked={isPicked(date, r.key)} onClick={() => onSelect({ date, key: r.key })} />
+      )}
+      footer={
+        // Legend — only the kinds this week actually has, so it explains what
+        // is on screen rather than listing every activity in the game.
+        <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 py-3 text-xs text-ash">
+          {[...CATEGORIES, OTHER].filter((c) => present.has(c.key)).map((c) => (
+            <span key={c.key} className="inline-flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-full" style={{ background: c.color }} /> {c.label}
+            </span>
           ))}
         </div>
-
-        {nights.map((n) => {
-          const placed = layoutLanes(n.rows.filter((r) => r.eventTime).map((r) => ({ row: r, slot: daySlot(r.eventTime) })));
-          const isToday = n.date === today;
-          return (
-            <div key={n.date} className={`relative border-l border-line ${isToday ? 'bg-brass/5' : ''}`} style={{ height }}>
-              {hours.map((h, i) => (
-                <div key={h} className="absolute inset-x-0 border-t border-line/60" style={{ top: i * HOUR_PX }} />
-              ))}
-              {placed.map(({ row, slot, lane, lanes }) => (
-                <div
-                  key={row.key}
-                  className="absolute px-0.5"
-                  style={{
-                    top: ((slot - start) / 60) * HOUR_PX + 1,
-                    height: (BLOCK_MIN / 60) * HOUR_PX - 2,
-                    left: `${(lane / lanes) * 100}%`,
-                    width: `${100 / lanes}%`,
-                  }}
-                >
-                  <Block row={row} fill showAway={showAway} picked={isPicked(n.date, row.key)} onClick={() => onSelect({ date: n.date, key: row.key })} />
-                </div>
-              ))}
-              {isToday && nowSlot >= start && nowSlot <= end && (
-                <div className="absolute inset-x-0 h-px bg-oxblood pointer-events-none" style={{ top: ((nowSlot - start) / 60) * HOUR_PX }}>
-                  <div className="absolute -left-1 -top-1 w-2 h-2 rounded-full bg-oxblood" />
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Legend — only the kinds this week actually has, so it explains what
-          is on screen rather than listing every activity in the game. */}
-      <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 py-3 border-t border-line text-xs text-ash">
-        {[...CATEGORIES, OTHER].filter((c) => present.has(c.key)).map((c) => (
-          <span key={c.key} className="inline-flex items-center gap-1.5">
-            <span className="w-2.5 h-2.5 rounded-full" style={{ background: c.color }} /> {c.label}
-          </span>
-        ))}
-      </div>
-    </div>
+      }
+    />
   );
 }
 

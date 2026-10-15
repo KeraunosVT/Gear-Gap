@@ -109,19 +109,27 @@ module.exports = function createLateAttendance(supabase, identities = null) {
       const since = new Date(Date.now() - Math.max(1, days) * 86_400_000).toISOString();
 
       const { data: events, error: eErr } = await supabase
-        .from('events').select('id, title, event_date, created_at')
+        .from('events').select('id, title, event_date, event_schedule_id, created_at')
         .gte('created_at', since)
         .order('created_at', { ascending: false });
       if (eErr) { console.error('lateAttendance.listForMember events error:', eErr.message); throw httpError(500, 'Failed to load events.'); }
       if (!events || !events.length) return [];
 
       const ids = events.map((e) => e.id);
-      const [{ data: mine }, { data: reqs }] = await Promise.all([
+      const scheduleIds = [...new Set(events.map((e) => e.event_schedule_id).filter(Boolean))];
+      const [{ data: mine }, { data: reqs }, { data: sched }] = await Promise.all([
         supabase.from('event_attendance').select('event_id, joined_at, source')
           .eq('discord_id', String(discordId)).in('event_id', ids),
         supabase.from('late_attendance_requests').select('*')
           .eq('discord_id', String(discordId)).in('event_id', ids),
+        // The scheduled time, so My Attendance can place a night on its time
+        // grid. Best-effort: a night whose schedule entry is gone just has no
+        // time, and the page falls back to when attendance was taken.
+        scheduleIds.length
+          ? supabase.from('event_schedule').select('id, event_time').in('id', scheduleIds)
+          : Promise.resolve({ data: [] }),
       ]);
+      const timeBySchedule = new Map((sched || []).map((s) => [String(s.id), s.event_time || null]));
 
       const attended = new Map((mine || []).map((a) => [String(a.event_id), a]));
       const requested = new Map((reqs || []).map((r) => [String(r.event_id), r]));
@@ -133,6 +141,7 @@ module.exports = function createLateAttendance(supabase, identities = null) {
         const open = isOpen(e, now);
         return {
           ...e,
+          event_time: e.event_schedule_id ? timeBySchedule.get(String(e.event_schedule_id)) || null : null,
           attended: !!att,
           joined_at: att ? att.joined_at : null,
           late: !!att && att.source === 'late',
