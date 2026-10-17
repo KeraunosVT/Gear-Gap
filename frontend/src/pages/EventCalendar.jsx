@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import axios from 'axios';
 import {
   CalendarRange, Check, ChevronLeft, ChevronRight, Clock, Loader2, Users, CalendarOff, AlertTriangle, Plus,
-  LayoutGrid, List, Settings, X,
+  LayoutGrid, List, Settings, Trash2, X,
 } from 'lucide-react';
 import ScheduleManager from '../components/ScheduleManager';
 import WeekTimeGrid from '../components/WeekTimeGrid';
@@ -309,6 +309,20 @@ export default function EventCalendar() {
       : 'Withdrawn.');
   });
 
+  // Deleting a one-off is deleting its signup — the same route the Signups
+  // page uses, which also takes down the Discord post. Scheduled nights aren't
+  // offered this: the schedule would just show them again, unopened.
+  const removeOneOff = (row) => {
+    if (!window.confirm(`Delete ${row.title} on ${shortDate(row.date)}? Everyone's signups go with it.`)) return;
+    run(`del:${row.key}`, async () => {
+      await axios.delete(`/api/admin/signups/${row.signupId}`);
+      setSelected(null);
+      load();
+      flash(`${row.title} deleted.`);
+    });
+  };
+  const onDelete = canOneOff ? removeOneOff : null;
+
   // ── Late attendance ──
   const fileLateRequest = async (ev) => {
     setLateBusy(ev.id);
@@ -472,7 +486,7 @@ export default function EventCalendar() {
           <Modal onClose={() => setSelected(null)} scrollable>
             <EventDetail
               night={selectedNight} row={{ ...selectedRow, date: selectedNight.date }}
-              busy={busy} onJoin={signUp} onLeave={withdraw} late={late}
+              busy={busy} onJoin={signUp} onLeave={withdraw} late={late} onDelete={onDelete}
             />
           </Modal>
         </div>
@@ -553,7 +567,7 @@ export default function EventCalendar() {
                     </button>
                     <EventDetail
                       night={selectedNight} row={{ ...selectedRow, date: selectedNight.date }}
-                      busy={busy} onJoin={signUp} onLeave={withdraw} late={late}
+                      busy={busy} onJoin={signUp} onLeave={withdraw} late={late} onDelete={onDelete}
                     />
                   </div>
                 ) : (
@@ -696,7 +710,7 @@ function Block({ row, fill = false, showAway = false, picked = false, onClick })
 // counts — so it is fetched when the event has been opened. It is used for one
 // thing: flagging anyone who is both on LOA and signed up, which the officer
 // has to resolve and which the server already works out as `conflicts`.
-function EventDetail({ night, row, busy, onJoin, onLeave, late }) {
+function EventDetail({ night, row, busy, onJoin, onLeave, late, onDelete = null }) {
   const [conflictIds, setConflictIds] = useState(() => new Set());
 
   useEffect(() => {
@@ -781,6 +795,18 @@ function EventDetail({ night, row, busy, onJoin, onLeave, late }) {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* An opened signup with no schedule entry behind it is a one-off. */}
+      {onDelete && row.signupId && !row.scheduleId && (
+        <div className="mt-5 pt-4 border-t border-line flex justify-end">
+          <Button
+            variant="destructive" size="sm" icon={<Trash2 className="w-4 h-4" />}
+            disabled={busy === `del:${row.key}`} onClick={() => onDelete(row)}
+          >
+            Delete event
+          </Button>
         </div>
       )}
     </div>
