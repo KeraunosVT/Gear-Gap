@@ -39,6 +39,7 @@ const FIRST_SWEEP_MS = 2 * 60 * 1000;
 const MASS_FRACTION = 0.5;
 const MASS_MIN = 3;
 const BATCH = 100;
+const UNDEFINED_COLUMN = '42703'; // Postgres: column does not exist
 
 const { guildDateOf } = require('./loa');
 const { fetchAll } = require('./pagedRead');
@@ -56,10 +57,29 @@ function countsFor(tenure, date) {
 module.exports = function createMemberTenure(supabase, listMembers = null, { fetchRoleGrants = null } = {}) {
   const missingSince = new Map(); // discord_id -> first sweep it was missing
 
-  const readRows = () => fetchAll(
-    () => supabase.from('member_tenure').select('discord_id, since, left_at').order('discord_id'),
+  const BASE_COLUMNS = 'discord_id, since, left_at';
+  const readRows = (columns = BASE_COLUMNS) => fetchAll(
+    () => supabase.from('member_tenure').select(columns).order('discord_id'),
     { label: 'member_tenure' },
   );
+
+  // The sweep's read, with discord_username (migration 030) when the column
+  // exists. Without it the sweep still records dates, it just leaves names
+  // out — a missing label must not stop the denominators being kept. load()
+  // never asks for it, so the rates never depend on 030 at all.
+  let hasUsername = true;
+  async function readForSweep() {
+    if (hasUsername) {
+      try {
+        return await readRows(`${BASE_COLUMNS}, discord_username`);
+      } catch (err) {
+        if (err.code !== UNDEFINED_COLUMN) throw err;
+        console.warn('member_tenure has no discord_username column yet (migration 030) — recording dates without it.');
+        hasUsername = false;
+      }
+    }
+    return readRows();
+  }
 
   // discord_id -> { since, until } as guild-night dates. Empty when the table
   // is missing (migration 028 not run) — every rate then reads as it did
@@ -82,7 +102,7 @@ module.exports = function createMemberTenure(supabase, listMembers = null, { fet
     // An empty list is a Discord or config failure, never a real answer.
     if (!members.length) return { started: [], left: [], skipped: 'empty member list' };
 
-    const rows = await readRows();
+    const rows = await readForSweep();
     const byId = new Map(rows.map((r) => [String(r.discord_id), r]));
     const current = new Map(members.map((m) => [String(m.id), m]));
     const nowMs = Date.now();
@@ -113,7 +133,14 @@ module.exports = function createMemberTenure(supabase, listMembers = null, { fet
       } else if (grant) { since = grant; source = 'audit_log'; }
       else if (m.joinedAt) { since = new Date(m.joinedAt).getTime(); source = 'discord_join'; }
       else { since = nowMs; source = 'sweep'; }
-      return { discord_id: id, since: new Date(since).toISOString(), source, left_at: null, updated_at: nowIso };
+      return {
+        discord_id: id,
+        since: new Date(since).toISOString(),
+        source,
+        left_at: null,
+        updated_at: nowIso,
+        ...(hasUsername ? { discord_username: m.username || null } : {}),
+      };
     });
     for (let i = 0; i < starts.length; i += BATCH) {
       const { error } = await supabase.from('member_tenure')
@@ -121,6 +148,25 @@ module.exports = function createMemberTenure(supabase, listMembers = null, { fet
       if (error) throw new Error(`member_tenure: ${error.message}`);
     }
     starts.forEach((s) => missingSince.delete(s.discord_id));
+
+    // ── Usernames: Discord lets people rename, so keep the label current ──
+    // Only rows whose name actually changed are written; after the first sweep
+    // following migration 030 that is almost always none. Never touches `since`.
+    // A row the sweep only knows from a TLGM import starts with no name and is
+    // filled in here.
+    if (hasUsername) {
+      const started = new Set(starts.map((s) => s.discord_id));
+      const renamed = [...current.values()].filter((m) => {
+        const row = byId.get(String(m.id));
+        return row && !started.has(String(m.id)) && m.username && row.discord_username !== m.username;
+      });
+      for (const m of renamed) {
+        const { error } = await supabase.from('member_tenure')
+          .update({ discord_username: m.username, updated_at: nowIso })
+          .eq('discord_id', String(m.id));
+        if (error) throw new Error(`member_tenure: ${error.message}`);
+      }
+    }
 
     // ── Departures ──
     const active = rows.filter((r) => !r.left_at).map((r) => String(r.discord_id));

@@ -173,6 +173,47 @@ describe('sweep: leaving', () => {
   });
 });
 
+describe('sweep: discord_username', () => {
+  test('a new member is stored with their username', async () => {
+    members = [{ id: 'a', username: 'kera', joinedAt: iso(Date.now() - 10 * DAY) }];
+    await tenure.sweep();
+    assert.equal(rowOf('a').discord_username, 'kera');
+  });
+
+  test('a rename updates the name and never the date', async () => {
+    const since = iso(Date.now() - 50 * DAY);
+    tables.member_tenure.push({ discord_id: 'a', since, source: 'tlgm', left_at: null, discord_username: 'old' });
+    tables.member_tenure.push({ discord_id: 'b', since, source: 'tlgm', left_at: null }); // from a TLGM import, no name yet
+    members = [{ id: 'a', username: 'new' }, { id: 'b', username: 'bo' }];
+    await tenure.sweep();
+    assert.equal(rowOf('a').discord_username, 'new');
+    assert.equal(rowOf('a').since, since);
+    assert.equal(rowOf('a').source, 'tlgm');
+    assert.equal(rowOf('b').discord_username, 'bo');
+  });
+
+  test('without migration 030 the sweep still records dates', async () => {
+    const db = fakeSupabase(tables);
+    const from = db.from;
+    // A select naming the missing column fails the way PostgREST does.
+    db.from = (name) => {
+      const q = from(name);
+      const select = q.select;
+      q.select = (cols) => {
+        if (String(cols).includes('discord_username')) {
+          q.range = () => Promise.resolve({ data: null, error: { code: '42703', message: 'column does not exist' } });
+        }
+        return select(cols);
+      };
+      return q;
+    };
+    tenure = createMemberTenure(db, async () => [{ id: 'a', username: 'kera', joinedAt: iso(Date.now() - DAY) }]);
+    await tenure.sweep();
+    assert.equal(rowOf('a').source, 'discord_join');
+    assert.ok(!('discord_username' in rowOf('a')), 'the missing column is not written to');
+  });
+});
+
 describe('setJoinDates (TLGM)', () => {
   test('overwrites a Discord-derived date and is kept by the next sweep', async () => {
     tables.member_tenure.push({ discord_id: 'a', since: iso(Date.now() - 900 * DAY), source: 'discord_join', left_at: null });

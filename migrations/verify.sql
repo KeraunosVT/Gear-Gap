@@ -202,6 +202,10 @@ select '028 · member_tenure table',
 union all
 -- Reads the constraint's text: the only catalog trace of which sources are
 -- allowed. Without 'tlgm' every TLGM join date is refused at write time.
+select '030 · member_tenure.discord_username',
+       (select count(*) from information_schema.columns
+        where table_schema = 'public' and table_name = 'member_tenure' and column_name = 'discord_username') = 1
+union all
 select '029 · member_tenure.source allows tlgm',
        coalesce((select pg_get_constraintdef(c.oid) ~ 'tlgm'
                  from pg_constraint c
