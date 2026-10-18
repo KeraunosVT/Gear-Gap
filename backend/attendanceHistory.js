@@ -31,11 +31,32 @@ const HEADER_MAP = {
 
 // TLGM's "Join Date" — when they joined the guild in game, which is a better
 // answer to "since when is this person ours" than anything Discord holds (see
-// memberTenure.js). Written day-first with a time: "26/04/2026 04:10". Read as
-// UTC, the only zone the export could reasonably mean with none stated. ISO
-// is accepted too, for a hand-edited copy. Anything else, or a date in the
-// future, is null — a guessed join date would quietly move someone's
-// denominator, which is worse than leaving it to the Discord fallback.
+// memberTenure.js). Written day-first with a time: "26/04/2026 04:10", in US
+// Eastern wall-clock time — TLGM's export says no zone, but this guild's export
+// is Eastern. America/New_York rather than a fixed UTC-5, so a summer join
+// reads as EDT the way the export's clock did. ISO is accepted too, for a
+// hand-edited copy. Anything else, or a date in the future, is null — a guessed
+// join date would quietly move someone's denominator, which is worse than
+// leaving it to the Discord fallback.
+const TLGM_TZ = 'America/New_York';
+
+// How far `tz` is ahead of UTC at instant `ms`, in ms (negative for the Americas).
+function tzOffset(ms, tz) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hourCycle: 'h23',
+    year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', minute: 'numeric', second: 'numeric',
+  }).formatToParts(new Date(ms)).map((p) => [p.type, Number(p.value)]));
+  return Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second) - ms;
+}
+
+// A wall-clock time in `tz` as a UTC instant. The offset is taken twice
+// because the first guess can land on the other side of a DST change.
+function wallClockToUtc(y, mo, d, h, mi, tz) {
+  const naive = Date.UTC(y, mo - 1, d, h, mi);
+  const first = naive - tzOffset(naive, tz);
+  return naive - tzOffset(first, tz);
+}
+
 function toJoinedAt(v) {
   const s = String(v ?? '').trim();
   let y; let mo; let d; let h = 12; let mi = 0;
@@ -49,11 +70,14 @@ function toJoinedAt(v) {
   } else {
     return null;
   }
-  const at = new Date(Date.UTC(y, mo - 1, d, h, mi));
-  // Date.UTC rolls 31/02 into March rather than refusing it.
-  if (at.getUTCFullYear() !== y || at.getUTCMonth() !== mo - 1 || at.getUTCDate() !== d) return null;
-  if (h > 23 || mi > 59 || at.getTime() > Date.now()) return null;
-  return at.toISOString();
+  // Date.UTC rolls 31/02 into March rather than refusing it, so the calendar
+  // date is checked before any zone shifts it.
+  const cal = new Date(Date.UTC(y, mo - 1, d));
+  if (cal.getUTCFullYear() !== y || cal.getUTCMonth() !== mo - 1 || cal.getUTCDate() !== d) return null;
+  if (h > 23 || mi > 59) return null;
+  const at = wallClockToUtc(y, mo, d, h, mi, TLGM_TZ);
+  if (at > Date.now()) return null;
+  return new Date(at).toISOString();
 }
 
 // ── Text that went through Excel ───────────────────────────────────────────

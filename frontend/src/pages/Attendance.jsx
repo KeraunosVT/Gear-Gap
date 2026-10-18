@@ -449,7 +449,7 @@ export default function Attendance() {
                     {/* Shown as read, so a day/month swap is caught here rather
                         than in someone's attendance rate. */}
                     {r.joined_at ? (
-                      <span className="text-ash/60"> · joined {new Date(r.joined_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}</span>
+                      <span className="text-ash/60"> · joined {new Date(r.joined_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/New_York' })}</span>
                     ) : r.joined_raw ? (
                       <span className="text-brassbright"> · join date "{r.joined_raw}" unreadable — Discord's will be used</span>
                     ) : null}

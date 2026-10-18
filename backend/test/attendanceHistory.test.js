@@ -107,18 +107,24 @@ describe('parseTlgm', () => {
 describe('TLGM join date', () => {
   test('carries the Join Date onto the matched row', () => {
     const { rows } = parseTlgm(csv(row('Boharding', 'boharding', 775, 496)), members, identities());
-    assert.equal(rows[0].joined_at, '2026-04-26T04:10:00.000Z');
+    // 04:10 EDT is 08:10 UTC.
+    assert.equal(rows[0].joined_at, '2026-04-26T08:10:00.000Z');
   });
 
   test('reads day-first, the way TLGM writes it', () => {
-    // 03/04 is the 3rd of April, not March 4th.
-    assert.equal(toJoinedAt('03/04/2026 21:05'), '2026-04-03T21:05:00.000Z');
-    assert.equal(toJoinedAt('3/4/2026'), '2026-04-03T12:00:00.000Z');
+    // 03/04 is the 3rd of April, not March 4th. 21:05 EDT is past midnight UTC.
+    assert.equal(toJoinedAt('03/04/2026 21:05'), '2026-04-04T01:05:00.000Z');
+    assert.equal(toJoinedAt('3/4/2026'), '2026-04-03T16:00:00.000Z', 'no time reads as noon Eastern');
+  });
+
+  test('reads Eastern time, following daylight saving', () => {
+    assert.equal(toJoinedAt('15/01/2026 20:00'), '2026-01-16T01:00:00.000Z', 'January is EST, UTC-5');
+    assert.equal(toJoinedAt('15/07/2026 20:00'), '2026-07-16T00:00:00.000Z', 'July is EDT, UTC-4');
   });
 
   test('accepts ISO from a hand-edited copy', () => {
-    assert.equal(toJoinedAt('2026-04-03'), '2026-04-03T12:00:00.000Z');
-    assert.equal(toJoinedAt('2026-04-03 21:05'), '2026-04-03T21:05:00.000Z');
+    assert.equal(toJoinedAt('2026-04-03'), '2026-04-03T16:00:00.000Z');
+    assert.equal(toJoinedAt('2026-04-03 21:05'), '2026-04-04T01:05:00.000Z');
   });
 
   test('impossible, future and unreadable dates are null rather than guessed', () => {
