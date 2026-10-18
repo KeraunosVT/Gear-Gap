@@ -2230,7 +2230,13 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
       // Each member is measured on the window's nights since they joined, so
       // `eligible` differs per row and `totalEvents` is only the page header.
       const windowAttended = attendedSets(att);
+      // Current members only — someone who has left isn't anyone's attendance
+      // question any more, and their rows crowd out the people who are. The
+      // nights they attended still count in each event's own record. If
+      // Discord can't be reached, `current` is null and everyone is shown: a
+      // full table beats an empty one.
       const members = Object.values(map)
+        .filter((m) => !current || current.has(String(m.discord_id)))
         .map((m) => {
           const eligible = eligibleCount(evts || [], tenures.get(String(m.discord_id)), windowAttended.get(String(m.discord_id)));
           // null, not 0, for someone with no nights in the window yet: 0% says
