@@ -188,7 +188,13 @@ export default function Attendance() {
     setTlgmBusy(true);
     try {
       const res = await tlgmPost(tlgmFile, false);
-      flash(`Imported TLGM history for ${res.data.imported} member${res.data.imported === 1 ? '' : 's'}.`);
+      const jd = res.data.join_dates;
+      if (jd?.error) {
+        flash(`Imported TLGM history for ${res.data.imported} member${res.data.imported === 1 ? '' : 's'}, but ${jd.error}`, false);
+      } else {
+        flash(`Imported TLGM history for ${res.data.imported} member${res.data.imported === 1 ? '' : 's'}`
+          + (jd?.saved ? `, with ${jd.saved} join date${jd.saved === 1 ? '' : 's'}.` : '.'));
+      }
       setTlgmFile(null); setTlgmPreview(null);
       loadStats();
     } catch (err) {
@@ -440,6 +446,13 @@ export default function Attendance() {
                     <span className="text-bone">{r.display_name}</span>
                     {r.source_name && r.source_name !== r.display_name && <span className="text-ash/70"> ← {r.source_name}</span>}
                     {' '}· {r.attended}/{r.total} · <span className="text-ash/60">by {r.matched_by}</span>
+                    {/* Shown as read, so a day/month swap is caught here rather
+                        than in someone's attendance rate. */}
+                    {r.joined_at ? (
+                      <span className="text-ash/60"> · joined {new Date(r.joined_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}</span>
+                    ) : r.joined_raw ? (
+                      <span className="text-brassbright"> · join date "{r.joined_raw}" unreadable — Discord's will be used</span>
+                    ) : null}
                   </li>
                 ))}
               </ul>

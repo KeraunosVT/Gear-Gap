@@ -173,6 +173,26 @@ describe('sweep: leaving', () => {
   });
 });
 
+describe('setJoinDates (TLGM)', () => {
+  test('overwrites a Discord-derived date and is kept by the next sweep', async () => {
+    tables.member_tenure.push({ discord_id: 'a', since: iso(Date.now() - 900 * DAY), source: 'discord_join', left_at: null });
+    members = [{ id: 'a' }, { id: 'b' }];
+    const saved = await tenure.setJoinDates([
+      { discord_id: 'a', joined_at: '2026-04-26T04:10:00.000Z' },
+      { discord_id: 'b', joined_at: '2026-05-01T12:00:00.000Z' }, // no row yet
+      { discord_id: 'c', joined_at: null }, // unreadable in the file
+    ]);
+    assert.equal(saved, 2);
+    assert.equal(rowOf('a').since, '2026-04-26T04:10:00.000Z');
+    assert.equal(rowOf('a').source, 'tlgm');
+    assert.equal(rowOf('c'), undefined, 'no date, no row — the sweep will backfill it');
+
+    await tenure.sweep();
+    assert.equal(rowOf('a').since, '2026-04-26T04:10:00.000Z', 'the sweep never re-dates a known member');
+    assert.equal(rowOf('b').source, 'tlgm');
+  });
+});
+
 describe('sweep: coming back', () => {
   const leftAt = Date.now() - 30 * DAY;
   beforeEach(() => {

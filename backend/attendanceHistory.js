@@ -26,7 +26,35 @@ const HEADER_MAP = {
   'discord username': 'discord', discord: 'discord', 'discord name': 'discord',
   'attended activities': 'attended', attended: 'attended',
   'total activities': 'total', total: 'total',
+  'join date': 'joined', joined: 'joined', 'date joined': 'joined', 'joined at': 'joined',
 };
+
+// TLGM's "Join Date" — when they joined the guild in game, which is a better
+// answer to "since when is this person ours" than anything Discord holds (see
+// memberTenure.js). Written day-first with a time: "26/04/2026 04:10". Read as
+// UTC, the only zone the export could reasonably mean with none stated. ISO
+// is accepted too, for a hand-edited copy. Anything else, or a date in the
+// future, is null — a guessed join date would quietly move someone's
+// denominator, which is worse than leaving it to the Discord fallback.
+function toJoinedAt(v) {
+  const s = String(v ?? '').trim();
+  let y; let mo; let d; let h = 12; let mi = 0;
+  let m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[ T](\d{1,2}):(\d{2}))?/);
+  if (m) {
+    [d, mo, y] = [m[1], m[2], m[3]].map(Number);
+    if (m[4] !== undefined) { h = Number(m[4]); mi = Number(m[5]); }
+  } else if ((m = s.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2}))?/))) {
+    [y, mo, d] = [m[1], m[2], m[3]].map(Number);
+    if (m[4] !== undefined) { h = Number(m[4]); mi = Number(m[5]); }
+  } else {
+    return null;
+  }
+  const at = new Date(Date.UTC(y, mo - 1, d, h, mi));
+  // Date.UTC rolls 31/02 into March rather than refusing it.
+  if (at.getUTCFullYear() !== y || at.getUTCMonth() !== mo - 1 || at.getUTCDate() !== d) return null;
+  if (h > 23 || mi > 59 || at.getTime() > Date.now()) return null;
+  return at.toISOString();
+}
 
 // ── Text that went through Excel ───────────────────────────────────────────
 // TLGM writes UTF-8. Opened in Excel and saved again, a name like a Japanese
@@ -155,6 +183,10 @@ function parseTlgm(buffer, members, ids) {
       attended,
       total,
       matched_by: matchedBy,
+      // null when the column is missing or unreadable; the row still imports,
+      // only the join date falls back to Discord's.
+      joined_at: fields.includes('joined') ? toJoinedAt(raw.joined) : null,
+      joined_raw: clean(raw.joined),
     });
   });
 
@@ -205,3 +237,4 @@ module.exports = function createAttendanceHistory(supabase) {
 
 module.exports.parseTlgm = parseTlgm;
 module.exports.repairMojibake = repairMojibake;
+module.exports.toJoinedAt = toJoinedAt;

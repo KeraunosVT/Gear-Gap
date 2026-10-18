@@ -11,6 +11,10 @@
 // sweep to see someone stamps them. That is accurate to within one sweep, which
 // for nightly events is exact.
 //
+// A TLGM import (attendanceHistory.js) sets `since` to TLGM's in-game Join
+// Date, source 'tlgm', over whatever the sweep chose — it is the one source
+// that knows when they actually joined the guild rather than the server.
+//
 // For anyone the table doesn't know yet — everyone, on the first run — the
 // stamp is backfilled, best source first:
 //   1. audit_log    the role grant in the server audit log (kept 45 days, and
@@ -150,6 +154,25 @@ module.exports = function createMemberTenure(supabase, listMembers = null, { fet
     return { started: starts.map((s) => s.discord_id), left: due };
   }
 
+  // Join dates from a TLGM import: [{ discord_id, joined_at }]. TLGM records
+  // when they joined in game, which beats every Discord-derived source — the
+  // role may have been handed out late, or re-handed in a role reshuffle — so
+  // it overwrites the current stretch. Callers pass only current members, and
+  // a later departure and return still starts a new stretch through the sweep.
+  async function setJoinDates(entries) {
+    const nowIso = new Date().toISOString();
+    const rows = (entries || []).filter((e) => e.joined_at).map((e) => ({
+      discord_id: String(e.discord_id), since: e.joined_at, source: 'tlgm', left_at: null, updated_at: nowIso,
+    }));
+    for (let i = 0; i < rows.length; i += BATCH) {
+      const { error } = await supabase.from('member_tenure')
+        .upsert(rows.slice(i, i + BATCH), { onConflict: 'discord_id' });
+      if (error) throw new Error(`member_tenure: ${error.message}`);
+    }
+    rows.forEach((r) => missingSince.delete(r.discord_id));
+    return rows.length;
+  }
+
   // Never throws into the timer — a failed sweep just means the next one does
   // the work.
   const safeSweep = () => sweep().catch((err) => console.error('Member tenure sweep failed:', err.message));
@@ -161,7 +184,7 @@ module.exports = function createMemberTenure(supabase, listMembers = null, { fet
     }, FIRST_SWEEP_MS);
   }
 
-  return { load, sweep, start };
+  return { load, sweep, start, setJoinDates };
 };
 
 module.exports.countsFor = countsFor;

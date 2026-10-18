@@ -6,7 +6,7 @@
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
-const { parseTlgm, repairMojibake } = require('../attendanceHistory');
+const { parseTlgm, repairMojibake, toJoinedAt } = require('../attendanceHistory');
 
 const HEADER = 'Username,Discord Username,Role,Rank,Status,Primary Weapon,Secondary Weapon,Custom Role,Subguild,'
   + 'DKP Balance,Gearscore,Activity Points,Total Activities,Attended Activities,Attendance %,No Reply %,Gear Updated,Note,Join Date';
@@ -101,6 +101,46 @@ describe('parseTlgm', () => {
     const { rows, skipped } = parseTlgm(latin, [...members, { id: '500', name: 'X', username: 'kensei5134' }], identities());
     assert.deepEqual(skipped, []);
     assert.equal(rows[0].source_name, '(pullonme)Boomäff');
+  });
+});
+
+describe('TLGM join date', () => {
+  test('carries the Join Date onto the matched row', () => {
+    const { rows } = parseTlgm(csv(row('Boharding', 'boharding', 775, 496)), members, identities());
+    assert.equal(rows[0].joined_at, '2026-04-26T04:10:00.000Z');
+  });
+
+  test('reads day-first, the way TLGM writes it', () => {
+    // 03/04 is the 3rd of April, not March 4th.
+    assert.equal(toJoinedAt('03/04/2026 21:05'), '2026-04-03T21:05:00.000Z');
+    assert.equal(toJoinedAt('3/4/2026'), '2026-04-03T12:00:00.000Z');
+  });
+
+  test('accepts ISO from a hand-edited copy', () => {
+    assert.equal(toJoinedAt('2026-04-03'), '2026-04-03T12:00:00.000Z');
+    assert.equal(toJoinedAt('2026-04-03 21:05'), '2026-04-03T21:05:00.000Z');
+  });
+
+  test('impossible, future and unreadable dates are null rather than guessed', () => {
+    assert.equal(toJoinedAt('31/02/2026'), null);
+    assert.equal(toJoinedAt('12/25/2026'), null, 'month 25');
+    assert.equal(toJoinedAt('01/01/2999'), null);
+    assert.equal(toJoinedAt('last tuesday'), null);
+    assert.equal(toJoinedAt(''), null);
+  });
+
+  test('an unreadable join date still imports the attendance', () => {
+    const bad = Buffer.from(`${HEADER}\nBoharding,boharding,h,m,a,o,w,c,s,0,7000,1,10,5,50%,0%,Yes,,soon`);
+    const { rows, skipped } = parseTlgm(bad, members, identities());
+    assert.deepEqual(skipped, []);
+    assert.equal(rows[0].joined_at, null);
+    assert.equal(rows[0].joined_raw, 'soon', 'kept so the preview can say what it couldn\'t read');
+  });
+
+  test('a file with no Join Date column imports with no dates', () => {
+    const plain = Buffer.from('Username,Discord Username,Total Activities,Attended Activities\nBoharding,boharding,10,5');
+    const { rows } = parseTlgm(plain, members, identities());
+    assert.equal(rows[0].joined_at, null);
   });
 });
 

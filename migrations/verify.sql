@@ -200,6 +200,14 @@ union all
 select '028 · member_tenure table',
        to_regclass('public.member_tenure') is not null
 union all
+-- Reads the constraint's text: the only catalog trace of which sources are
+-- allowed. Without 'tlgm' every TLGM join date is refused at write time.
+select '029 · member_tenure.source allows tlgm',
+       coalesce((select pg_get_constraintdef(c.oid) ~ 'tlgm'
+                 from pg_constraint c
+                 where c.conrelid = to_regclass('public.member_tenure')
+                   and c.conname = 'member_tenure_source_check'), false)
+union all
 select '019 · normalise_guild_name(text)',
        (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.proname = 'normalise_guild_name') = 1

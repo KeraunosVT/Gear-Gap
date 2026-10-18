@@ -2086,7 +2086,17 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
       console.error('TLGM import error:', err.message);
       return res.status(500).json({ error: 'Failed to save the TLGM history: ' + err.message });
     }
-    res.json({ imported: result.rows.length, skipped: result.skipped });
+    // The join dates ride along second, and failing them doesn't fail the
+    // import: the attendance totals are already saved, and every member still
+    // has a Discord-derived join date to fall back on.
+    let joinDates = { saved: 0, error: null };
+    try {
+      joinDates.saved = tenure ? await tenure.setJoinDates(result.rows) : 0;
+    } catch (err) {
+      console.error('TLGM join date save error:', err.message);
+      joinDates = { saved: 0, error: `Join dates weren't saved (${err.message}) — has migration 029 been run?` };
+    }
+    res.json({ imported: result.rows.length, skipped: result.skipped, join_dates: joinDates });
   });
 
   router.delete('/attendance/history', async (req, res) => {
