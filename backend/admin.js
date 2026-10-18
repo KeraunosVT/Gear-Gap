@@ -18,7 +18,21 @@ const createLateAttendance = require('./lateAttendance');
 const createEventDetail = require('./eventDetail');
 const createAttendanceHistory = require('./attendanceHistory');
 const createDepartedRequests = require('./departedRequests');
+const createMemberTenure = require('./memberTenure');
 const { parseTlgm } = createAttendanceHistory;
+const { countsFor } = createMemberTenure;
+
+// How many of `events` count against this member: every night since they got
+// the member role, plus any night they attended regardless — so a rate can
+// never pass 100%, and a trial run before the role still earns its credit.
+function eligibleCount(events, tenure, attendedIds) {
+  if (!tenure) return events.length;
+  let n = 0;
+  for (const e of events) {
+    if ((attendedIds && attendedIds.has(String(e.id))) || countsFor(tenure, e.event_date)) n++;
+  }
+  return n;
+}
 
 const ROLE_EMOJI = { Tank: '🛡️', DPS: '⚔️', Healer: '💚' };
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -128,6 +142,9 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
   const guildSettings = supabase ? createGuildSettings(supabase) : null;
   const lateAttendance = supabase ? createLateAttendance(supabase, identities) : null;
   const attendanceHistory = supabase ? createAttendanceHistory(supabase) : null;
+  // Read-only here: the sweep that writes member_tenure runs from server.js.
+  const tenure = supabase ? createMemberTenure(supabase) : null;
+  const loadTenure = () => (tenure ? tenure.load() : Promise.resolve(new Map()));
   // The officer-run half of the former-member cleanup. The hourly sweep is a
   // separate instance started in server.js; the two share no state, and need
   // none — clear() re-checks the member list itself.
@@ -137,7 +154,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
   // One assembler for a logged night, shared with the member-facing route in
   // server.js. Both must describe the same night; see eventDetail.js's header.
   const eventDetail = supabase
-    ? createEventDetail(supabase, { identities, loa, signups, lateAttendance, listMembers })
+    ? createEventDetail(supabase, { identities, loa, signups, lateAttendance, listMembers, tenure })
     : null;
 
   // ── THE TIME WINDOW, RESOLVED ONCE ──────────────────────────────────────────
@@ -881,7 +898,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     try {
       const { days, since } = attendanceWindow(req);
 
-      let eq = supabase.from('events').select('id');
+      let eq = supabase.from('events').select('id, event_date');
       if (since) eq = eq.gte('event_date', since);
       const { data: evts, error: eErr } = await eq;
       if (eErr) throw eErr;
@@ -890,9 +907,9 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
 
       const inWindow = (q) => (since ? q.gte('awarded_at', since) : q);
 
-      const [attRows, awardRows, currencyRows, ids, discordMembers] = await Promise.all([
+      const [attRows, awardRows, currencyRows, ids, discordMembers, tenures] = await Promise.all([
         eventIds.length === 0 ? [] : fetchAll(
-          () => supabase.from('event_attendance').select('discord_id')
+          () => supabase.from('event_attendance').select('discord_id, event_id')
             .in('event_id', eventIds).order('id'),
           { label: 'event_attendance' },
         ),
@@ -910,9 +927,11 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
         // Soft-failed: without Discord the table still works, it just falls back
         // to whoever appears in the data rather than the full roster.
         listMembers().catch(() => []),
+        loadTenure(),
       ]);
 
       const rows = new Map();
+      const attendedBy = new Map(); // discord_id -> Set of event ids
       const row = (discordId) => {
         const id = String(discordId);
         if (!rows.has(id)) {
@@ -935,7 +954,12 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
         // same precedence every other surface uses.
         r.display_name = ids.displayNameFor(m.id, m.name) || m.name;
       });
-      attRows.forEach((a) => { row(a.discord_id).attended += 1; });
+      attRows.forEach((a) => {
+        row(a.discord_id).attended += 1;
+        const id = String(a.discord_id);
+        if (!attendedBy.has(id)) attendedBy.set(id, new Set());
+        attendedBy.get(id).add(String(a.event_id));
+      });
       awardRows.forEach((a) => {
         const r = row(a.discord_id);
         r.items += 1;
@@ -951,10 +975,14 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
         else r.shards += c.amount || 0;
       });
 
+      // Each member's own denominator: the nights since they joined. A member
+      // two weeks in is measured on two weeks, not on the whole window.
       const members = [...rows.values()].map((r) => {
+        const eligible = eligibleCount(evts || [], tenures.get(r.discord_id), attendedBy.get(r.discord_id));
         const out = {
           ...r,
-          rate: totalEvents ? Math.round((r.attended / totalEvents) * 100) : null,
+          eligible,
+          rate: eligible ? Math.round((r.attended / eligible) * 100) : null,
         };
         if (!canSeeCurrency) { delete out.lucent; delete out.shards; }
         return out;
@@ -2088,24 +2116,39 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
   // Every night ever logged here: how many there were, and each attendance row.
   // Only fetched when the window isn't already "all" — then the window's own
   // numbers are these.
+  // Dated, not just counted, because each member's all-time denominator is
+  // only the nights since they joined.
   async function loadAppAllTime() {
-    const [{ count, error }, att] = await Promise.all([
-      supabase.from('events').select('id', { count: 'exact', head: true }),
+    const [events, att] = await Promise.all([
       fetchAll(
-        () => supabase.from('event_attendance').select('discord_id, display_name').order('id'),
+        () => supabase.from('events').select('id, event_date').order('id'),
+        { label: 'events' },
+      ),
+      fetchAll(
+        () => supabase.from('event_attendance').select('discord_id, display_name, event_id').order('id'),
         { label: 'event_attendance' },
       ),
     ]);
-    if (error) throw error;
-    return { total: count || 0, att };
+    return { events, att };
   }
+
+  // discord_id -> Set of event ids, from attendance rows.
+  const attendedSets = (att) => {
+    const out = new Map();
+    (att || []).forEach((a) => {
+      const id = String(a.discord_id);
+      if (!out.has(id)) out.set(id, new Set());
+      out.get(id).add(String(a.event_id));
+    });
+    return out;
+  };
 
   router.get('/attendance-stats', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
     try {
       const { days, since } = attendanceWindow(req);
 
-      let eq = supabase.from('events').select('id');
+      let eq = supabase.from('events').select('id, event_date');
       if (since) eq = eq.gte('event_date', since);
       const { data: evts, error: eErr } = await eq;
       if (eErr) throw eErr;
@@ -2122,7 +2165,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
       // too low for whoever sorts last.
       const eventIdsForAtt = (evts || []).map((e) => e.id);
       const att = eventIdsForAtt.length === 0 ? [] : await fetchAll(
-        () => supabase.from('event_attendance').select('discord_id, display_name')
+        () => supabase.from('event_attendance').select('discord_id, display_name, event_id')
           .in('event_id', eventIdsForAtt).order('id'),
         { label: 'event_attendance' },
       );
@@ -2141,12 +2184,14 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
       //
       // The window above is untouched by this; all_time is its own figure and
       // reads the same on every tab.
-      const [history, app, current, ids] = await Promise.all([
+      const [history, app, current, ids, tenures] = await Promise.all([
         loadHistory(),
-        since ? loadAppAllTime() : Promise.resolve({ total: totalEvents, att }),
+        since ? loadAppAllTime() : Promise.resolve({ events: evts || [], att }),
         listMembers().then((ms) => new Set(ms.map((m) => String(m.id)))).catch(() => null),
         identities.load(),
+        loadTenure(),
       ]);
+      const appAttended = attendedSets(app.att);
       const appCount = new Map();
       const appName = new Map();
       (app.att || []).forEach((a) => {
@@ -2158,7 +2203,9 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
       new Set([...history.keys(), ...appCount.keys()]).forEach((id) => {
         const h = history.get(id);
         const attended = (h?.attended || 0) + (appCount.get(id) || 0);
-        const total = (h?.total || 0) + app.total;
+        // TLGM's total is already per member; the app's half is the nights
+        // since they joined.
+        const total = (h?.total || 0) + eligibleCount(app.events, tenures.get(id), appAttended.get(id));
         if (!total) return;
         if (!map[id]) {
           // Not seen in this window. Still listed so their all-time figure
@@ -2170,9 +2217,17 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
         map[id].all_time = { attended, total, rate: Math.round((attended / total) * 100) };
       });
 
+      // Each member is measured on the window's nights since they joined, so
+      // `eligible` differs per row and `totalEvents` is only the page header.
+      const windowAttended = attendedSets(att);
       const members = Object.values(map)
-        .map((m) => ({ ...m, rate: totalEvents ? Math.round((m.attended / totalEvents) * 100) : 0 }))
-        .sort((a, b) => b.rate - a.rate || a.display_name.localeCompare(b.display_name));
+        .map((m) => {
+          const eligible = eligibleCount(evts || [], tenures.get(String(m.discord_id)), windowAttended.get(String(m.discord_id)));
+          // null, not 0, for someone with no nights in the window yet: 0% says
+          // "never turned up", which a member who joined yesterday hasn't done.
+          return { ...m, eligible, rate: eligible ? Math.round((m.attended / eligible) * 100) : null };
+        })
+        .sort((a, b) => (b.rate ?? -1) - (a.rate ?? -1) || a.display_name.localeCompare(b.display_name));
 
       const importedAt = [...history.values()].reduce((max, r) => (!max || r.imported_at > max ? r.imported_at : max), null);
       res.json({

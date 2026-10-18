@@ -144,7 +144,14 @@ function withinLoaWindow(entry, eventTime) {
 // doesn't use UTC: at 12:30am an officer snapping attendance or building the
 // roster for the event starting right now means last night, not today.
 function todayInGuildTz() {
-  const shifted = new Date(Date.now() - dayStartMin() * 60_000);
+  return guildDateOf(Date.now());
+}
+
+// The guild night an instant belongs to, as YYYY-MM-DD — the same rollover
+// todayInGuildTz() applies, for any timestamp rather than only now. A role
+// granted at 00:30 Sunday is granted on Saturday night.
+function guildDateOf(ms) {
+  const shifted = new Date(new Date(ms).getTime() - dayStartMin() * 60_000);
   return shifted.toLocaleDateString('en-CA', { timeZone: guildTz() });
 }
 
@@ -519,6 +526,7 @@ module.exports = function createLoa(supabase, identities = null) {
 };
 
 module.exports.todayInGuildTz = todayInGuildTz;
+module.exports.guildDateOf = guildDateOf;
 module.exports.parseTimeOfDay = parseTimeOfDay;
 module.exports.daySlot = daySlot;
 // Exported for backend/test/guildNightConformance.test.js, which drives this

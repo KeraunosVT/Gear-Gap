@@ -63,6 +63,11 @@ const AWARDS = [
   { id: 2, discord_id: 'bo', priority: null, awarded_at: `${RECENT}T00:00:00Z` }, // untagged
   { id: 3, discord_id: 'ana', priority: 'PvE', awarded_at: `${OLD}T00:00:00Z` }, // OUTSIDE
 ];
+// Bo got the member role yesterday, so only e1 is his to have attended. Ana
+// and Cy have no row and are measured on every night, as before tenure.
+const TENURE = [
+  { discord_id: 'bo', since: `${RECENT}T18:00:00Z`, left_at: null },
+];
 const CURRENCY = [
   { id: 1, discord_id: 'bo', currency: 'lucent', amount: 500, awarded_at: `${RECENT}T00:00:00Z` },
   { id: 2, discord_id: 'bo', currency: 'tevent_ashen', amount: 3, awarded_at: `${RECENT}T00:00:00Z` },
@@ -98,6 +103,7 @@ function fakeSupabase(over = {}) {
       if (name === 'event_attendance') return table(ATTENDANCE, null);
       if (name === 'loot_awards') return table(AWARDS, 'awarded_at');
       if (name === 'currency_awards') return table(CURRENCY, 'awarded_at');
+      if (name === 'member_tenure') return table(TENURE, null);
       throw new Error(`unexpected table ${name}`);
     },
   };
@@ -163,6 +169,28 @@ describe('GET /loot/fairness', () => {
     assert.ok(m.ana, 'Ana attended twice and received nothing in this window');
     assert.equal(m.ana.items, 0);
     assert.equal(m.ana.rate, 100);
+  });
+
+  test('each member is measured only on nights since they joined', async () => {
+    // Bo attended the one night after his role was granted. Against the
+    // window's two nights he'd read 50%, which is a night he couldn't attend.
+    const m = byId((await call({ window: '30' })).body);
+    assert.equal(m.bo.eligible, 1);
+    assert.equal(m.bo.rate, 100);
+    assert.equal(m.ana.eligible, 2, 'no tenure row: every night counts');
+  });
+
+  test('a night attended before joining still counts, so a rate cannot pass 100%', async () => {
+    // Cy has no row; give Bo's join date to someone who attended earlier.
+    TENURE.push({ discord_id: 'ana', since: `${RECENT}T18:00:00Z`, left_at: null });
+    try {
+      const m = byId((await call({ window: '30' })).body);
+      assert.equal(m.ana.attended, 2);
+      assert.equal(m.ana.eligible, 2, 'the pre-role night she attended stays in the denominator');
+      assert.equal(m.ana.rate, 100);
+    } finally {
+      TENURE.pop();
+    }
   });
 
   test('roster members with nothing on either side are still returned', async () => {

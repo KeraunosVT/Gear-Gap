@@ -95,6 +95,63 @@ async function fetchAllMembers() {
     .sort((a, b) => a.name.localeCompare(b.name));
 }
 
+// When each member was last given one of the member roles, read from the
+// server's audit log: discord_id -> ms timestamp. Discord stores no "role
+// granted on" date anywhere else, and the audit log only keeps 45 days, so this
+// can only ever answer for recent grants — memberTenure.js falls back to the
+// server join date for everyone older.
+//
+// Needs the bot to hold View Audit Log. Without it Discord answers 403, which
+// is a configuration state rather than a failure: an empty map comes back and
+// the caller uses its fallback, with one warning so the missing permission is
+// findable.
+const AUDIT_MEMBER_ROLE_UPDATE = 25;
+const AUDIT_PAGE = 100;
+const AUDIT_MAX_PAGES = 20; // 2,000 role changes — far past 45 days for one guild
+const DISCORD_EPOCH = 1420070400000n;
+const snowflakeTime = (id) => Number((BigInt(id) >> 22n) + DISCORD_EPOCH);
+let auditDeniedWarned = false;
+
+async function fetchRoleGrants() {
+  const grants = new Map();
+  if (!botConfigured) return grants;
+  const roles = new Set(memberRoles() || []);
+  // No member role configured means every server member counts as one, and the
+  // server join date already is the answer.
+  if (!roles.size) return grants;
+
+  let before;
+  for (let page = 0; page < AUDIT_MAX_PAGES; page++) {
+    const res = await axios.get(`${API}/guilds/${GUILD_ID}/audit-logs`, {
+      headers: authHeaders(),
+      params: { action_type: AUDIT_MEMBER_ROLE_UPDATE, limit: AUDIT_PAGE, ...(before ? { before } : {}) },
+      validateStatus: (s) => s < 500,
+    });
+    if (res.status === 403) {
+      if (!auditDeniedWarned) {
+        console.warn('Role grant dates: the bot lacks View Audit Log, so join dates fall back to when members joined the server.');
+        auditDeniedWarned = true;
+      }
+      return grants;
+    }
+    if (res.status !== 200) throw new Error(`Discord audit log returned ${res.status}.`);
+
+    const entries = res.data?.audit_log_entries || [];
+    for (const e of entries) {
+      const added = (e.changes || []).filter((c) => c.key === '$add').flatMap((c) => c.new_value || []);
+      if (!added.some((r) => roles.has(r.id))) continue;
+      const at = snowflakeTime(e.id);
+      const prev = grants.get(String(e.target_id));
+      // The latest grant: a role pulled and given back starts the current
+      // stretch of membership, not the first one.
+      if (!prev || at > prev) grants.set(String(e.target_id), at);
+    }
+    if (entries.length < AUDIT_PAGE) break;
+    before = entries[entries.length - 1].id;
+  }
+  return grants;
+}
+
 // Fetch one guild member by user id (for session re-verification).
 // Returns { status, member } — 404 means they're no longer in the guild.
 async function fetchMember(userId) {
@@ -177,5 +234,5 @@ function invalidateCaches() {
 }
 
 module.exports = {
-  listMembers, listRoles, fetchMember, postEmbed, postImage, botConfigured, invalidateCaches,
+  listMembers, listRoles, fetchMember, fetchRoleGrants, postEmbed, postImage, botConfigured, invalidateCaches,
 };

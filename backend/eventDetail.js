@@ -20,6 +20,7 @@
 // reading "family thing" off someone else's absence is a different thing from
 // reading that they were absent.
 const WEAPON_CLASSES = require('../shared/weaponClasses.json');
+const { countsFor } = require('./memberTenure');
 
 function httpError(status, message) {
   const err = new Error(message);
@@ -73,7 +74,7 @@ const classNameOf = (classes) => {
 const STATUS_RANK = { attended: 0, pending: 1, noshow_signed: 2, loa: 3, denied: 4 };
 
 module.exports = function createEventDetail(supabase, deps) {
-  const { identities, loa, signups, lateAttendance, listMembers } = deps || {};
+  const { identities, loa, signups, lateAttendance, listMembers, tenure } = deps || {};
 
   // discord_id -> { role, class_name }, for the Role column.
   async function rolesFor() {
@@ -108,7 +109,7 @@ module.exports = function createEventDetail(supabase, deps) {
       // Everything else is best-effort and independently so. A night whose
       // Discord roster can't be fetched should still show who attended; the
       // absent half simply isn't knowable without the member list.
-      const [roster, ids, memberRoles, schedule] = await Promise.all([
+      const [roster, ids, memberRoles, schedule, tenures] = await Promise.all([
         listMembers ? listMembers().catch((err) => { console.error('eventDetail: member list failed:', err.message); return null; }) : null,
         identities ? identities.load().catch(() => null) : null,
         rolesFor(),
@@ -116,6 +117,7 @@ module.exports = function createEventDetail(supabase, deps) {
           ? supabase.from('event_schedule').select('name, event_time').eq('id', event.event_schedule_id).maybeSingle()
             .then((r) => r.data).catch(() => null)
           : null,
+        tenure ? tenure.load() : new Map(),
       ]);
 
       const [unavailable, signupView, lateRequests] = await Promise.all([
@@ -212,6 +214,8 @@ module.exports = function createEventDetail(supabase, deps) {
         }
 
         if (!status) {
+          // Not a member yet that night (or no longer one) — nothing to answer.
+          if (!countsFor(tenures.get(discordId), event.event_date)) continue;
           // Never signed up, never turned up, never filed. The second table.
           noReply.push({ ...base, status: 'no_reply' });
           continue;

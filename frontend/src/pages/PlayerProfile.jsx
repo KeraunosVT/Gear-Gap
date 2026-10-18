@@ -296,7 +296,9 @@ function AttendanceSection({ a }) {
           </div>
           {/* Says what the denominator is — counting events from before someone
               joined would make every new member look absent. */}
-          <p className="text-ash/60 text-xs mb-4">Since their first logged event, {fmtDay(a.since)}.</p>
+          <p className="text-ash/60 text-xs mb-4">
+            {a.since_source === 'joined' ? 'Since they joined the guild' : 'Since their first logged event'}, {fmtDay(a.since)}.
+          </p>
           <div className="h-1.5 bg-hall rounded-full overflow-hidden">
             <div className={`h-full rounded-full ${pct >= 80 ? 'bg-emerald-400' : pct >= 50 ? 'bg-brass' : 'bg-oxblood'}`}
               style={{ width: `${pct}%` }} />

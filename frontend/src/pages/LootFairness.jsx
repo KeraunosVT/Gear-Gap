@@ -173,7 +173,7 @@ export default function LootFairness() {
                       <span className={m.rate >= 70 ? 'text-bone' : 'text-brassbright'}>{m.rate}%</span>
                     )}
                   </td>
-                  <td className="p-2.5 text-right font-mono text-ash">{m.attended}</td>
+                  <td className="p-2.5 text-right font-mono text-ash" title={`${m.attended} of the ${m.eligible} nights since they joined`}>{m.attended}</td>
                   <td className="p-2.5 text-right font-mono">
                     <span className={m.items ? 'text-brassbright' : 'text-ash/30'}>{m.items}</span>
                   </td>

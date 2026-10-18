@@ -139,7 +139,8 @@ export default function Attendance() {
       if (statSort === 'name') return a.display_name.localeCompare(b.display_name) * dir;
       // No all-time figure sorts below 0%, whichever way the column is turned.
       if (statSort === 'all_time') return ((a.all_time?.rate ?? -1) - (b.all_time?.rate ?? -1)) * dir;
-      return ((a[statSort] || 0) - (b[statSort] || 0)) * dir;
+      // A null rate (no nights since joining) sorts below 0% too.
+      return ((a[statSort] ?? -1) - (b[statSort] ?? -1)) * dir;
     });
   }, [stats.members, statSort, statDir]);
 
@@ -724,8 +725,13 @@ export default function Attendance() {
                   <Tr key={m.discord_id}>
                     <td className="p-4 text-right font-mono text-xs text-ash/60">{i + 1}</td>
                     <td className="p-4 text-bone">{m.display_name}</td>
-                    <td className="p-4 text-right font-mono text-xs text-ash whitespace-nowrap">
-                      {m.attended}<span className="text-ash/40">/{stats.totalEvents}</span>
+                    {/* Out of the nights since they joined, not the window's
+                        total — so it can be smaller than the header's count. */}
+                    <td
+                      className="p-4 text-right font-mono text-xs text-ash whitespace-nowrap"
+                      title={m.eligible < stats.totalEvents ? `${m.eligible} of this window's ${stats.totalEvents} nights were after they joined` : undefined}
+                    >
+                      {m.attended}<span className="text-ash/40">/{m.eligible}</span>
                     </td>
                     {/* The bar is the reason this table earns the width the
                         old sidebar didn't have: sixty rows of numbers hide the
@@ -734,13 +740,18 @@ export default function Attendance() {
                       <div className="h-1.5 rounded-full bg-hall overflow-hidden">
                         <div
                           className={`h-full rounded-full ${m.rate >= 75 ? 'bg-emerald-400/70' : m.rate >= 40 ? 'bg-brass' : 'bg-oxblood'}`}
-                          style={{ width: `${Math.min(100, m.rate)}%` }}
+                          style={{ width: `${Math.min(100, m.rate || 0)}%` }}
                         />
                       </div>
                     </td>
-                    <td className={`p-4 text-right font-mono text-xs ${m.rate >= 75 ? 'text-emerald-400' : m.rate >= 40 ? 'text-brassbright' : 'text-oxblood'}`}>
-                      {m.rate}%
-                    </td>
+                    {m.rate === null ? (
+                      // Joined after every night in this window.
+                      <td className="p-4 text-right font-mono text-xs text-ash/40">—</td>
+                    ) : (
+                      <td className={`p-4 text-right font-mono text-xs ${m.rate >= 75 ? 'text-emerald-400' : m.rate >= 40 ? 'text-brassbright' : 'text-oxblood'}`}>
+                        {m.rate}%
+                      </td>
+                    )}
                     <td className="p-4 text-right font-mono text-xs whitespace-nowrap">
                       {m.all_time ? (
                         <span title={`${m.all_time.attended} of ${m.all_time.total} activities, all time`}>

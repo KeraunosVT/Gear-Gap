@@ -13,7 +13,7 @@ const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const {
   router: authRouter, requireAuth, requireAdminArea, requirePermission, userHas,
 } = require('./auth');
-const { listMembers, botConfigured } = require('./discord');
+const { listMembers, fetchRoleGrants, botConfigured } = require('./discord');
 const SHARDS = require('../shared/shards.json');
 const BOSS_WEAPONS = require('../shared/archbossWeapons.json');
 const BUILDS = ['PvP', 'PvE'];
@@ -34,6 +34,8 @@ const guildConfig = require('./guildConfig');
 const createLateAttendance = require('./lateAttendance');
 const createEventDetail = require('./eventDetail');
 const createDepartedRequests = require('./departedRequests');
+const createMemberTenure = require('./memberTenure');
+const { countsFor } = createMemberTenure;
 
 const gearUpload = multer({
   storage: multer.memoryStorage(),
@@ -97,10 +99,13 @@ const loa = supabase ? createLoa(supabase, identities) : null;
 const signups = supabase ? createEventSignups(supabase, identities, loa) : null;
 const auditLog = supabase ? createAuditLog(supabase) : null;
 const lateAttendance = supabase ? createLateAttendance(supabase, identities) : null;
+// When each member joined — the start of every attendance denominator. The
+// sweep that records it is started below, after guild_config has loaded.
+const tenure = supabase ? createMemberTenure(supabase, listMembers, { fetchRoleGrants }) : null;
 // The same assembler admin.js mounts. Two routes, one reconciliation — a member
 // and an officer looking at the same night must not see different facts.
 const eventDetail = supabase
-  ? createEventDetail(supabase, { identities, loa, signups, lateAttendance, listMembers })
+  ? createEventDetail(supabase, { identities, loa, signups, lateAttendance, listMembers, tenure })
   : null;
 
 // The gateway needs Supabase for /elitetimer persistence, so start it after setup.
@@ -846,7 +851,15 @@ app.get('/api/attendance/mine', async (req, res) => {
   if (!lateAttendance) return res.status(503).json({ error: 'Database not configured.' });
   try {
     const days = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 1), 180);
-    const events = await lateAttendance.listForMember(req.user.id, { days });
+    const [all, tenures] = await Promise.all([
+      lateAttendance.listForMember(req.user.id, { days }),
+      tenure ? tenure.load() : new Map(),
+    ]);
+    // Nights from before they joined aren't misses: off the calendar and out of
+    // Where You Stand's rate. Kept if they attended or asked anyway — that is
+    // their record whether or not they held the role yet.
+    const mine = tenures.get(String(req.user.id));
+    const events = all.filter((e) => e.attended || e.request || countsFor(mine, e.event_date));
     res.json({ events, days, window_hours: lateAttendance.WINDOW_HOURS });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message || 'Failed to load your attendance.' });
@@ -964,23 +977,34 @@ app.get('/api/players', async (req, res) => {
 });
 
 // How many logged events this member turned up to, and out of how many they
-// could have. "Could have" counts only events from their first recorded
-// attendance onward — measuring a new member against events that happened
-// before they joined would show a rate that says nothing about them.
+// could have. "Could have" counts only events since they got the member role
+// (memberTenure.js) — measuring a new member against events that happened
+// before they joined would show a rate that says nothing about them. Without a
+// tenure row it falls back to their first recorded attendance.
 async function playerAttendance(discordId) {
-  const [{ data: mine }, { data: allEvents }] = await Promise.all([
+  const [{ data: mine }, allEvents, tenures] = await Promise.all([
     supabase.from('event_attendance').select('event_id').eq('discord_id', discordId),
-    supabase.from('events').select('id, title, event_date').order('event_date', { ascending: false }),
+    fetchAll(
+      () => supabase.from('events').select('id, title, event_date')
+        .order('event_date', { ascending: false }).order('id'),
+      { label: 'events' },
+    ),
+    tenure ? tenure.load() : new Map(),
   ]);
   const attendedIds = new Set((mine || []).map((a) => a.event_id));
   const events = allEvents || [];
   if (events.length === 0) return { attended: 0, eligible: 0, rate: null, since: null, recent: [] };
 
   const attendedEvents = events.filter((e) => attendedIds.has(e.id));
-  const since = attendedEvents.length
-    ? attendedEvents[attendedEvents.length - 1].event_date
-    : null;
-  const eligible = since ? events.filter((e) => (e.event_date || '') >= since) : [];
+  const t = tenures.get(String(discordId));
+  const since = t
+    ? t.since
+    : (attendedEvents.length ? attendedEvents[attendedEvents.length - 1].event_date : null);
+  // A night they attended always counts, even from before the role — that is
+  // the only way a rate can't pass 100%.
+  const eligible = t
+    ? events.filter((e) => attendedIds.has(e.id) || countsFor(t, e.event_date))
+    : (since ? events.filter((e) => (e.event_date || '') >= since) : []);
 
   // The last 10 eligible events, newest first, each flagged attended or missed —
   // a rate alone hides whether someone is trending away.
@@ -993,6 +1017,9 @@ async function playerAttendance(discordId) {
     eligible: eligible.length,
     rate: eligible.length ? attendedEvents.length / eligible.length : null,
     since,
+    // Which date `since` is, so the page can say so: 'joined' (member role) or
+    // 'first_attended' (the fallback before tenure is known).
+    since_source: t ? 'joined' : 'first_attended',
     recent,
   };
 }
@@ -1483,4 +1510,5 @@ guildConfig.load()
     // After the config load, not before: membership is the member-role check,
     // and sweeping against the pre-load defaults would judge it on the wrong roles.
     if (supabase && botConfigured) createDepartedRequests(supabase, listMembers, { deleteLoaMessage: gateway.deleteLoaMessage }).start();
+    if (tenure && botConfigured) tenure.start();
   });
