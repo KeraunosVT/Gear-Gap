@@ -9,6 +9,7 @@ import {
 import { fmtTimeEst, fmtDatetime, guildDayOfWeek, isAfterMidnight, todayInGuildTz, eventsForGuildDay } from '../timeUtils';
 import RestrictedGate from '../components/ui/RestrictedGate';
 import Tabs from '../components/ui/Tabs';
+import Modal from '../components/ui/Modal';
 import { Table, Thead, SortableTh, Tr } from '../components/ui/Table';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -62,6 +63,7 @@ export default function Attendance() {
   const [statSort, setStatSort] = useState('rate'); // 'rate' | 'name' | 'attended'
   const [statDir, setStatDir] = useState('desc');
   const [backfilling, setBackfilling] = useState(false);
+  const [viewing, setViewing] = useState(null); // the member whose nights are open
 
   // A TLGM import is previewed before anything is written: the file and the
   // server's dry-run result are held here until the officer confirms.
@@ -742,7 +744,11 @@ export default function Attendance() {
                 {sortedStats.map((m, i) => (
                   <Tr key={m.discord_id}>
                     <td className="p-4 text-right font-mono text-xs text-ash/60">{i + 1}</td>
-                    <td className="p-4 text-bone">{m.display_name}</td>
+                    <td className="p-4">
+                      <button onClick={() => setViewing(m)} className="text-bone hover:text-brass transition-colors text-left">
+                        {m.display_name}
+                      </button>
+                    </td>
                     {/* Out of the nights since they joined, not the window's
                         total — so it can be smaller than the header's count. */}
                     <td
@@ -835,7 +841,76 @@ export default function Attendance() {
           )}
         </aside>
       </div>
+
+      {viewing && <MemberNights member={viewing} window_={window_} onClose={() => setViewing(null)} />}
     </div>
+  );
+}
+
+// ── ONE MEMBER'S NIGHTS ─────────────────────────────────────────────────────
+// Every night in the page's window, split into attended and missed. Nights
+// from before they held the role are listed separately: they don't count
+// against the rate, so showing them as "missed" would contradict the table.
+const NIGHT_GROUPS = [
+  { status: 'missed', label: 'Missed', icon: X, tone: 'text-oxblood' },
+  { status: 'attended', label: 'Attended', icon: Check, tone: 'text-emerald-400' },
+  { status: 'before_join', label: 'Before they joined', icon: null, tone: 'text-ash/60' },
+];
+
+function MemberNights({ member, window_, onClose }) {
+  const [events, setEvents] = useState(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    axios.get(`/api/admin/attendance-stats/member/${encodeURIComponent(member.discord_id)}`, { params: { window: window_ } })
+      .then((res) => setEvents(res.data.events || []))
+      .catch((err) => setError(err.response?.data?.error || 'Could not load their attendance.'));
+  }, [member.discord_id, window_]);
+
+  return (
+    <Modal onClose={onClose} maxWidth="max-w-lg" scrollable>
+      <div className="flex items-start gap-3 mb-1">
+        <h3 className="font-display text-xl text-bone tracking-[0.06em] min-w-0 truncate">{member.display_name}</h3>
+        <button onClick={onClose} className="ml-auto text-ash hover:text-bone shrink-0" aria-label="Close">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+      <p className="text-xs text-ash mb-4">
+        {member.attended}/{member.eligible} nights · {WINDOW_LABEL[window_]}
+      </p>
+
+      {error ? (
+        <p className="text-sm text-oxblood">{error}</p>
+      ) : !events ? (
+        <p className="text-sm text-ash"><Loader2 className="w-4 h-4 animate-spin inline mr-2" />Loading…</p>
+      ) : events.length === 0 ? (
+        <p className="text-sm text-ash">No events in this window.</p>
+      ) : (
+        NIGHT_GROUPS.map(({ status, label, icon: Icon, tone }) => {
+          const group = events.filter((e) => e.status === status);
+          if (!group.length) return null;
+          return (
+            <div key={status} className="mb-4 last:mb-0">
+              <div className={`eyebrow text-[10px] mb-2 ${tone}`}>{label} ({group.length})</div>
+              <div className="panel rounded-lg divide-y divide-line">
+                {group.map((ev) => (
+                  <Link
+                    key={ev.id} to={`/attendance/${ev.id}`}
+                    className="flex items-center gap-3 px-4 py-2 hover:bg-panelup transition-colors"
+                  >
+                    {Icon ? <Icon className={`w-3.5 h-3.5 shrink-0 ${tone}`} /> : <span className="w-3.5 shrink-0" />}
+                    <span className="text-sm text-bone truncate flex-1">{ev.title}</span>
+                    <span className="text-xs text-ash shrink-0">
+                      {ev.event_date ? new Date(ev.event_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'No date'}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          );
+        })
+      )}
+    </Modal>
   );
 }
 

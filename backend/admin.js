@@ -2256,6 +2256,46 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     }
   });
 
+  // One member's nights in the window, each marked attended, missed, or
+  // before_join. The split follows eligibleCount exactly — attended always
+  // counts, otherwise the night counts only once they held the role — so the
+  // missed list is precisely what stands between them and 100% in the table.
+  router.get('/attendance-stats/member/:id', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    try {
+      const id = String(req.params.id);
+      const { days, since } = attendanceWindow(req);
+
+      let eq = supabase.from('events').select('id, title, event_date')
+        .order('event_date', { ascending: false });
+      if (since) eq = eq.gte('event_date', since);
+      const { data: evts, error: eErr } = await eq;
+      if (eErr) throw eErr;
+
+      const eventIds = (evts || []).map((e) => e.id);
+      const att = eventIds.length === 0 ? [] : await fetchAll(
+        () => supabase.from('event_attendance').select('discord_id, event_id')
+          .eq('discord_id', id).in('event_id', eventIds).order('id'),
+        { label: 'event_attendance' },
+      );
+      const attended = new Set(att.filter((a) => String(a.discord_id) === id).map((a) => String(a.event_id)));
+      const t = (await loadTenure()).get(id);
+
+      const events = (evts || []).map((e) => ({
+        id: e.id,
+        title: e.title,
+        event_date: e.event_date,
+        status: attended.has(String(e.id)) ? 'attended'
+          : !t || countsFor(t, e.event_date) ? 'missed'
+          : 'before_join',
+      }));
+      res.json({ window: days, discord_id: id, events });
+    } catch (err) {
+      console.error('Member attendance error:', err.message);
+      res.status(500).json({ error: 'Failed to load that member\'s attendance.' });
+    }
+  });
+
   router.delete('/events/:id', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
     await supabase.from('event_attendance').delete().eq('event_id', req.params.id);

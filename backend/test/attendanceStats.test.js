@@ -45,14 +45,15 @@ function fakeSupabase() {
     from(name) {
       const rows = TABLES[name];
       if (!rows) throw new Error(`unexpected table ${name}`);
-      const state = { gte: null, ids: null };
+      const state = { gte: null, ids: null, eq: null };
       const filtered = () => rows
         .filter((r) => !state.gte || String(r.event_date) >= state.gte)
-        .filter((r) => !state.ids || state.ids.includes(r.event_id));
+        .filter((r) => !state.ids || state.ids.includes(r.event_id))
+        .filter((r) => !state.eq || String(r[state.eq[0]]) === String(state.eq[1]));
       const q = {
         select: () => q,
         order: () => q,
-        eq: () => q,
+        eq: (f, v) => { state.eq = [f, v]; return q; },
         gte: (_f, v) => { state.gte = v; return q; },
         in: (_f, v) => { state.ids = v; return q; },
         range: (from, to) => Promise.resolve({ data: filtered().slice(from, to + 1), error: null }),
@@ -65,11 +66,11 @@ function fakeSupabase() {
 
 const identities = { load: async () => ({ displayNameFor: (id, fallback) => fallback || id }) };
 
-function call(win = '30') {
+function call(win = '30', path = '/attendance-stats', params = {}) {
   const router = createAdminRouter(fakeSupabase(), {}, { priorities: new Set() }, identities);
-  const handler = router.stack.find((l) => l.route?.path === '/attendance-stats' && l.route.methods.get).route.stack[0].handle;
+  const handler = router.stack.find((l) => l.route?.path === path && l.route.methods.get).route.stack[0].handle;
   return new Promise((resolve, reject) => {
-    handler({ query: { window: win }, user: { id: 'o', permissions: ['attendance'] } }, {
+    handler({ query: { window: win }, params, user: { id: 'o', permissions: ['attendance'] } }, {
       status() { return this; },
       json: resolve,
     }).catch(reject);
@@ -100,6 +101,25 @@ describe('GET /attendance-stats', () => {
       const bo = (await call()).members.find((m) => m.discord_id === 'bo');
       assert.equal(bo.eligible, 1);
       assert.equal(bo.rate, 100);
+    } finally {
+      TABLES.member_tenure.pop();
+    }
+  });
+});
+
+describe('GET /attendance-stats/member/:id', () => {
+  const member = (id) => call('30', '/attendance-stats/member/:id', { id });
+  const statuses = (body) => Object.fromEntries(body.events.map((e) => [e.id, e.status]));
+
+  test('marks each night attended or missed', async () => {
+    assert.deepEqual(statuses(await member('bo')), { e1: 'attended', e2: 'missed' });
+    assert.deepEqual(statuses(await member('ana')), { e1: 'attended', e2: 'attended' });
+  });
+
+  test('nights before they joined are not counted as missed', async () => {
+    TABLES.member_tenure.push({ discord_id: 'bo', since: `${ago(1)}T18:00:00Z`, left_at: null });
+    try {
+      assert.deepEqual(statuses(await member('bo')), { e1: 'attended', e2: 'before_join' });
     } finally {
       TABLES.member_tenure.pop();
     }
