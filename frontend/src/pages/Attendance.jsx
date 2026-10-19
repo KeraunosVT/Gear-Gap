@@ -137,8 +137,13 @@ export default function Attendance() {
     const dir = statDir === 'asc' ? 1 : -1;
     return [...stats.members].sort((a, b) => {
       if (statSort === 'name') return a.display_name.localeCompare(b.display_name) * dir;
-      // No all-time figure sorts below 0%, whichever way the column is turned.
-      if (statSort === 'all_time') return ((a.all_time?.rate ?? -1) - (b.all_time?.rate ?? -1)) * dir;
+      // All-Time ranks by activities attended, not rate — a 2/2 newcomer at
+      // 100% shouldn't outrank someone at 180/200. Rate breaks ties. No
+      // all-time figure sorts below 0 attended, whichever way it's turned.
+      if (statSort === 'all_time') {
+        const byCount = (a.all_time?.attended ?? -1) - (b.all_time?.attended ?? -1);
+        return (byCount || (a.all_time?.rate ?? -1) - (b.all_time?.rate ?? -1)) * dir;
+      }
       // A null rate (no nights since joining) sorts below 0% too.
       return ((a[statSort] ?? -1) - (b[statSort] ?? -1)) * dir;
     });
