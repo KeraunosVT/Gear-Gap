@@ -1,5 +1,5 @@
 {
-  "_comment": "`max` is the default cap per shard type. A type may override it with its own `max` — the Thunderstruck pair are farmed in far larger numbers than the older shards. Both the page and PUT /api/shards clamp to the per-type value.",
+  "_comment": "The shard types. `max` (default, or a type's own) was the per-type cap of the old wishlist table; a member's shard needs now come from the weapons they link (shardWeapons.json), and `max` only bounds the counts carried over from that table as 'not linked'.",
   "max": 90,
   "types": [
     { "key": "tevent_ashen", "label": "Tevent Ashen" },

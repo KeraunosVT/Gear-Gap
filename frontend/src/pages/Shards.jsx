@@ -3,51 +3,92 @@ import axios from 'axios';
 import { useAuth } from '../auth';
 import SHARDS from '../../../shared/shards.json';
 import BOSS_WEAPONS from '../../../shared/archbossWeapons.json';
-import { Check, Loader2, AlertCircle, RefreshCw, Pencil, ArrowDown, ArrowUp } from 'lucide-react';
+import SHARD_WEAPONS from '../../../shared/shardWeapons.json';
+import {
+  Check, Loader2, AlertCircle, RefreshCw, Plus, X, ChevronDown, ChevronUp,
+} from 'lucide-react';
 import Modal from '../components/ui/Modal';
 import Button from '../components/ui/Button';
+import Tabs from '../components/ui/Tabs';
 import { PageShell } from '../components/ui/PageShell';
 import EmptyState from '../components/ui/EmptyState';
 
-const TYPES = SHARDS.types;
-// Caps are per shard type now — the Thunderstruck pair go to 270 where the older
-// shards stop at 90 — so there is no single MAX to clamp against. Mirrors the
-// same fallback PUT /api/shards applies server-side.
-const maxFor = (key) => {
-  const t = TYPES.find((x) => x.key === key);
-  return Number.isFinite(t?.max) ? t.max : SHARDS.max;
-};
+// A member's wishlist is a list of weapons, each carrying how many of its shard
+// they still need; per-shard totals are the sum over those plus `unlinked`
+// (counts carried over from the old per-type table that no single weapon could
+// claim). The shape, its caps and the conversion of old rows all live in
+// backend/shardWishlist.js — this page reads what the server hands it.
+//
+// shardFor and costFor mirror that file's. Both read shared/shardWeapons.json,
+// so the rule itself ("Snowsoul weapons take the Thunderstruck shard") is
+// stated once, in the JSON; only these few lines of reading it are doubled.
+
 const BUILDS = ['PvP', 'PvE'];
-const VALID_BOSS_WEAPONS = new Set(
-  Object.entries(BOSS_WEAPONS).flatMap(([boss, list]) => list.map((w) => `${boss}|${w}`))
-);
+const SOURCES = SHARD_WEAPONS.sources;
+const SOURCE = new Map(SOURCES.map((s) => [s.key, s]));
+const WEAPONS_BY_SOURCE = new Map(SOURCES.map((s) => [s.key, s.weapons || BOSS_WEAPONS[s.key] || []]));
+const SHARD_LABEL = new Map(SHARDS.types.map((t) => [t.key, t.label]));
+// Totals are listed in shards.json order, so every member's chips line up.
+const SHARD_ORDER = new Map(SHARDS.types.map((t, i) => [t.key, i]));
 
-const normalizeShards = (s) => {
-  const out = {};
-  TYPES.forEach((t) => { out[t.key] = Math.max(0, Math.min(maxFor(t.key), Number(s?.[t.key]) || 0)); });
-  out.weapons = Array.isArray(s?.weapons)
-    ? s.weapons
-        .filter((w) => w && VALID_BOSS_WEAPONS.has(`${w.boss}|${w.weapon}`))
-        .map((w) => ({ boss: w.boss, weapon: w.weapon, build: BUILDS.includes(w.build) ? w.build : '' }))
-    : [];
-  return out;
+const shardFor = (source, weapon) => {
+  const s = SOURCE.get(source);
+  if (!s) return null;
+  return s.snowsoul && String(weapon).includes('Snowsoul') ? s.snowsoul : s.shard;
 };
-const rowTotal = (s) => TYPES.reduce((a, t) => a + (Number(s[t.key]) || 0), 0);
+const costFor = (source) => (SOURCE.get(source)?.heroic ? SHARD_WEAPONS.costs.heroic : SHARD_WEAPONS.costs.archboss);
+const keyOf = (w) => `${w.boss}|${w.weapon}`;
 
-// A column is only sortable when someone has actually asked for that shard —
-// sorting an all-zero column would just shuffle names.
-function SortHeader({ sortKey, total, sort, onSort, children }) {
-  if (!(total > 0)) return children;
-  const active = sort?.key === sortKey;
-  const Arrow = active && sort.dir === 'asc' ? ArrowUp : ArrowDown;
+const emptyWishlist = () => ({ v: 2, weapons: [], unlinked: {} });
+const unlinkedTotal = (s) => Object.values(s.unlinked || {}).reduce((a, n) => a + n, 0);
+// An unset need (null) counts toward nothing until someone fills it in.
+const memberNeed = (s) => s.weapons.reduce((a, w) => a + (w.need || 0), 0) + unlinkedTotal(s);
+const memberCost = (s) => s.weapons.reduce((a, w) => a + costFor(w.boss), 0);
+const unsetCount = (s) => s.weapons.filter((w) => w.need === null).length;
+
+// Per shard: how many weapons use it, what they still need, what they cost in
+// full, and any unlinked count on top.
+function shardTotals(list) {
+  const out = new Map();
+  const at = (k) => {
+    if (!out.has(k)) out.set(k, { key: k, label: SHARD_LABEL.get(k) || k, count: 0, need: 0, cost: 0, unlinked: 0 });
+    return out.get(k);
+  };
+  list.forEach((s) => {
+    s.weapons.forEach((w) => {
+      const t = at(shardFor(w.boss, w.weapon));
+      t.count++; t.need += w.need || 0; t.cost += costFor(w.boss);
+    });
+    Object.entries(s.unlinked || {}).forEach(([k, n]) => { at(k).unlinked += n; });
+  });
+  return [...out.values()].sort((a, b) => (SHARD_ORDER.get(a.key) ?? 99) - (SHARD_ORDER.get(b.key) ?? 99));
+}
+
+function BuildPill({ build }) {
+  if (!build) return <span className="text-ash/40 text-xs">—</span>;
   return (
-    <button type="button" onClick={() => onSort(sortKey)}
-      className={`group inline-flex flex-col items-center uppercase tracking-[inherit] hover:text-brass ${active ? 'text-brass' : ''}`}
-      title="Sort by this column"
-    >
-      {children}
-      <Arrow className={`w-3 h-3 mt-1 ${active ? '' : 'opacity-0 group-hover:opacity-50'}`} />
-    </button>
+    <span className={`text-[10px] font-bold tracking-wide rounded-full px-2 py-0.5 border ${build === 'PvP' ? 'text-oxblood border-oxblood/40' : 'text-emerald-400 border-emerald-400/40'}`}>
+      {build.toUpperCase()}
+    </span>
+  );
+}
+
+function SourceLabel({ source }) {
+  return SOURCE.get(source)?.heroic
+    ? <span className="text-[10px] font-bold tracking-wide rounded-full px-2 py-0.5 border text-violet-300 border-violet-400/40">HEROIC</span>
+    : <span className="text-ash">{source}</span>;
+}
+
+function TotalChip({ t }) {
+  return (
+    <span className="inline-flex items-center gap-2 bg-hall border border-line rounded-md pl-2.5 pr-1 py-1 text-xs text-ash" title={t.unlinked ? `${t.unlinked} not linked to a weapon` : undefined}>
+      <span className="text-bone/80">{t.label}</span>
+      {t.count > 0 && <span className="text-ash/70">× {t.count}</span>}
+      <span className="font-mono text-bone bg-panelup rounded px-1.5 py-0.5">
+        {t.need + t.unlinked}
+        {t.count > 0 && <span className="text-ash/50">/{t.cost}</span>}
+      </span>
+    </span>
   );
 }
 
@@ -56,27 +97,26 @@ export default function Shards() {
   const [members, setMembers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [view, setView] = useState('member');
   const [filter, setFilter] = useState('');
+  const [sortBy, setSortBy] = useState('name');
   const [status, setStatus] = useState({}); // memberId -> 'saving'|'saved'|'error'
   const [dirty, setDirty] = useState({});   // memberId -> bool
-  const [weaponModalId, setWeaponModalId] = useState(null);
+  const [open, setOpen] = useState(() => new Set());
+  const [pickerId, setPickerId] = useState(null);
 
   const canEdit = (id) => user && (can('loot.awards') || user.id === id);
 
   const load = () => {
     setLoading(true); setError('');
     axios.get('/api/members')
-      .then((res) => setMembers((res.data.members || []).map((m) => ({ ...m, shards: normalizeShards(m.shards) }))))
+      .then((res) => setMembers((res.data.members || []).map((m) => ({ ...m, shards: m.shards?.v === 2 ? m.shards : emptyWishlist() }))))
       .catch((err) => setError(err.response?.data?.error || 'Could not load members.'))
       .finally(() => setLoading(false));
   };
   useEffect(() => { load(); }, []);
-
-  const updateShard = (id, key, raw) => {
-    const v = Math.max(0, Math.min(maxFor(key), parseInt(raw, 10) || 0));
-    setMembers((prev) => prev.map((m) => (m.id === id ? { ...m, shards: { ...m.shards, [key]: v } } : m)));
-    setDirty((d) => ({ ...d, [id]: true }));
-  };
+  // Your own card starts open: it's the one most people came here to change.
+  useEffect(() => { if (user) setOpen((prev) => new Set(prev).add(user.id)); }, [user]);
 
   const persist = (member) => {
     setDirty((d) => ({ ...d, [member.id]: false }));
@@ -92,83 +132,105 @@ export default function Shards() {
       });
   };
 
-  const saveRow = (member) => {
-    if (!dirty[member.id]) return;
-    persist(member);
+  // Applies `fn` to one member's wishlist; `save` persists straight away
+  // (structural changes), otherwise the row is only marked dirty (typing).
+  const change = (id, fn, save) => {
+    const current = members.find((m) => m.id === id);
+    if (!current) return;
+    const updated = { ...current, shards: fn(current.shards) };
+    setMembers((prev) => prev.map((m) => (m.id === id ? updated : m)));
+    if (save) persist(updated);
+    else setDirty((d) => ({ ...d, [id]: true }));
   };
 
-  const saveWeapons = (id, weapons) => {
-    setWeaponModalId(null);
-    setMembers((prev) => {
-      const next = prev.map((m) => (m.id === id ? { ...m, shards: { ...m.shards, weapons } } : m));
-      persist(next.find((m) => m.id === id));
-      return next;
-    });
+  const setNeed = (id, key, raw) => change(id, (s) => ({
+    ...s,
+    weapons: s.weapons.map((w) => (keyOf(w) !== key ? w : {
+      ...w,
+      need: raw === '' ? null : Math.max(0, Math.min(costFor(w.boss), parseInt(raw, 10) || 0)),
+    })),
+  }), false);
+  const saveIfDirty = (member) => { if (dirty[member.id]) persist(member); };
+  const unlink = (id, key) => change(id, (s) => ({ ...s, weapons: s.weapons.filter((w) => keyOf(w) !== key) }), true);
+  const clearUnlinked = (m) => {
+    if (!window.confirm(`Clear ${unlinkedTotal(m.shards)} shards not linked to a weapon for ${m.name}? Link the weapons they were for first, or that demand is lost.`)) return;
+    change(m.id, (s) => ({ ...s, unlinked: {} }), true);
+  };
+  // A weapon already on the list keeps its need; a newly ticked one starts at
+  // its full cost, since nobody farms toward a weapon they're done with.
+  const savePicks = (id, picks) => {
+    setPickerId(null);
+    change(id, (s) => {
+      const had = new Map(s.weapons.map((w) => [keyOf(w), w]));
+      return {
+        ...s,
+        weapons: [...picks].map(([key, build]) => {
+          const [boss, weapon] = key.split('|');
+          const prev = had.get(key);
+          return { boss, weapon, build, need: prev ? prev.need : costFor(boss) };
+        }),
+      };
+    }, true);
   };
 
-  // Column sort: { key, dir, order } where key is a shard key or 'total'. The row
-  // order is snapshotted when the header is clicked rather than recomputed from
-  // live values, so a row doesn't jump out from under someone mid-edit.
-  const [sort, setSort] = useState(null);
-  const sortValue = (m, key) => (key === 'total' ? rowTotal(m.shards) : Number(m.shards[key]) || 0);
-  const orderBy = (list, key, dir) => [...list]
-    .sort((a, b) => (sortValue(b, key) - sortValue(a, key)) * (dir === 'desc' ? 1 : -1)
-      || (a.name || '').localeCompare(b.name || ''))
-    .map((m) => m.id);
+  const toggleOpen = (id) => setOpen((prev) => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
 
-  // Click cycles: highest first → lowest first → back to the default order.
-  const toggleSort = (key) => {
-    if (sort?.key === key && sort.dir === 'asc') return setSort(null);
-    const dir = sort?.key === key ? 'asc' : 'desc';
-    setSort({ key, dir, order: orderBy(members, key, dir) });
-  };
-
-  // Re-snapshot after a refresh so the order reflects freshly loaded values.
-  useEffect(() => {
-    setSort((s) => (s ? { ...s, order: orderBy(members, s.key, s.dir) } : s));
-  }, [loading]);
-
-  // Default: self pinned to top, then alphabetical. Sorted: the snapshot order.
-  // Either way, filtered after.
+  // Self pinned to the top, then by name or by most still needed. Filtered after.
   const ordered = useMemo(() => {
-    let sorted;
-    if (sort) {
-      const rank = new Map(sort.order.map((id, i) => [id, i]));
-      sorted = [...members].sort((a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity));
-    } else {
-      sorted = [...members].sort((a, b) => {
+    const f = filter.toLowerCase();
+    return [...members]
+      .sort((a, b) => {
         if (user && a.id === user.id) return -1;
         if (user && b.id === user.id) return 1;
+        if (sortBy === 'need') return memberNeed(b.shards) - memberNeed(a.shards) || (a.name || '').localeCompare(b.name || '');
         return (a.name || '').localeCompare(b.name || '');
-      });
-    }
-    const f = filter.toLowerCase();
-    return sorted.filter((m) => (m.name || '').toLowerCase().includes(f));
-  }, [members, filter, user, sort]);
+      })
+      .filter((m) => (m.name || '').toLowerCase().includes(f));
+  }, [members, filter, user, sortBy]);
 
-  const totals = useMemo(() => {
-    const t = {};
-    TYPES.forEach((ty) => { t[ty.key] = members.reduce((a, m) => a + (Number(m.shards[ty.key]) || 0), 0); });
-    return t;
-  }, [members]);
-  const grandTotal = TYPES.reduce((a, t) => a + totals[t.key], 0);
-
-  const weaponModalMember = weaponModalId ? members.find((m) => m.id === weaponModalId) : null;
+  const guildTotals = useMemo(() => shardTotals(members.map((m) => m.shards)), [members]);
+  const allOpen = ordered.length > 0 && ordered.every((m) => open.has(m.id));
+  const pickerMember = pickerId ? members.find((m) => m.id === pickerId) : null;
 
   return (
-    <PageShell maxWidth="max-w-[1750px]">
+    <PageShell maxWidth="max-w-[1400px]">
       <p className="text-sm text-ash mb-5">
-        {can('loot.awards')
-          ? 'Track every member’s shard requests. You can edit any row.'
-          : 'Track your shard requests. You can edit your own row; others are read-only.'} Each column shows its own cap.
-        <span className="block text-bone font-bold uppercase mt-1.5">Put how many you need, not how many you have AND keep it updated</span>
+        Link every weapon you&apos;re working toward. Each archboss weapon takes {SHARD_WEAPONS.costs.archboss} of its boss&apos;s shard
+        and each Heroic weapon takes {SHARD_WEAPONS.costs.heroic} Otherworldly Mind&apos;s Eye; your shard totals add up from your weapons.
+        {' '}{can('loot.awards') ? 'You can edit any member.' : 'You can edit your own; others are read-only.'}
+        <span className="block text-bone font-bold uppercase mt-1.5">Put how many you still need, not how many you have AND keep it updated</span>
       </p>
 
-      <div className="flex items-center justify-between mb-5 gap-4">
-        <input
-          value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search members…"
-          className="bg-panel border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass w-full max-w-xs"
-        />
+      <Tabs variant="flat" active={view} onChange={setView} items={[{ key: 'member', label: 'By Member' }, { key: 'weapon', label: 'By Weapon' }]} />
+
+      <div className="flex flex-wrap items-center justify-between mb-5 gap-4">
+        <div className="flex flex-wrap items-center gap-3 flex-1">
+          {view === 'member' && (
+            <>
+              <input
+                value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search members…"
+                className="bg-panel border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass w-full max-w-xs"
+              />
+              <label className="inline-flex items-center gap-2 text-sm text-ash">
+                Sort
+                <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="bg-panel border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass">
+                  <option value="name">Name</option>
+                  <option value="need">Most needed</option>
+                </select>
+              </label>
+              <button
+                onClick={() => setOpen(allOpen ? new Set() : new Set(ordered.map((m) => m.id)))}
+                className="text-sm text-ash hover:text-brass"
+              >
+                {allOpen ? 'Collapse all' : 'Expand all'}
+              </button>
+            </>
+          )}
+        </div>
         <button onClick={load} className="inline-flex items-center gap-2 text-sm text-ash hover:text-brass shrink-0"><RefreshCw className="w-4 h-4" /> Refresh</button>
       </div>
 
@@ -176,176 +238,383 @@ export default function Shards() {
         <div className="mb-6 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>
       )}
 
-      {loading ? (
-        <EmptyState>Reading the vault…</EmptyState>
-      ) : ordered.length === 0 ? (
-        <EmptyState>No members found.</EmptyState>
-      ) : (
-        <div className="panel rounded-lg overflow-auto max-h-[70vh]">
-          <table className="w-full min-w-[1520px] text-sm border-separate border-spacing-0">
-            <thead>
-              <tr className="eyebrow text-[10px] text-ash">
-                <th className="sticky top-0 z-10 bg-panel p-4 text-left font-normal border-b border-line align-bottom">Member</th>
-                {/* Shard labels have grown long enough to need two lines ("Thunderstruck
-                    Giant Tree Branch"), so they wrap inside a capped span and the cells
-                    bottom-align — otherwise a one-line header floats above a two-line one. */}
-                {TYPES.map((t) => (
-                  <th key={t.key} className="sticky top-0 z-10 bg-panel px-2 py-4 text-center font-normal border-b border-line align-bottom">
-                    <SortHeader sortKey={t.key} total={totals[t.key]} sort={sort} onSort={toggleSort}>
-                      <span className="block mx-auto max-w-[104px] leading-tight">{t.label}</span>
-                      {/* The cap differs per shard now, so it belongs on the column
-                          rather than in one sentence above the table — a silent clamp
-                          from 200 down to 90 is otherwise just a number that changed. */}
-                      <span className="block mt-1 text-ash/50 normal-case tracking-normal">max {maxFor(t.key)}</span>
-                    </SortHeader>
-                  </th>
-                ))}
-                <th className="sticky top-0 z-10 bg-panel p-4 text-center font-normal border-b border-line align-bottom">
-                  <SortHeader sortKey="total" total={grandTotal} sort={sort} onSort={toggleSort}>Total</SortHeader>
-                </th>
-                <th className="sticky top-0 z-10 bg-panel p-4 text-left font-normal border-b border-line align-bottom">Weapons</th>
-                <th className="sticky top-0 z-10 bg-panel p-3 w-8 border-b border-line"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {ordered.map((m) => {
-                const mine = user && m.id === user.id;
-                const editable = canEdit(m.id);
-                const weapons = m.shards.weapons || [];
-                return (
-                  <tr key={m.id} className={`[&>td]:border-b [&>td]:border-line/60 ${mine ? 'bg-brass/5' : ''}`}>
-                    <td className="p-3">
-                      <div className="flex items-center gap-2">
-                        {m.avatar
-                          ? <img src={m.avatar} alt="" className="w-6 h-6 rounded-full border border-line shrink-0" />
-                          : <span className="w-6 h-6 rounded-full bg-panelup border border-line shrink-0 flex items-center justify-center text-[10px] text-brass">{(m.name || '?').slice(0, 1).toUpperCase()}</span>}
-                        <span className="text-bone truncate max-w-[160px]">{m.name}</span>
-                        {mine && <span className="text-[9px] eyebrow text-brass border border-brass/40 rounded-full px-1.5 py-0.5">You</span>}
-                      </div>
-                    </td>
-                    {TYPES.map((t) => (
-                      <td key={t.key} className="px-2 py-3 text-center">
-                        {editable ? (
-                          <input
-                            type="number" min={0} max={maxFor(t.key)} value={m.shards[t.key]}
-                            onChange={(e) => updateShard(m.id, t.key, e.target.value)}
-                            onBlur={() => saveRow(m)}
-                            className="w-16 bg-hall border border-line rounded px-2 py-1.5 text-center font-mono text-bone focus:outline-none focus:border-brass"
-                          />
-                        ) : (
-                          <span className="font-mono text-ash">{m.shards[t.key]}</span>
-                        )}
-                      </td>
-                    ))}
-                    <td className="p-3 text-center font-mono text-brassbright">{rowTotal(m.shards)}</td>
-                    <td className="p-3">
-                      <div className="flex flex-wrap items-center gap-1.5 min-w-[360px] max-w-[560px]">
-                        {weapons.length === 0 && <span className="text-ash/50 text-xs">none set</span>}
-                        {weapons.map((w, i) => (
-                          <span key={i} className="inline-flex items-center gap-1 text-[10px] bg-hall border border-line rounded-full px-2 py-0.5 text-ash" title={w.boss}>
-                            {w.weapon}
-                            {w.build && <span className={w.build === 'PvP' ? 'text-oxblood' : 'text-emerald-400'}>· {w.build}</span>}
-                          </span>
-                        ))}
-                        {editable && (
-                          <button onClick={() => setWeaponModalId(m.id)} className="text-brass hover:text-brassbright shrink-0" title="Edit weapon wishlist">
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                    <td className="p-3 text-center">
-                      {status[m.id] === 'saving' && <Loader2 className="w-4 h-4 text-ash animate-spin inline" />}
-                      {status[m.id] === 'saved' && <Check className="w-4 h-4 text-emerald-400 inline" />}
-                      {status[m.id] === 'error' && <AlertCircle className="w-4 h-4 text-oxblood inline" />}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-            <tfoot>
-              <tr className="[&>td]:border-t [&>td]:border-line bg-panelup/60">
-                <td className="p-4 eyebrow text-[10px] text-brass">Guild Total</td>
-                {TYPES.map((t) => <td key={t.key} className="px-2 py-4 text-center font-mono text-brassbright">{totals[t.key]}</td>)}
-                <td className="p-4 text-center font-mono text-brassbright">{grandTotal}</td>
-                <td></td>
-                <td></td>
-              </tr>
-            </tfoot>
-          </table>
+      {!loading && guildTotals.length > 0 && (
+        <div className="panel rounded-lg px-4 py-3 mb-5 flex flex-wrap items-center gap-2">
+          <span className="eyebrow text-[10px] text-brass mr-1">Guild still needs</span>
+          {guildTotals.map((t) => <TotalChip key={t.key} t={t} />)}
         </div>
       )}
 
-      {weaponModalMember && (
-        <WeaponModal
-          member={weaponModalMember}
-          onClose={() => setWeaponModalId(null)}
-          onSave={(weapons) => saveWeapons(weaponModalMember.id, weapons)}
+      {loading ? (
+        <EmptyState>Reading the vault…</EmptyState>
+      ) : view === 'weapon' ? (
+        <ByWeapon members={members} />
+      ) : ordered.length === 0 ? (
+        <EmptyState>No members found.</EmptyState>
+      ) : (
+        <div className="space-y-3">
+          {ordered.map((m) => (
+            <MemberCard
+              key={m.id} m={m}
+              mine={user && m.id === user.id}
+              editable={canEdit(m.id)}
+              isOpen={open.has(m.id)}
+              status={status[m.id]}
+              onToggle={() => toggleOpen(m.id)}
+              onNeed={(key, raw) => setNeed(m.id, key, raw)}
+              onBlur={() => saveIfDirty(m)}
+              onUnlink={(key) => unlink(m.id, key)}
+              onClearUnlinked={() => clearUnlinked(m)}
+              onPick={() => setPickerId(m.id)}
+            />
+          ))}
+        </div>
+      )}
+
+      {pickerMember && (
+        <WeaponPicker
+          member={pickerMember}
+          onClose={() => setPickerId(null)}
+          onSave={(picks) => savePicks(pickerMember.id, picks)}
         />
       )}
     </PageShell>
   );
 }
 
-// Modal for picking specific archboss weapons (with a per-weapon PvP/PvE tag).
-// Keeps its own draft state so nothing is written until "Save".
-function WeaponModal({ member, onClose, onSave }) {
-  const [picks, setPicks] = useState(() => member.shards.weapons || []);
+function MemberCard({ m, mine, editable, isOpen, status, onToggle, onNeed, onBlur, onUnlink, onClearUnlinked, onPick }) {
+  const s = m.shards;
+  const unlinked = unlinkedTotal(s);
+  const unset = unsetCount(s);
+  const totals = shardTotals([s]);
+  const Chevron = isOpen ? ChevronUp : ChevronDown;
 
-  const findPick = (boss, weapon) => picks.find((p) => p.boss === boss && p.weapon === weapon);
+  return (
+    <div className={`panel rounded-lg overflow-hidden ${mine ? 'border-brass/40' : ''}`}>
+      <button onClick={onToggle} className="w-full flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-4 text-left hover:bg-panelup/50 transition-colors">
+        {m.avatar
+          ? <img src={m.avatar} alt="" className="w-8 h-8 rounded-full border border-line shrink-0" />
+          : <span className="w-8 h-8 rounded-full bg-panelup border border-line shrink-0 flex items-center justify-center text-xs text-brass">{(m.name || '?').slice(0, 1).toUpperCase()}</span>}
+        <span className="flex items-center gap-2 flex-1 min-w-[140px]">
+          <span className="text-bone font-semibold truncate">{m.name}</span>
+          {mine && <span className="text-[9px] eyebrow text-brass border border-brass/40 rounded-full px-1.5 py-0.5">You</span>}
+        </span>
+        <span className="text-xs text-ash">{s.weapons.length} weapon{s.weapons.length === 1 ? '' : 's'} linked</span>
+        <span className="font-mono text-sm text-brassbright">
+          {memberNeed(s)}{s.weapons.length > 0 && <span className="text-ash/50">/{memberCost(s)}</span>}
+          <span className="text-ash text-xs font-sans"> needed</span>
+        </span>
+        {unset > 0 && <span className="text-[11px] text-amber-400 border border-amber-400/40 rounded-full px-2 py-0.5">{unset} to set</span>}
+        {unlinked > 0 && <span className="text-[11px] text-amber-400 border border-amber-400/40 rounded-full px-2 py-0.5">{unlinked} not linked</span>}
+        <span className="w-4 inline-flex justify-center">
+          {status === 'saving' && <Loader2 className="w-4 h-4 text-ash animate-spin" />}
+          {status === 'saved' && <Check className="w-4 h-4 text-emerald-400" />}
+          {status === 'error' && <AlertCircle className="w-4 h-4 text-oxblood" />}
+        </span>
+        <Chevron className="w-4 h-4 text-ash" />
+      </button>
 
-  const toggle = (boss, weapon) => {
-    setPicks((prev) => findPick(boss, weapon)
-      ? prev.filter((p) => !(p.boss === boss && p.weapon === weapon))
-      : [...prev, { boss, weapon, build: '' }]);
-  };
+      {isOpen && (
+        <div className="border-t border-line">
+          {totals.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 px-5 py-3 bg-panelup/40">
+              <span className="eyebrow text-[10px] text-ash mr-1">Shard totals</span>
+              {totals.map((t) => <TotalChip key={t.key} t={t} />)}
+            </div>
+          )}
 
-  const setBuild = (boss, weapon, build) => {
-    setPicks((prev) => prev.map((p) => (p.boss === boss && p.weapon === weapon)
-      ? { ...p, build: p.build === build ? '' : build }
-      : p));
-  };
+          {s.weapons.length === 0 && unlinked === 0 ? (
+            <p className="px-5 py-5 text-sm text-ash">No weapons linked yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[820px] text-sm">
+                <thead>
+                  <tr className="eyebrow text-[10px] text-ash text-left">
+                    <th className="px-5 py-2.5 font-normal">Weapon</th>
+                    <th className="px-3 py-2.5 font-normal">Source</th>
+                    <th className="px-3 py-2.5 font-normal">Build</th>
+                    <th className="px-3 py-2.5 font-normal">Shard</th>
+                    <th className="px-3 py-2.5 font-normal">Still needed</th>
+                    <th className="px-3 py-2.5 w-10"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {s.weapons.map((w) => {
+                    const cost = costFor(w.boss);
+                    const key = keyOf(w);
+                    return (
+                      <tr key={key} className="border-t border-line/60">
+                        <td className="px-5 py-2.5 text-bone">{w.weapon}</td>
+                        <td className="px-3 py-2.5"><SourceLabel source={w.boss} /></td>
+                        <td className="px-3 py-2.5"><BuildPill build={w.build} /></td>
+                        <td className="px-3 py-2.5 text-ash">{SHARD_LABEL.get(shardFor(w.boss, w.weapon))}</td>
+                        <td className="px-3 py-2.5">
+                          <div className="flex items-center gap-3">
+                            {editable ? (
+                              <input
+                                type="number" min={0} max={cost} value={w.need ?? ''} placeholder="?"
+                                aria-label={`Shards still needed for ${w.weapon}`}
+                                onChange={(e) => onNeed(key, e.target.value)}
+                                onBlur={onBlur}
+                                className={`w-16 bg-hall border rounded px-2 py-1.5 text-center font-mono text-bone focus:outline-none focus:border-brass ${w.need === null ? 'border-amber-400/60' : 'border-line'}`}
+                              />
+                            ) : (
+                              <span className={`font-mono ${w.need === null ? 'text-amber-400' : 'text-bone'}`}>{w.need ?? '?'}</span>
+                            )}
+                            <span className="font-mono text-ash/60 text-xs">/ {cost}</span>
+                            <div className="flex-1 min-w-[60px] max-w-[160px] h-1.5 rounded-full bg-hall overflow-hidden">
+                              <div className="h-full rounded-full bg-brass" style={{ width: `${Math.round(((w.need || 0) / cost) * 100)}%` }} />
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5 text-right">
+                          {editable && (
+                            <button onClick={() => onUnlink(key)} className="text-ash hover:text-oxblood p-1" aria-label={`Unlink ${w.weapon}`} title="Unlink">
+                              <X className="w-4 h-4" />
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {unlinked > 0 && (
+                    <tr className="border-t border-dashed border-amber-400/30 bg-amber-400/5">
+                      <td className="px-5 py-2.5 text-amber-400">Not linked to a weapon</td>
+                      <td className="px-3 py-2.5 text-xs text-ash" colSpan={2}>From before weapons carried shards</td>
+                      <td className="px-3 py-2.5" colSpan={2}>
+                        <div className="flex flex-wrap gap-1.5">
+                          {Object.entries(s.unlinked).map(([k, n]) => (
+                            <span key={k} className="inline-flex items-center gap-2 border border-dashed border-amber-400/40 rounded-md pl-2.5 pr-1 py-0.5 text-xs text-ash">
+                              {SHARD_LABEL.get(k) || k}
+                              <span className="font-mono text-amber-400 bg-panelup rounded px-1.5 py-0.5">{n}</span>
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2.5 text-right">
+                        {editable && (
+                          <button onClick={onClearUnlinked} className="text-xs text-ash hover:text-oxblood whitespace-nowrap">Clear</button>
+                        )}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {editable && (
+            <div className="flex justify-end px-5 py-3 border-t border-line/60">
+              <Button size="sm" icon={<Plus className="w-4 h-4" />} onClick={onPick}>Link weapons</Button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Every linked weapon in the guild, grouped by where it drops, with who wants it.
+function ByWeapon({ members }) {
+  const [source, setSource] = useState('all');
+
+  const groups = useMemo(() => SOURCES.map((src) => {
+    const byWeapon = new Map();
+    members.forEach((m) => m.shards.weapons.forEach((w) => {
+      if (w.boss !== src.key) return;
+      if (!byWeapon.has(w.weapon)) byWeapon.set(w.weapon, []);
+      byWeapon.get(w.weapon).push({ id: m.id, name: m.name, avatar: m.avatar, build: w.build, need: w.need });
+    }));
+    const cost = costFor(src.key);
+    const weapons = [...byWeapon.entries()]
+      .map(([weapon, wanters]) => ({
+        weapon, wanters: wanters.sort((a, b) => (b.need || 0) - (a.need || 0)),
+        need: wanters.reduce((a, x) => a + (x.need || 0), 0),
+        cost: cost * wanters.length,
+      }))
+      .sort((a, b) => b.wanters.length - a.wanters.length || a.weapon.localeCompare(b.weapon));
+    return { key: src.key, cost, weapons, need: weapons.reduce((a, w) => a + w.need, 0) };
+  }), [members]);
+
+  const shown = groups.filter((g) => g.weapons.length && (source === 'all' || g.key === source));
+
+  return (
+    <div>
+      <div className="flex flex-wrap gap-2 mb-6">
+        {[{ key: 'all', label: 'All' }, ...SOURCES.map((s) => ({ key: s.key, label: s.key }))].map((s) => (
+          <button
+            key={s.key} onClick={() => setSource(s.key)}
+            className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${source === s.key ? 'border-brass text-brassbright bg-brass/10' : 'border-line text-ash hover:text-bone'}`}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+
+      {shown.length === 0 ? (
+        <EmptyState>Nobody has linked a weapon{source === 'all' ? '' : ` from ${source}`} yet.</EmptyState>
+      ) : (
+        <div className="space-y-8">
+          {shown.map((g) => (
+            <section key={g.key}>
+              <div className="flex flex-wrap items-baseline gap-3 mb-3">
+                <h2 className="font-display text-lg text-brassbright tracking-[0.06em]">{g.key}</h2>
+                <span className="text-xs text-ash">
+                  {g.weapons.length} weapon{g.weapons.length === 1 ? '' : 's'} wanted · <span className="font-mono text-bone">{g.need}</span> shards still needed · {g.cost} per weapon
+                </span>
+              </div>
+              <div className="panel rounded-lg overflow-x-auto">
+                <table className="w-full min-w-[820px] text-sm">
+                  <thead>
+                    <tr className="eyebrow text-[10px] text-ash text-left">
+                      <th className="px-5 py-2.5 font-normal">Weapon</th>
+                      <th className="px-3 py-2.5 font-normal text-right">Wants</th>
+                      <th className="px-3 py-2.5 font-normal">Members · build · still needed</th>
+                      <th className="px-5 py-2.5 font-normal text-right">Still needed / total cost</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {g.weapons.map((w) => (
+                      <tr key={w.weapon} className="border-t border-line/60 align-top">
+                        <td className="px-5 py-3 text-bone">
+                          {w.weapon}
+                          <div className="text-xs text-ash mt-0.5">{SHARD_LABEL.get(shardFor(g.key, w.weapon))}</div>
+                        </td>
+                        <td className="px-3 py-3 text-right font-mono text-bone">{w.wanters.length}</td>
+                        <td className="px-3 py-3">
+                          <div className="space-y-1.5">
+                            {w.wanters.map((x) => (
+                              <div key={x.id} className="flex items-center gap-2">
+                                {x.avatar
+                                  ? <img src={x.avatar} alt="" className="w-5 h-5 rounded-full border border-line" />
+                                  : <span className="w-5 h-5 rounded-full bg-panelup border border-line flex items-center justify-center text-[9px] text-brass">{(x.name || '?')[0].toUpperCase()}</span>}
+                                <span className="text-bone min-w-[90px]">{x.name}</span>
+                                <BuildPill build={x.build} />
+                                <span className="text-xs text-ash">
+                                  {x.need === null ? <span className="text-amber-400">not set</span> : <>needs <span className="font-mono text-bone">{x.need}</span> of {g.cost}</>}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </td>
+                        <td className="px-5 py-3 text-right font-mono text-brassbright">
+                          {w.need}<span className="text-ash/50">/{w.cost}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Tick any number of weapons across every source, each with an optional
+// PvP/PvE tag. Keeps its own draft so nothing is written until Save.
+function WeaponPicker({ member, onClose, onSave }) {
+  const [tab, setTab] = useState(SOURCES[0].key);
+  // key -> build ('' when untagged); insertion order is the saved order.
+  const [picks, setPicks] = useState(() => new Map(member.shards.weapons.map((w) => [keyOf(w), w.build])));
+
+  const toggle = (key) => setPicks((prev) => {
+    const next = new Map(prev);
+    next.has(key) ? next.delete(key) : next.set(key, '');
+    return next;
+  });
+  const setBuild = (key, build) => setPicks((prev) => new Map(prev).set(key, prev.get(key) === build ? '' : build));
+
+  const pickedIn = (src) => [...picks.keys()].filter((k) => k.startsWith(`${src}|`)).length;
+  const summary = shardTotals([{
+    weapons: [...picks.keys()].map((k) => {
+      const [boss, weapon] = k.split('|');
+      return { boss, weapon, need: costFor(boss) };
+    }),
+    unlinked: {},
+  }]);
+  const src = SOURCE.get(tab);
 
   return (
     <Modal onClose={onClose} maxWidth="max-w-2xl" scrollable>
-      <div className="eyebrow text-brass text-[11px] mb-3">Weapon Wishlist</div>
-      <h2 className="font-display text-xl text-bone tracking-[0.06em] mb-4">{member.name}</h2>
+      <div className="flex items-start gap-3 mb-1">
+        <div className="eyebrow text-brass text-[11px]">Link weapons</div>
+        <button onClick={onClose} className="ml-auto text-ash hover:text-bone" aria-label="Close"><X className="w-4 h-4" /></button>
+      </div>
+      <h2 className="font-display text-xl text-bone tracking-[0.06em] mb-1">{member.name}</h2>
+      <p className="text-xs text-ash mb-4">
+        Tick every weapon you&apos;re working toward, across as many sources as you like. A new one starts at its full cost; lower it to what you still need after saving.
+      </p>
 
-        <div className="space-y-5">
-          {Object.entries(BOSS_WEAPONS).map(([boss, weaponList]) => (
-            <div key={boss}>
-              <div className="text-brass text-sm font-semibold mb-2">{boss}</div>
-              <div className="space-y-1.5">
-                {weaponList.map((weapon) => {
-                  const pick = findPick(boss, weapon);
-                  return (
-                    <div key={weapon} className="flex items-center gap-2">
-                      <label className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer select-none">
-                        <input type="checkbox" checked={!!pick} onChange={() => toggle(boss, weapon)} className="accent-brass shrink-0" />
-                        <span className="text-sm text-bone truncate">{weapon}</span>
-                      </label>
-                      {pick && (
-                        <div className="inline-flex items-center gap-0 rounded-full border border-line bg-hall p-0.5 shrink-0">
-                          {BUILDS.map((b) => (
-                            <button key={b} type="button" onClick={() => setBuild(boss, weapon, b)}
-                              className={`px-2 py-0.5 rounded-full text-[9px] font-bold tracking-wide transition-colors ${
-                                pick.build === b ? (b === 'PvP' ? 'bg-oxblood text-bone' : 'bg-emerald-500 text-ink') : 'text-ash hover:text-bone'
-                              }`}
-                            >
-                              {b.toUpperCase()}
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
+      <div className="flex flex-wrap gap-1.5 mb-3">
+        {SOURCES.map((s) => {
+          const n = pickedIn(s.key);
+          return (
+            <button
+              key={s.key} onClick={() => setTab(s.key)}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs border transition-colors ${tab === s.key ? 'border-brass text-brassbright bg-brass/10' : 'border-line text-ash hover:text-bone'}`}
+            >
+              {s.key}
+              {n > 0 && <span className={`font-mono text-[10px] rounded-full px-1.5 ${tab === s.key ? 'bg-brass text-ink' : 'bg-panelup text-bone'}`}>{n}</span>}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="text-xs text-ash mb-2">
+        {src.heroic ? 'Heroic weapons' : `${tab} weapons`} use <span className="text-bone">{SHARD_LABEL.get(src.shard)}</span>
+        {src.snowsoul && <> (Snowsoul: <span className="text-bone">{SHARD_LABEL.get(src.snowsoul)}</span>)</>}
+        {' '}· <span className="font-mono text-bone">{costFor(tab)}</span> each
+      </div>
+
+      <div className="border border-line rounded-lg divide-y divide-line/60 mb-4">
+        {WEAPONS_BY_SOURCE.get(tab).map((weapon) => {
+          const key = `${tab}|${weapon}`;
+          const on = picks.has(key);
+          const build = picks.get(key);
+          return (
+            <div key={key} className="flex items-center gap-2 px-3 py-2">
+              <label className="flex items-center gap-2 flex-1 min-w-0 cursor-pointer select-none">
+                <input type="checkbox" checked={on} onChange={() => toggle(key)} className="accent-brass shrink-0" />
+                <span className="min-w-0">
+                  <span className="block text-sm text-bone truncate">{weapon}</span>
+                  {src.snowsoul && <span className="block text-[11px] text-ash">{SHARD_LABEL.get(shardFor(tab, weapon))}</span>}
+                </span>
+              </label>
+              {on && (
+                <div className="inline-flex items-center rounded-full border border-line bg-hall p-0.5 shrink-0">
+                  {BUILDS.map((b) => (
+                    <button
+                      key={b} type="button" onClick={() => setBuild(key, b)}
+                      className={`px-2 py-0.5 rounded-full text-[9px] font-bold tracking-wide transition-colors ${
+                        build === b ? (b === 'PvP' ? 'bg-oxblood text-bone' : 'bg-emerald-500 text-ink') : 'text-ash hover:text-bone'
+                      }`}
+                    >
+                      {b.toUpperCase()}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
-          ))}
-        </div>
+          );
+        })}
+      </div>
 
-      <div className="flex justify-end gap-3 mt-6">
+      <div className="flex flex-wrap items-center gap-2 mb-5">
+        <span className="eyebrow text-[10px] text-ash mr-1">Selected · {picks.size}</span>
+        {summary.length === 0
+          ? <span className="text-xs text-ash/60">nothing yet</span>
+          : summary.map((t) => (
+            <span key={t.key} className="inline-flex items-center gap-2 bg-hall border border-line rounded-md pl-2.5 pr-1 py-1 text-xs text-ash">
+              {t.label} <span className="text-ash/70">× {t.count}</span>
+              <span className="font-mono text-brassbright bg-panelup rounded px-1.5 py-0.5">{t.cost}</span>
+            </span>
+          ))}
+      </div>
+
+      <div className="flex justify-end gap-3">
         <Button variant="neutral" size="none" className="px-4 py-2" onClick={onClose}>Cancel</Button>
         <Button size="none" className="px-5 py-2" onClick={() => onSave(picks)}>Save</Button>
       </div>

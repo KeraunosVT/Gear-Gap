@@ -14,12 +14,7 @@ const {
   router: authRouter, requireAuth, requireAdminArea, requirePermission, userHas,
 } = require('./auth');
 const { listMembers, fetchRoleGrants, botConfigured } = require('./discord');
-const SHARDS = require('../shared/shards.json');
-const BOSS_WEAPONS = require('../shared/archbossWeapons.json');
-const BUILDS = ['PvP', 'PvE'];
-const VALID_BOSS_WEAPONS = new Set(
-  Object.entries(BOSS_WEAPONS).flatMap(([boss, list]) => list.map((w) => `${boss}|${w}`))
-);
+const shardWishlist = require('./shardWishlist');
 const createLootCatalog = require('./lootCatalog');
 const createEliteTimers = require('./eliteTimers');
 const createGearIlvl = require('./gearIlvl');
@@ -327,10 +322,11 @@ app.get('/api/members', async (req, res) => {
         supabase.from('shard_counts').select('discord_id, shards'),
         supabase.from('member_roles').select('discord_id, pvp_role'),
       ]);
-      (shardData || []).forEach((r) => { counts[r.discord_id] = r.shards || {}; });
+      // Old-shape rows are converted here on the way out; see shardWishlist.js.
+      (shardData || []).forEach((r) => { counts[r.discord_id] = shardWishlist.read(r.shards); });
       (roleData || []).forEach((r) => { roles[r.discord_id] = r.pvp_role || ''; });
     }
-    res.json({ members: members.map((m) => ({ ...m, shards: counts[m.id] || {}, pvp_role: roles[m.id] || '' })) });
+    res.json({ members: members.map((m) => ({ ...m, shards: counts[m.id] || shardWishlist.read(null), pvp_role: roles[m.id] || '' })) });
   } catch (err) {
     console.error('Members list error:', err.response?.data?.message || err.message);
     res.status(502).json({ error: err.response?.data?.message || err.message });
@@ -343,20 +339,9 @@ app.put('/api/shards/:discordId', async (req, res) => {
     return res.status(403).json({ error: 'You can only edit your own shards.' });
   }
   if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-  const incoming = req.body?.shards || {};
-  const shards = {};
-  SHARDS.types.forEach((t) => {
-    const v = parseInt(incoming[t.key], 10);
-    // Per-type cap, falling back to the file's default. The page clamps as you
-    // type, but this is the one that decides — the input is a courtesy.
-    const max = Number.isFinite(t.max) ? t.max : SHARDS.max;
-    shards[t.key] = Math.max(0, Math.min(max, Number.isFinite(v) ? v : 0));
-  });
-  const incomingWeapons = Array.isArray(incoming.weapons) ? incoming.weapons : [];
-  shards.weapons = incomingWeapons
-    .filter((w) => w && VALID_BOSS_WEAPONS.has(`${w.boss}|${w.weapon}`))
-    .map((w) => ({ boss: w.boss, weapon: w.weapon, build: BUILDS.includes(w.build) ? w.build : '' }))
-    .slice(0, 50);
+  // Each weapon's need is capped at its own cost (90 archboss, 60 Heroic). The
+  // page clamps as you type, but this is the one that decides.
+  const shards = shardWishlist.normalize(req.body?.shards);
   const display_name = (req.body?.display_name || req.user.username || '').slice(0, 120);
   const { error } = await supabase.from('shard_counts')
     .upsert({ discord_id: target, display_name, shards, updated_at: new Date().toISOString() });

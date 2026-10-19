@@ -1,0 +1,15 @@
+{
+  "_comment": "Which shard each wishlist weapon is built from, and how many it takes. Sources are listed in page order. A source's weapons come from archbossWeapons.json except where `weapons` is given here (Heroic, which no archboss drops). `snowsoul`, where present, is the shard for that boss's Snowsoul weapons (any weapon whose name contains \"Snowsoul\"); every other weapon of the source uses `shard`. Both the Shards page and PUT /api/shards read this file.",
+  "costs": { "archboss": 90, "heroic": 60 },
+  "sources": [
+    { "key": "Tevent", "shard": "tevent_ashen" },
+    { "key": "Queen Bellandir", "shard": "queen_ashen_carapace" },
+    { "key": "Dragon Rider Ramux", "shard": "thundercloud_scale" },
+    { "key": "Cordy", "shard": "scorched_branches", "snowsoul": "thunderstruck_giant_tree_branch" },
+    { "key": "Deluzhnoa", "shard": "scorched_frostblooms", "snowsoul": "thunderstruck_snow_flowers" },
+    {
+      "key": "Heroic", "shard": "otherworldly_minds_eye", "heroic": true,
+      "weapons": ["Heroic Greatsword", "Heroic Sword & Shield", "Heroic Daggers", "Heroic Crossbows", "Heroic Longbow", "Heroic Staff", "Heroic Wand", "Heroic Spear", "Heroic Orb", "Heroic Gauntlets"]
+    }
+  ]
+}
