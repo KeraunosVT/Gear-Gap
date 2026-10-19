@@ -317,16 +317,30 @@ app.get('/api/members', async (req, res) => {
     const members = await listMembers();
     const counts = {};
     const roles = {};
+    let ids = null;
     if (supabase) {
-      const [{ data: shardData }, { data: roleData }] = await Promise.all([
+      const [{ data: shardData }, { data: roleData }, snapshot] = await Promise.all([
         supabase.from('shard_counts').select('discord_id, shards'),
         supabase.from('member_roles').select('discord_id, pvp_role'),
+        identities.load(),
       ]);
+      ids = snapshot;
       // Old-shape rows are converted here on the way out; see shardWishlist.js.
       (shardData || []).forEach((r) => { counts[r.discord_id] = shardWishlist.read(r.shards); });
       (roleData || []).forEach((r) => { roles[r.discord_id] = r.pvp_role || ''; });
     }
-    res.json({ members: members.map((m) => ({ ...m, shards: counts[m.id] || shardWishlist.read(null), pvp_role: roles[m.id] || '' })) });
+    // The guild's identity name, not the Discord nickname, wherever one is
+    // linked — the same name every other page shows for them. The Discord
+    // name is kept alongside for anyone without an identity yet.
+    res.json({
+      members: members.map((m) => ({
+        ...m,
+        name: ids ? ids.displayNameFor(m.id, m.name) : m.name,
+        discord_name: m.name,
+        shards: counts[m.id] || shardWishlist.read(null),
+        pvp_role: roles[m.id] || '',
+      })),
+    });
   } catch (err) {
     console.error('Members list error:', err.response?.data?.message || err.message);
     res.status(502).json({ error: err.response?.data?.message || err.message });

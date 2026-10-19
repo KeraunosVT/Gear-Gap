@@ -189,7 +189,8 @@ export default function Shards() {
         if (sortBy === 'need') return memberNeed(b.shards) - memberNeed(a.shards) || (a.name || '').localeCompare(b.name || '');
         return (a.name || '').localeCompare(b.name || '');
       })
-      .filter((m) => (m.name || '').toLowerCase().includes(f));
+      // Names are identity names now; the Discord one still finds them.
+      .filter((m) => (m.name || '').toLowerCase().includes(f) || (m.discord_name || '').toLowerCase().includes(f));
   }, [members, filter, user, sortBy]);
 
   const guildTotals = useMemo(() => shardTotals(members.map((m) => m.shards)), [members]);
