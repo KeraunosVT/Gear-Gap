@@ -195,12 +195,13 @@ export default function EventCalendar() {
 
     // Every scheduled event that runs this night, whether or not anyone has
     // opened it. This is the half /signups can't show.
-    const scheduled = eventsForGuildDay(schedule, dow).map((s) => {
+    const scheduled = eventsForGuildDay(schedule, dow, date).map((s) => {
       const occ = byScheduleId.get(s.id) || null;
       return {
         key: occ ? occ.id : `sched:${s.id}:${date}`,
         signupId: occ?.id || null,
         scheduleId: s.id,
+        fromSchedule: true,
         title: occ?.title || s.name,
         eventTime: occ?.event_time || s.event_time || null,
         occ,
@@ -322,6 +323,26 @@ export default function EventCalendar() {
     });
   };
   const onDelete = canOneOff ? removeOneOff : null;
+
+  // One night of a weekly event, cancelled without touching the rest of the
+  // series. If signups were already opened for it they go too — otherwise the
+  // opened occurrence would keep showing as an orphan on that night.
+  const skipNight = (row) => {
+    const tail = row.signupId ? " Everyone's signups for it go too." : '';
+    if (!window.confirm(`Remove ${row.title} on ${shortDate(row.date)} only? Other weeks stay on the schedule.${tail}`)) return;
+    run(`skip:${row.key}`, async () => {
+      if (row.signupId) await axios.delete(`/api/admin/signups/${row.signupId}`);
+      await axios.post(`/api/admin/event-schedule/${row.scheduleId}/skip`, { date: row.date, skip: true });
+      setSelected(null);
+      load();
+      flash(`${row.title} removed for ${shortDate(row.date)}.`);
+    });
+  };
+  // Opened signups can only be deleted with 'attendance', so a night that has
+  // them needs both.
+  const canSkip = (row) => canWeekly && row.fromSchedule && row.date >= today && !row.attendance
+    && (!row.signupId || canOneOff);
+  const onSkip = canWeekly ? skipNight : null;
 
   // ── Late attendance ──
   const fileLateRequest = async (ev) => {
@@ -487,6 +508,7 @@ export default function EventCalendar() {
             <EventDetail
               night={selectedNight} row={{ ...selectedRow, date: selectedNight.date }}
               busy={busy} onJoin={signUp} onLeave={withdraw} late={late} onDelete={onDelete}
+              onSkip={onSkip && canSkip({ ...selectedRow, date: selectedNight.date }) ? onSkip : null}
             />
           </Modal>
         </div>
@@ -568,6 +590,7 @@ export default function EventCalendar() {
                     <EventDetail
                       night={selectedNight} row={{ ...selectedRow, date: selectedNight.date }}
                       busy={busy} onJoin={signUp} onLeave={withdraw} late={late} onDelete={onDelete}
+                      onSkip={onSkip && canSkip({ ...selectedRow, date: selectedNight.date }) ? onSkip : null}
                     />
                   </div>
                 ) : (
@@ -710,7 +733,7 @@ function Block({ row, fill = false, showAway = false, picked = false, onClick })
 // counts — so it is fetched when the event has been opened. It is used for one
 // thing: flagging anyone who is both on LOA and signed up, which the officer
 // has to resolve and which the server already works out as `conflicts`.
-function EventDetail({ night, row, busy, onJoin, onLeave, late, onDelete = null }) {
+function EventDetail({ night, row, busy, onJoin, onLeave, late, onDelete = null, onSkip = null }) {
   const [conflictIds, setConflictIds] = useState(() => new Set());
 
   useEffect(() => {
@@ -806,6 +829,17 @@ function EventDetail({ night, row, busy, onJoin, onLeave, late, onDelete = null 
             disabled={busy === `del:${row.key}`} onClick={() => onDelete(row)}
           >
             Delete event
+          </Button>
+        </div>
+      )}
+      {/* A weekly event: cancel just this night. */}
+      {onSkip && (
+        <div className="mt-5 pt-4 border-t border-line flex justify-end">
+          <Button
+            variant="destructive" size="sm" icon={<Trash2 className="w-4 h-4" />}
+            disabled={busy === `skip:${row.key}`} onClick={() => onSkip(row)}
+          >
+            Remove this night only
           </Button>
         </div>
       )}

@@ -111,4 +111,11 @@ describe('eventsForGuildDay', () => {
     assert.deepEqual(tu.eventsForGuildDay([], 6), []);
     assert.deepEqual(tu.eventsForGuildDay(null, 6), []);
   });
+
+  test('a night removed from one event drops only that event, only that night', () => {
+    const skipped = SCHEDULE.map((s) => (s.id === 'b' ? { ...s, skip_dates: ['2026-09-05'] } : s));
+    assert.deepEqual(tu.eventsForGuildDay(skipped, 6, '2026-09-05').map((e) => e.id), ['d', 'a']);
+    assert.deepEqual(tu.eventsForGuildDay(skipped, 6, '2026-09-12').map((e) => e.id), ['d', 'a', 'b']);
+    assert.deepEqual(tu.eventsForGuildDay(skipped, 6).map((e) => e.id), ['d', 'a', 'b'], 'no date = the weekly pattern');
+  });
 });

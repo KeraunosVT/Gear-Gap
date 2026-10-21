@@ -154,9 +154,14 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
       }
       let eventName = (title || '').trim();
       if (eventScheduleId) {
+        // '*' rather than naming skip_dates, so a database without 031 still
+        // opens signups instead of failing every one.
         const { data: ev, error } = await supabase.from('event_schedule')
-          .select('id, name, day_of_week, event_time').eq('id', eventScheduleId).single();
+          .select('*').eq('id', eventScheduleId).single();
         if (error || !ev) throw httpError(400, 'That scheduled event no longer exists.');
+        if (Array.isArray(ev.skip_dates) && ev.skip_dates.map(String).includes(eventDate)) {
+          throw httpError(409, `${ev.name} is cancelled that night.`);
+        }
         // Same night check as loa.submitEvent, for the same reason: a signup
         // scoped to an event that doesn't run that night is a typo, not a plan.
         if (createLoa.guildDayOfWeek(ev.day_of_week, ev.event_time) !== dayOfWeek(eventDate)) {

@@ -129,7 +129,7 @@ export default function LoaWeekGrid({ entries, schedule }) {
     if (!bars.length) return null;
     const dow = dowOf(date);
     const live = bars.filter((b) => b.kind !== 'lifted').map((b) => b.entry);
-    const events = eventsForGuildDay(schedule, dow);
+    const events = eventsForGuildDay(schedule, dow, date);
     const misses = events.filter((s) => live.some((e) => loaCovers(e, { date, dow, scheduleId: s.id, eventTime: s.event_time })));
     const makes = events.filter((s) => !misses.includes(s));
     return { row, date, dow, bars, misses, makes };

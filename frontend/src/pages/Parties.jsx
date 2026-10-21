@@ -389,7 +389,7 @@ export default function Parties() {
 
   const eventsForDate = useMemo(() => {
     if (!loaDate) return [];
-    return eventsForGuildDay(schedule, new Date(loaDate + 'T12:00:00').getDay());
+    return eventsForGuildDay(schedule, new Date(loaDate + 'T12:00:00').getDay(), loaDate);
   }, [loaDate, schedule]);
 
   // Which date+event the LOA set in state was fetched for. Keeps load() — which

@@ -90,7 +90,7 @@ export default function LOA() {
   // event stored on Sunday, and excludes Sunday's own evening events.
   const eventsOnDate = useMemo(() => {
     if (!eventDate) return [];
-    return eventsForGuildDay(schedule, new Date(eventDate + 'T12:00:00').getDay());
+    return eventsForGuildDay(schedule, new Date(eventDate + 'T12:00:00').getDay(), eventDate);
   }, [eventDate, schedule]);
 
   // An event is tied to one specific weekday, so it can only scope a recurring

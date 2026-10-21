@@ -212,6 +212,12 @@ select '029 · member_tenure.source allows tlgm',
                  where c.conrelid = to_regclass('public.member_tenure')
                    and c.conname = 'member_tenure_source_check'), false)
 union all
+select '031 · event_schedule.skip_dates is date[]',
+       coalesce((select data_type = 'ARRAY' and udt_name = '_date'
+        from information_schema.columns
+        where table_schema = 'public' and table_name = 'event_schedule'
+          and column_name = 'skip_dates'), false)
+union all
 select '019 · normalise_guild_name(text)',
        (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.proname = 'normalise_guild_name') = 1

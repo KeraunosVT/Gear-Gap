@@ -145,7 +145,7 @@ export default function Signups() {
   useEffect(() => { load(); }, [load]);
 
   const eventsOnDate = useMemo(
-    () => (formDate ? eventsForGuildDay(schedule, new Date(`${formDate}T12:00:00`).getDay()) : []),
+    () => (formDate ? eventsForGuildDay(schedule, new Date(`${formDate}T12:00:00`).getDay(), formDate) : []),
     [formDate, schedule],
   );
 

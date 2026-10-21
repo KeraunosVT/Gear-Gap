@@ -2480,6 +2480,24 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     res.json({ ok: true });
   });
 
+  // Cancel (skip: true) or restore (skip: false) one night of a weekly event
+  // without touching the rest of the series. `date` is the guild night.
+  router.post('/event-schedule/:id/skip', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const { date, skip = true } = req.body || {};
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(date || ''))) return res.status(400).json({ error: 'Date must be in YYYY-MM-DD format.' });
+    const { data: ev, error: readErr } = await supabase.from('event_schedule')
+      .select('id, name, skip_dates').eq('id', req.params.id).single();
+    if (readErr || !ev) return res.status(404).json({ error: 'That scheduled event no longer exists.' });
+    const current = Array.isArray(ev.skip_dates) ? ev.skip_dates.map(String) : [];
+    const next = skip
+      ? [...new Set([...current, date])].sort()
+      : current.filter((d) => d !== date);
+    const { error } = await supabase.from('event_schedule').update({ skip_dates: next }).eq('id', ev.id);
+    if (error) return res.status(500).json({ error: 'Failed to update event.' });
+    res.json({ ok: true, skip_dates: next });
+  });
+
   router.delete('/event-schedule/:id', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
     const { error } = await supabase.from('event_schedule').delete().eq('id', req.params.id);

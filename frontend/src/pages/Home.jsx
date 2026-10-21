@@ -19,7 +19,7 @@ function nextOccurrences(schedule, todayStr, count = 3) {
   for (let i = 0; i < 14 && out.length < count; i++) {
     const nightStr = addDays(todayStr, i);
     const dow = new Date(nightStr + 'T12:00:00').getDay();
-    eventsForGuildDay(schedule, dow).forEach((s) => out.push({
+    eventsForGuildDay(schedule, dow, nightStr).forEach((s) => out.push({
       ...s,
       date: isAfterMidnight(s.event_time) ? addDays(nightStr, 1) : nightStr,
     }));

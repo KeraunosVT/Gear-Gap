@@ -148,12 +148,19 @@ export function guildDayOfWeek(dow, eventTime) {
 // of the night it belongs to — worth labelling wherever it's listed.
 export const isAfterMidnight = (eventTime) => Boolean(eventTime) && minutesOf(eventTime) < guildDayStartMin;
 
+// Has one night been cancelled out of a weekly event? `dateStr` is the guild
+// night, the same key signups use.
+export function eventSkipsDate(s, dateStr) {
+  return Boolean(dateStr) && Array.isArray(s?.skip_dates) && s.skip_dates.includes(dateStr);
+}
+
 // Events for one guild night, newest-last. Not a plain day_of_week filter:
 // Saturday night's list has to pull in the Sunday 00:30 row and leave Sunday
-// evening's rows out.
-export function eventsForGuildDay(schedule, dow) {
+// evening's rows out. Pass `dateStr` (the night) to also drop any event
+// cancelled for that one night; without it you get the weekly pattern.
+export function eventsForGuildDay(schedule, dow, dateStr = null) {
   return (schedule || [])
-    .filter((s) => guildDayOfWeek(s.day_of_week, s.event_time) === dow)
+    .filter((s) => guildDayOfWeek(s.day_of_week, s.event_time) === dow && !eventSkipsDate(s, dateStr))
     .sort((a, b) => (a.event_time ? daySlot(a.event_time) : -1) - (b.event_time ? daySlot(b.event_time) : -1)
       || String(a.name).localeCompare(String(b.name)));
 }
