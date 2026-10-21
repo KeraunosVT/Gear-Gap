@@ -1,5 +1,6 @@
 import { Component } from 'react';
 import { useLocation } from 'react-router-dom';
+import { translate as t } from '../i18n';
 
 // ── THE LAST LINE BETWEEN A BAD RENDER AND A WHITE SCREEN ───────────────────
 // React unmounts the whole tree when a render throws and nothing catches it.
@@ -72,16 +73,14 @@ class ErrorBoundary extends Component {
               <line x1="12" y1="9" x2="12" y2="13" />
               <line x1="12" y1="17" x2="12.01" y2="17" />
             </svg>
-            <span className="eyebrow text-[10px] text-oxblood">This page broke</span>
+            <span className="eyebrow text-[10px] text-oxblood">{t('errorBoundary.eyebrow')}</span>
           </div>
 
           <h2 className="font-display text-2xl text-bone tracking-[0.06em] mb-3">
-            Something went wrong here
+            {t('errorBoundary.title')}
           </h2>
           <p className="text-ash text-sm mb-6">
-            {retryFailed
-              ? 'Retrying hasn\'t helped, so this will need fixing rather than waiting out. Nothing you did caused it, and nothing has been lost — the rest of the site still works.'
-              : 'The rest of the site still works — the sidebar is live, so you can head somewhere else. Nothing has been lost.'}
+            {retryFailed ? t('errorBoundary.retryFailed') : t('errorBoundary.body')}
           </p>
 
           <div className="flex flex-wrap items-center gap-3">
@@ -90,14 +89,14 @@ class ErrorBoundary extends Component {
                 onClick={this.retry}
                 className="px-5 py-2.5 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors"
               >
-                Try again
+                {t('common.tryAgain')}
               </button>
             )}
             <button
               onClick={() => window.location.reload()}
               className="px-5 py-2.5 border border-brass/50 text-brassbright hover:bg-panelup rounded-lg transition-colors"
             >
-              Reload the page
+              {t('errorBoundary.reload')}
             </button>
           </div>
 
@@ -106,7 +105,7 @@ class ErrorBoundary extends Component {
               most useful thing a member can pass on. */}
           <details className="mt-6 group">
             <summary className="text-ash/60 text-xs cursor-pointer hover:text-ash select-none">
-              Details to pass on
+              {t('errorBoundary.details')}
             </summary>
             <pre className="mt-2 p-3 bg-hall border border-line rounded-lg text-[11px] text-ash overflow-auto max-h-40 whitespace-pre-wrap break-words">
               {String(error?.message || error)}

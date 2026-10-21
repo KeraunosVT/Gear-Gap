@@ -241,13 +241,19 @@ export const TIMEZONE_OPTIONS = [
   { value: 'Australia/Sydney', label: 'Sydney (AET)' },
 ];
 
+// The language full timestamps are written in (month names). Set by i18n.jsx
+// when the site language changes; held here so this module stays free of
+// React and still loads under Node for the tests.
+let displayLocale = 'en-US';
+export function setDisplayLocale(tag) { displayLocale = tag || 'en-US'; }
+
 export function fmtDatetime(iso) {
   if (!iso) return '';
   const d = new Date(iso);
   const tz = getDisplayTimezone();
   const zoneName = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' })
     .formatToParts(d).find((p) => p.type === 'timeZoneName')?.value || '';
-  return d.toLocaleString('en-US', {
+  return d.toLocaleString(displayLocale, {
     month: 'short', day: 'numeric',
     hour: 'numeric', minute: '2-digit',
     timeZone: tz,

@@ -6,6 +6,7 @@ import ErrorBoundary, { RouteErrorBoundary } from './components/ErrorBoundary';
 import Topbar from './components/Topbar';
 import EliteTimerBar from './components/EliteTimerBar';
 import Sigil from './components/Sigil';
+import { useT } from './i18n';
 import Home from './pages/Home';
 import MatchStats from './pages/MatchStats';
 import GuildFeuds from './pages/GuildFeuds';
@@ -69,10 +70,11 @@ function Layout() {
 }
 
 function Splash() {
+  const { t } = useT();
   return (
     <div className="min-h-screen bg-ink flex flex-col items-center justify-center gap-5">
       <Sigil className="w-12 h-16 text-brass rise" />
-      <div className="eyebrow text-[10px] text-ash">Verifying standing…</div>
+      <div className="eyebrow text-[10px] text-ash">{t('app.verifying')}</div>
     </div>
   );
 }

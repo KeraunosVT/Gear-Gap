@@ -1,13 +1,15 @@
 import Sigil from '../Sigil';
+import { useT } from '../../i18n';
 
 // The admin-gate screen — identical copy in every one of its 6+ call sites
 // today, hence the default reason text rather than requiring callers to pass one.
-export default function RestrictedGate({ reason = 'The war table is open to officers of the house alone.' }) {
+export default function RestrictedGate({ reason }) {
+  const { t } = useT();
   return (
     <div className="max-w-2xl mx-auto px-6 py-24 text-center">
       <Sigil className="w-12 h-16 text-oxblood mx-auto mb-6" />
-      <h1 className="font-display text-2xl text-bone tracking-[0.08em] mb-3">Restricted</h1>
-      <p className="text-ash">{reason}</p>
+      <h1 className="font-display text-2xl text-bone tracking-[0.08em] mb-3">{t('restricted.title')}</h1>
+      <p className="text-ash">{reason || t('restricted.reason')}</p>
     </div>
   );
 }

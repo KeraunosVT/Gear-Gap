@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { useLocation, NavLink } from 'react-router-dom';
 import { Moon, Sun, Check, PanelLeft, ChevronRight } from 'lucide-react';
-import { guildLinks, memberLinks, adminLinks } from './Sidebar';
+import { guildLinks, memberLinks, adminLinks, navLabel } from './Sidebar';
+import { useT } from '../i18n';
 import { applyTheme } from '../theme';
 import { applyPalette, PALETTES } from '../palette';
 import { useGuild } from '../guild';
@@ -17,26 +18,27 @@ const ALL_LINKS = [...guildLinks, ...memberLinks, ...adminLinks];
 // and gives them the group as a parent crumb.
 // `house` is threaded in rather than read from a module import: guild identity
 // is fetched at runtime now, and a plain function can't call a hook.
-function trailFor(pathname, house) {
+function trailFor(pathname, house, t) {
+  const L = (label) => navLabel(t, label);
   for (const link of ALL_LINKS) {
-    if (link.to === pathname) return [{ label: link.label }];
+    if (link.to === pathname) return [{ label: L(link.label) }];
     const child = (link.children || []).find((c) => c.to === pathname);
-    if (child) return [{ label: link.label, to: link.to }, { label: child.label }];
+    if (child) return [{ label: L(link.label), to: link.to }, { label: L(child.label) }];
   }
   // Routed pages with no nav entry of their own.
   if (pathname.startsWith('/roster/')) {
-    return [{ label: 'Roster', to: '/roster' }, { label: decodeURIComponent(pathname.slice('/roster/'.length)) }];
+    return [{ label: L('Roster'), to: '/roster' }, { label: decodeURIComponent(pathname.slice('/roster/'.length)) }];
   }
   // One night's roll. Without this it falls through to the house name, which
   // reads as "you're nowhere" on a page reached by clicking a link.
   if (pathname.startsWith('/attendance/')) {
-    return [{ label: 'Event Calendar', to: '/attendance/calendar' }, { label: 'Event' }];
+    return [{ label: L('Event Calendar'), to: '/attendance/calendar' }, { label: t('nav.event') }];
   }
   // Resolver route: redirects to /roster/<name>, but is the active path for
   // an instant before that lands.
-  if (pathname === '/me') return [{ label: 'My Profile' }];
+  if (pathname === '/me') return [{ label: t('nav.myProfile') }];
   // Legacy aliases kept in App.jsx so old links still resolve.
-  if (pathname === '/dashboard' || pathname === '/match-stats') return [{ label: 'War Record', to: '/war-record' }];
+  if (pathname === '/dashboard' || pathname === '/match-stats') return [{ label: L('War Record'), to: '/war-record' }];
   return [{ label: house }];
 }
 
@@ -47,6 +49,7 @@ const PALETTE_META = {
 };
 
 export default function Topbar({ collapsed, onToggleSidebar }) {
+  const { t } = useT();
   const { pathname } = useLocation();
   const { house } = useGuild();
   const isHome = pathname === '/';
@@ -78,8 +81,8 @@ export default function Topbar({ collapsed, onToggleSidebar }) {
       <div className="flex items-center gap-3 min-w-0">
         <button
           onClick={onToggleSidebar}
-          title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          title={collapsed ? t('topbar.expandSidebar') : t('topbar.collapseSidebar')}
+          aria-label={collapsed ? t('topbar.expandSidebar') : t('topbar.collapseSidebar')}
           className="p-2 -ml-2 rounded-md text-ash hover:text-bone hover:bg-panel transition-colors shrink-0"
         >
           <PanelLeft className="w-4 h-4" />
@@ -87,9 +90,9 @@ export default function Topbar({ collapsed, onToggleSidebar }) {
         <div className="w-px h-5 bg-line shrink-0" />
         <nav className="flex items-center gap-1.5 text-sm min-w-0">
           <NavLink to="/" className={`shrink-0 transition-colors ${isHome ? 'text-bone font-semibold' : 'text-ash hover:text-bone'}`}>
-            Dashboard
+            {navLabel(t, 'Dashboard')}
           </NavLink>
-          {!isHome && trailFor(pathname, house).map((crumb, i, all) => (
+          {!isHome && trailFor(pathname, house, t).map((crumb, i, all) => (
             <span key={crumb.label} className="flex items-center gap-1.5 min-w-0">
               <ChevronRight className="w-3.5 h-3.5 text-ash/50 shrink-0" />
               {/* Only the last crumb is the current page; the rest navigate. */}
@@ -108,8 +111,8 @@ export default function Topbar({ collapsed, onToggleSidebar }) {
       <div ref={ref} className="relative">
         <button
           onClick={() => setOpen((o) => !o)}
-          title="Appearance"
-          aria-label="Appearance"
+          title={t('topbar.appearance')}
+          aria-label={t('topbar.appearance')}
           aria-haspopup="true"
           aria-expanded={open}
           className="p-2 rounded-md text-ash hover:text-bone hover:bg-panel transition-colors"
@@ -119,23 +122,23 @@ export default function Topbar({ collapsed, onToggleSidebar }) {
 
         {open && (
           <div className="absolute right-0 mt-2 w-56 panel rounded-lg shadow-xl p-3 z-50">
-            <div className="eyebrow text-[10px] text-ash mb-2">Theme</div>
+            <div className="eyebrow text-[10px] text-ash mb-2">{t('topbar.theme')}</div>
             <div className="flex gap-2 mb-4">
               <button
                 onClick={() => chooseTheme('dark')}
                 className={`flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-sm transition-colors ${theme === 'dark' ? 'bg-panelup text-brassbright' : 'text-ash hover:text-bone'}`}
               >
-                <Moon className="w-3.5 h-3.5" /> Dark
+                <Moon className="w-3.5 h-3.5" /> {t('topbar.dark')}
               </button>
               <button
                 onClick={() => chooseTheme('light')}
                 className={`flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-md text-sm transition-colors ${theme === 'light' ? 'bg-panelup text-brassbright' : 'text-ash hover:text-bone'}`}
               >
-                <Sun className="w-3.5 h-3.5" /> Light
+                <Sun className="w-3.5 h-3.5" /> {t('topbar.light')}
               </button>
             </div>
 
-            <div className="eyebrow text-[10px] text-ash mb-2">Look</div>
+            <div className="eyebrow text-[10px] text-ash mb-2">{t('topbar.look')}</div>
             <div className="space-y-1">
               {PALETTES.map((p) => (
                 <button

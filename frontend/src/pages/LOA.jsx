@@ -10,10 +10,15 @@ import LoaWeekGrid from '../components/LoaWeekGrid';
 import { PageShell } from '../components/ui/PageShell';
 import { useFlash } from '../components/ui/useFlash';
 import Toast from '../components/ui/Toast';
+import { useT, fmtDay, weekdayName } from '../i18n';
 
-const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
 export default function LOA() {
+  const { t, lang } = useT();
+  // Weekday names in the site language, Sunday first. Built per render (not at
+  // module load) so switching language updates them.
+  const DAYS = useMemo(() => [0, 1, 2, 3, 4, 5, 6].map((i) => cap(weekdayName(i))), [lang]);
   const { user, can } = useAuth();
   const [schedule, setSchedule] = useState([]);
   const [myEntries, setMyEntries] = useState([]);
@@ -69,7 +74,7 @@ export default function LOA() {
         setMyEntries(mine.data.entries || []);
         setAllEntries(all.data.entries || []);
       })
-      .catch((err) => setError(err.response?.data?.error || 'Failed to load.'))
+      .catch((err) => setError(err.response?.data?.error || t('loapage.loadFailed')))
       .finally(() => setLoading(false));
   };
 
@@ -172,7 +177,7 @@ export default function LOA() {
           discord_id: submitTarget?.id,
           display_name: submitTarget?.name,
         });
-        flash(submitTarget ? `LOA submitted for ${submitTarget.name}.` : 'LOA submitted.');
+        flash(submitTarget ? t('loapage.submittedFor', { name: submitTarget.name }) : t('loapage.submitted'));
       } else if (loaType === 'recurring') {
         // One row per selected day — the backend (and the /loa Discord command)
         // only ever submits a single day at a time, so multi-day just fans out
@@ -189,8 +194,8 @@ export default function LOA() {
           display_name: submitTarget?.name,
         })));
         flash(submitTarget
-          ? `LOA submitted for ${submitTarget.name} — ${days.length} day${days.length === 1 ? '' : 's'}.`
-          : `LOA submitted — ${days.length} day${days.length === 1 ? '' : 's'}.`);
+          ? t('loapage.submittedForDays', { name: submitTarget.name, count: days.length })
+          : t('loapage.submittedDays', { count: days.length }));
       } else {
         await axios.post('/api/loa', {
           type: 'range',
@@ -200,13 +205,13 @@ export default function LOA() {
           discord_id: submitTarget?.id,
           display_name: submitTarget?.name,
         });
-        flash(submitTarget ? `LOA submitted for ${submitTarget.name}.` : 'LOA submitted.');
+        flash(submitTarget ? t('loapage.submittedFor', { name: submitTarget.name }) : t('loapage.submitted'));
       }
       setEventDate(''); setEventScheduleId(''); setEventStartTime(''); setEventEndTime(''); setStartDate(''); setEndDate('');
       setRecurDays(new Set()); setRecurEventScheduleId(''); setRecurStartTime(''); setRecurEndTime(''); setReason(''); setSubmitFor(''); setSubmitForQuery('');
       load();
     } catch (err) {
-      flash(err.response?.data?.error || 'Failed to submit LOA.', false);
+      flash(err.response?.data?.error || t('loapage.submitFailed'), false);
     } finally {
       setSubmitting(false);
     }
@@ -218,10 +223,10 @@ export default function LOA() {
   const cancel = async (id) => {
     try {
       await axios.delete(`/api/loa/${id}`);
-      flash('LOA cancelled.');
+      flash(t('loapage.cancelled'));
       load();
     } catch (err) {
-      flash(err.response?.data?.error || 'Failed to cancel.', false);
+      flash(err.response?.data?.error || t('loapage.cancelFailed'), false);
     }
   };
 
@@ -232,20 +237,20 @@ export default function LOA() {
   const skipOccurrence = async (id, date) => {
     try {
       await axios.delete(`/api/loa/${id}/occurrences/${date}`);
-      flash('Removed that one — the rest of the series still stands.');
+      flash(t('loapage.skipped'));
       load();
     } catch (err) {
-      flash(err.response?.data?.error || 'Failed to remove that occurrence.', false);
+      flash(err.response?.data?.error || t('loapage.skipFailed'), false);
     }
   };
 
   const restoreOccurrence = async (id, date) => {
     try {
       await axios.post(`/api/loa/${id}/occurrences/${date}`);
-      flash('Put back.');
+      flash(t('loapage.restored'));
       load();
     } catch (err) {
-      flash(err.response?.data?.error || 'Failed to restore that occurrence.', false);
+      flash(err.response?.data?.error || t('loapage.restoreFailed'), false);
     }
   };
 
@@ -255,44 +260,39 @@ export default function LOA() {
   const formatEventName = (entry) => {
     const ev = scheduleById[entry.event_schedule_id];
     const window = entry.start_time
-      ? (entry.end_time ? `${fmtTimeEst(entry.start_time)} – ${fmtTimeEst(entry.end_time)}` : `from ${fmtTimeEst(entry.start_time)}`)
+      ? (entry.end_time ? `${fmtTimeEst(entry.start_time)} – ${fmtTimeEst(entry.end_time)}` : t('loapage.fromLower', { time: fmtTimeEst(entry.start_time) }))
       : '';
     if (ev) {
-      const time = ev.event_time ? ` at ${fmtTimeEst(ev.event_time)}` : '';
+      const time = ev.event_time ? ` ${t('common.at')} ${fmtTimeEst(ev.event_time)}` : '';
       return `${ev.name}${time}${window ? ` (${window})` : ''}`;
     }
-    if (!entry.start_time) return 'Event';
-    return entry.end_time ? window : `From ${fmtTimeEst(entry.start_time)}`;
+    if (!entry.start_time) return t('loapage.event');
+    return entry.end_time ? window : t('cal.loaFrom', { time: fmtTimeEst(entry.start_time) });
   };
 
-  const formatEventLabel = (entry) =>
-    `${formatEventName(entry)} — ${new Date(entry.event_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+  const formatEventLabel = (entry) => `${formatEventName(entry)} — ${fmtDay(entry.event_date)}`;
 
-  const formatRangeLabel = (entry) => {
-    const fmt = (d) => new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    return `${fmt(entry.start_date)} – ${fmt(entry.end_date)}`;
-  };
+  const formatRangeLabel = (entry) => `${fmtDay(entry.start_date)} – ${fmtDay(entry.end_date)}`;
 
   const formatRecurringLabel = (entry) => {
     const ev = scheduleById[entry.event_schedule_id];
-    const scope = ev ? ` — ${ev.name}${ev.event_time ? ` at ${fmtTimeEst(ev.event_time)}` : ''}` : '';
+    const scope = ev ? ` — ${ev.name}${ev.event_time ? ` ${t('common.at')} ${fmtTimeEst(ev.event_time)}` : ''}` : '';
     const window = entry.start_time
-      ? (entry.end_time ? ` ${fmtTimeEst(entry.start_time)} – ${fmtTimeEst(entry.end_time)}` : ` from ${fmtTimeEst(entry.start_time)}`)
+      ? (entry.end_time ? ` ${fmtTimeEst(entry.start_time)} – ${fmtTimeEst(entry.end_time)}` : ` ${t('loapage.fromLower', { time: fmtTimeEst(entry.start_time) })}`)
       : '';
-    return `Every ${DAYS[entry.day_of_week]}${window}${scope}`;
+    return `${t('cal.everyDay', { day: weekdayName(entry.day_of_week) })}${window}${scope}`;
   };
 
   // Same recurring entry, but as it reads on one specific occurrence in the
   // dated agenda rather than the standing-rule summary above.
   const formatRecurringOccurrence = (entry) => {
     const ev = scheduleById[entry.event_schedule_id];
-    if (ev) return `${ev.name}${ev.event_time ? ` at ${fmtTimeEst(ev.event_time)}` : ''}`;
-    if (!entry.start_time) return 'All day';
-    return entry.end_time ? `${fmtTimeEst(entry.start_time)} – ${fmtTimeEst(entry.end_time)}` : `From ${fmtTimeEst(entry.start_time)}`;
+    if (ev) return `${ev.name}${ev.event_time ? ` ${t('common.at')} ${fmtTimeEst(ev.event_time)}` : ''}`;
+    if (!entry.start_time) return t('loapage.allDay');
+    return entry.end_time ? `${fmtTimeEst(entry.start_time)} – ${fmtTimeEst(entry.end_time)}` : t('cal.loaFrom', { time: fmtTimeEst(entry.start_time) });
   };
 
-  const formatDateHeader = (dateStr) =>
-    new Date(dateStr + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+  const formatDateHeader = (dateStr) => fmtDay(dateStr, { weekday: 'long', month: 'short', day: 'numeric' });
 
   // Every YYYY-MM-DD from start to end inclusive. Built from UTC-based day math
   // rather than local Date/toISOString round-tripping, so it can't skip or repeat
@@ -310,8 +310,7 @@ export default function LOA() {
 
   const todayStr = todayInGuildTz();
 
-  const shortDate = (d) =>
-    new Date(d + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const shortDate = (d) => fmtDay(d);
 
   // Dates lifted out of a recurring series that are still ahead of us. Past
   // exceptions stay stored on purpose — unavailableOn() is asked about finished
@@ -467,7 +466,7 @@ export default function LOA() {
   return (
     <PageShell maxWidth="max-w-4xl">
       <div className="flex items-center justify-between gap-4 flex-wrap mb-6">
-        <p className="text-sm text-ash">Let officers know when you'll be missing events.</p>
+        <p className="text-sm text-ash">{t('loapage.intro')}</p>
         {/* The schedule is managed from the Event Calendar now; this keeps the
             old way in working for officers who look for it here. */}
         {can('schedule') && (
@@ -475,7 +474,7 @@ export default function LOA() {
             to="/attendance/calendar"
             className="inline-flex items-center gap-2 text-sm text-brass hover:text-brassbright transition-colors shrink-0"
           >
-            <Settings className="w-4 h-4" /> Manage schedule on the Event Calendar
+            <Settings className="w-4 h-4" /> {t('loapage.manageOnCalendar')}
           </Link>
         )}
       </div>
@@ -485,18 +484,18 @@ export default function LOA() {
       {error && <div className="mb-6 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
 
       {loading ? (
-        <div className="py-20 text-center text-ash">Loading…</div>
+        <div className="py-20 text-center text-ash">{t('common.loading')}</div>
       ) : (
         <>
           {/* Tabs */}
           <Tabs
             variant="flat"
             items={[
-              { key: 'submit', label: 'Submit LOA' },
-              { key: 'mine', label: 'My LOAs' },
-              { key: 'board', label: 'LOA Board' },
-              { key: 'calendar', label: 'Calendar' },
-              { key: 'week', label: 'Week' },
+              { key: 'submit', label: t('loapage.tabSubmit') },
+              { key: 'mine', label: t('loapage.tabMine') },
+              { key: 'board', label: t('loapage.tabBoard') },
+              { key: 'calendar', label: t('loapage.tabCalendar') },
+              { key: 'week', label: t('cal.week') },
             ]}
             active={tab}
             onChange={setTab}
@@ -507,16 +506,16 @@ export default function LOA() {
             <div className="panel rounded-lg p-6 space-y-5">
               {can('loa.admin') && (
                 <div className="relative w-full md:w-64">
-                  <label className="eyebrow text-[10px] text-ash block mb-2">Submit for</label>
+                  <label className="eyebrow text-[10px] text-ash block mb-2">{t('loapage.submitFor')}</label>
                   <div className="relative">
                     <input
                       type="text" value={submitForQuery} onChange={onSubmitForChange}
                       onFocus={() => setSubmitForOpen(true)} onBlur={onSubmitForBlur} onKeyDown={onSubmitForKeyDown}
-                      placeholder="Myself" autoComplete="off"
+                      placeholder={t('loapage.myself')} autoComplete="off"
                       className="w-full bg-hall border border-line rounded-lg pl-4 pr-9 py-2.5 text-bone focus:outline-none focus:border-brass"
                     />
                     {submitFor && (
-                      <button type="button" onClick={clearSubmitFor} title="Clear — submit for myself"
+                      <button type="button" onClick={clearSubmitFor} title={t('loapage.clearMyself')}
                         className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ash hover:text-oxblood">
                         <X className="w-3.5 h-3.5" />
                       </button>
@@ -540,50 +539,50 @@ export default function LOA() {
               <div className="flex gap-3">
                 <button onClick={() => setLoaType('event')}
                   className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${loaType === 'event' ? 'border-brass bg-panel text-brassbright' : 'border-line text-ash hover:text-bone'}`}>
-                  <CalendarX2 className="w-4 h-4" /> Single event
+                  <CalendarX2 className="w-4 h-4" /> {t('loapage.typeEvent')}
                 </button>
                 <button onClick={() => setLoaType('range')}
                   className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${loaType === 'range' ? 'border-brass bg-panel text-brassbright' : 'border-line text-ash hover:text-bone'}`}>
-                  <CalendarOff className="w-4 h-4" /> Date range
+                  <CalendarOff className="w-4 h-4" /> {t('loapage.typeRange')}
                 </button>
                 <button onClick={() => setLoaType('recurring')}
                   className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${loaType === 'recurring' ? 'border-brass bg-panel text-brassbright' : 'border-line text-ash hover:text-bone'}`}>
-                  <Repeat className="w-4 h-4" /> Recurring
+                  <Repeat className="w-4 h-4" /> {t('loapage.typeRecurring')}
                 </button>
               </div>
 
               {loaType === 'event' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="eyebrow text-[10px] text-ash block mb-2">Date</label>
+                    <label className="eyebrow text-[10px] text-ash block mb-2">{t('loapage.date')}</label>
                     <input type="date" value={eventDate} onChange={(e) => { setEventDate(e.target.value); setEventScheduleId(''); }}
                       className="w-full bg-hall border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass" />
                   </div>
                   <div>
-                    <label className="eyebrow text-[10px] text-ash block mb-2">Event <span className="text-ash/50">(optional — leave blank to use a start time instead)</span></label>
+                    <label className="eyebrow text-[10px] text-ash block mb-2">{t('loapage.eventLabel')} <span className="text-ash/50">{t('loapage.eventHintEvent')}</span></label>
                     {eventsOnDate.length === 0 && eventDate ? (
-                      <p className="text-ash text-sm py-2.5">No events scheduled for {DAYS[new Date(eventDate + 'T12:00:00').getDay()]}.</p>
+                      <p className="text-ash text-sm py-2.5">{t('loapage.noEventsFor', { day: weekdayName(new Date(eventDate + 'T12:00:00').getDay()) })}</p>
                     ) : (
                       <select value={eventScheduleId} onChange={(e) => setEventScheduleId(e.target.value)}
                         className="w-full bg-hall border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass">
-                        <option value="">— select event —</option>
+                        <option value="">{t('loapage.selectEvent')}</option>
                         {eventsOnDate.map((s) => <option key={s.id} value={s.id}>{s.name}{s.event_time ? ` (${fmtTimeEst(s.event_time)})` : ''}</option>)}
 
                       </select>
                     )}
                   </div>
                   <div>
-                    <label className="eyebrow text-[10px] text-ash block mb-2">Start time <span className="text-ash/50">(optional — "I'm out after this time")</span></label>
+                    <label className="eyebrow text-[10px] text-ash block mb-2">{t('loapage.startTime')} <span className="text-ash/50">{t('loapage.startHintEvent')}</span></label>
                     <input type="time" value={eventStartTime}
                       onChange={(e) => { setEventStartTime(e.target.value); if (!e.target.value) setEventEndTime(''); }}
                       className="w-full bg-hall border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass" />
-                    <p className="text-ash/50 text-xs mt-1">e.g. you can make the 6pm AB but nothing scheduled after — leave Event blank and set 6:00 PM here.</p>
+                    <p className="text-ash/50 text-xs mt-1">{t('loapage.startExampleEvent')}</p>
                   </div>
                   <div>
-                    <label className="eyebrow text-[10px] text-ash block mb-2">End time <span className="text-ash/50">(optional — "but I'll be back after this")</span></label>
+                    <label className="eyebrow text-[10px] text-ash block mb-2">{t('loapage.endTime')} <span className="text-ash/50">{t('loapage.endHint')}</span></label>
                     <input type="time" value={eventEndTime} onChange={(e) => setEventEndTime(e.target.value)} disabled={!eventStartTime}
                       className="w-full bg-hall border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass disabled:opacity-40" />
-                    <p className="text-ash/50 text-xs mt-1">e.g. out 7–8pm, back for anything after — set a start time first.</p>
+                    <p className="text-ash/50 text-xs mt-1">{t('loapage.endExampleEvent')}</p>
                   </div>
                 </div>
               )}
@@ -591,12 +590,12 @@ export default function LOA() {
               {loaType === 'range' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="eyebrow text-[10px] text-ash block mb-2">Start date</label>
+                    <label className="eyebrow text-[10px] text-ash block mb-2">{t('loapage.startDate')}</label>
                     <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)}
                       className="w-full bg-hall border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass" />
                   </div>
                   <div>
-                    <label className="eyebrow text-[10px] text-ash block mb-2">End date</label>
+                    <label className="eyebrow text-[10px] text-ash block mb-2">{t('loapage.endDate')}</label>
                     <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)}
                       className="w-full bg-hall border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass" />
                   </div>
@@ -606,7 +605,7 @@ export default function LOA() {
               {loaType === 'recurring' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="eyebrow text-[10px] text-ash block mb-2">Day{recurDays.size > 1 ? 's' : ''} <span className="text-ash/50">(click to select more than one)</span></label>
+                    <label className="eyebrow text-[10px] text-ash block mb-2">{t('loapage.days', { count: Math.max(1, recurDays.size) })} <span className="text-ash/50">{t('loapage.daysHint')}</span></label>
                     <div className="flex flex-wrap gap-1.5">
                       {DAYS.map((d, i) => (
                         <button
@@ -615,45 +614,45 @@ export default function LOA() {
                             recurDays.has(i) ? 'border-brass bg-brass text-ink' : 'border-line text-ash hover:text-bone'
                           }`}
                         >
-                          {d.slice(0, 3)}
+                          {weekdayName(i, 'short')}
                         </button>
                       ))}
                     </div>
                   </div>
                   <div>
-                    <label className="eyebrow text-[10px] text-ash block mb-2">Event <span className="text-ash/50">(optional — blank means the whole day)</span></label>
+                    <label className="eyebrow text-[10px] text-ash block mb-2">{t('loapage.eventLabel')} <span className="text-ash/50">{t('loapage.eventHintRecurring')}</span></label>
                     <select value={recurEventScheduleId} onChange={(e) => setRecurEventScheduleId(e.target.value)} disabled={recurDays.size !== 1}
                       className="w-full bg-hall border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass disabled:opacity-40">
-                      <option value="">Whole day</option>
+                      <option value="">{t('loapage.wholeDay')}</option>
                       {eventsOnRecurDay.map((s) => <option key={s.id} value={s.id}>{s.name}{s.event_time ? ` (${fmtTimeEst(s.event_time)})` : ''}</option>)}
                     </select>
-                    {recurDays.size > 1 && <p className="text-ash/50 text-xs mt-1">Pick a single day to scope this to one event — multiple days always covers the whole day.</p>}
+                    {recurDays.size > 1 && <p className="text-ash/50 text-xs mt-1">{t('loapage.singleDayNote')}</p>}
                   </div>
                   <div>
-                    <label className="eyebrow text-[10px] text-ash block mb-2">Start time <span className="text-ash/50">(optional — blank means absent all day)</span></label>
+                    <label className="eyebrow text-[10px] text-ash block mb-2">{t('loapage.startTime')} <span className="text-ash/50">{t('loapage.startHintRecurring')}</span></label>
                     <input type="time" value={recurStartTime}
                       onChange={(e) => { setRecurStartTime(e.target.value); if (!e.target.value) setRecurEndTime(''); }}
                       className="w-full bg-hall border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass" />
-                    <p className="text-ash/50 text-xs mt-1">Only events at or after this time will count you absent.</p>
+                    <p className="text-ash/50 text-xs mt-1">{t('loapage.startNoteRecurring')}</p>
                   </div>
                   <div>
-                    <label className="eyebrow text-[10px] text-ash block mb-2">End time <span className="text-ash/50">(optional — "but I'll be back after this")</span></label>
+                    <label className="eyebrow text-[10px] text-ash block mb-2">{t('loapage.endTime')} <span className="text-ash/50">{t('loapage.endHint')}</span></label>
                     <input type="time" value={recurEndTime} onChange={(e) => setRecurEndTime(e.target.value)} disabled={!recurStartTime}
                       className="w-full bg-hall border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass disabled:opacity-40" />
-                    <p className="text-ash/50 text-xs mt-1">Leave blank to stay out for the rest of the day — set a start time first.</p>
+                    <p className="text-ash/50 text-xs mt-1">{t('loapage.endNoteRecurring')}</p>
                   </div>
                 </div>
               )}
 
               <div>
-                <label className="eyebrow text-[10px] text-ash block mb-2">Reason <span className="text-ash/50">(visible to officers only)</span></label>
-                <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. vacation, work trip"
+                <label className="eyebrow text-[10px] text-ash block mb-2">{t('cal.reason')} <span className="text-ash/50">{t('loapage.reasonHint')}</span></label>
+                <input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={t('loapage.reasonPlaceholder')}
                   className="w-full bg-hall border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass" />
               </div>
 
               <button onClick={submit} disabled={submitting || !(canSubmitEvent || canSubmitRange || canSubmitRecurring)}
                 className="px-6 py-3 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40">
-                {submitting ? 'Submitting…' : 'Submit LOA'}
+                {submitting ? t('loapage.submitting') : t('loapage.tabSubmit')}
               </button>
             </div>
           )}
@@ -662,7 +661,7 @@ export default function LOA() {
           {tab === 'mine' && (
             <div>
               {myEntries.length === 0 ? (
-                <div className="panel rounded-lg p-10 text-center text-ash">You have no LOAs on file.</div>
+                <div className="panel rounded-lg p-10 text-center text-ash">{t('loapage.noneMine')}</div>
               ) : (
                 <div className="panel rounded-lg divide-y divide-line">
                   {myEntries.map((e) => (
@@ -684,13 +683,13 @@ export default function LOA() {
                         {e.type === 'recurring' && upcomingSkips(e).length > 0 && (
                           <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[11px]">
                             <span className="text-ash/50 inline-flex items-center gap-1">
-                              <CalendarCheck className="w-3 h-3" /> except
+                              <CalendarCheck className="w-3 h-3" /> {t('loapage.except')}
                             </span>
                             {upcomingSkips(e).map((sd) => (
                               <button
                                 key={sd}
                                 onClick={() => restoreOccurrence(e.id, sd)}
-                                title={`Put ${shortDate(sd)} back on this LOA`}
+                                title={t('loapage.putBack', { date: shortDate(sd) })}
                                 className="inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-ash/70 hover:border-brass hover:text-brassbright"
                               >
                                 {shortDate(sd)}
@@ -700,14 +699,14 @@ export default function LOA() {
                           </div>
                         )}
                       </div>
-                      <div className="text-xs text-ash/60 shrink-0 text-right" title="When this LOA was submitted">Filed {fmtDatetime(e.created_at)}</div>
+                      <div className="text-xs text-ash/60 shrink-0 text-right" title={t('loapage.filedTitle')}>{t('loapage.filed', { when: fmtDatetime(e.created_at) })}</div>
                       <button
                         onClick={() => (e.type !== 'recurring'
-                          || window.confirm(`Cancel this LOA for every ${DAYS[e.day_of_week]}?`)) && cancel(e.id)}
+                          || window.confirm(t('loapage.confirmCancelEvery', { day: weekdayName(e.day_of_week) }))) && cancel(e.id)}
                         className="text-ash hover:text-oxblood shrink-0"
                         title={e.type === 'recurring'
-                          ? `Cancel every ${DAYS[e.day_of_week]} — to drop a single week, use the X on that night in the Board`
-                          : 'Cancel LOA'}
+                          ? t('loapage.cancelEveryTitleBoard', { day: weekdayName(e.day_of_week) })
+                          : t('cal.cancelLoa')}
                       >
                         <X className="w-4 h-4" />
                       </button>
@@ -724,7 +723,7 @@ export default function LOA() {
               {recurringByMember.length > 0 && (
                 <div>
                   <div className="eyebrow text-[10px] text-brass mb-2 flex items-center gap-2">
-                    <Repeat className="w-3.5 h-3.5" /> Recurring
+                    <Repeat className="w-3.5 h-3.5" /> {t('loapage.typeRecurring')}
                   </div>
                   <div className="panel rounded-lg divide-y divide-line">
                     {recurringByMember.map((m) => {
@@ -739,14 +738,14 @@ export default function LOA() {
                               className="flex items-center gap-2 min-w-0 flex-1 text-left group"
                             >
                               <ChevronDown className={`w-3.5 h-3.5 shrink-0 text-ash transition-transform group-hover:text-brass ${isOpen ? 'rotate-180' : ''}`} />
-                              <span className="text-bone text-sm font-medium truncate">{m.display_name || 'Member'}</span>
+                              <span className="text-bone text-sm font-medium truncate">{m.display_name || t('cal.member')}</span>
                             </button>
                             <div className="flex items-center gap-1 shrink-0">
                               {DAYS.map((d, i) => {
                                 const entry = m.byDay[i];
                                 const active = !!entry;
                                 const title = active
-                                  ? `${d} — ${formatRecurringOccurrence(entry)}${can('loa.admin') && entry.reason ? ` · ${entry.reason}` : ''}${canCancel ? ' (click to cancel every ' + d + ')' : ''}`
+                                  ? `${d} — ${formatRecurringOccurrence(entry)}${can('loa.admin') && entry.reason ? ` · ${entry.reason}` : ''}${canCancel ? ` ${t('loapage.clickToCancelEvery', { day: weekdayName(i) })}` : ''}`
                                   : d;
                                 return (
                                   <button
@@ -757,7 +756,7 @@ export default function LOA() {
                                     // which is not enough between an officer's
                                     // finger and someone's standing absence.
                                     onClick={() => active && canCancel
-                                      && window.confirm(`Cancel this LOA for every ${d}?`) && cancel(entry.id)}
+                                      && window.confirm(t('loapage.confirmCancelEvery', { day: weekdayName(i) })) && cancel(entry.id)}
                                     disabled={!active || !canCancel}
                                     title={title}
                                     className={`w-6 h-6 rounded-full text-[10px] font-semibold border transition-colors ${
@@ -766,7 +765,7 @@ export default function LOA() {
                                         : 'border-line text-ash/30'
                                     }`}
                                   >
-                                    {d[0]}
+                                    {weekdayName(i, 'narrow')}
                                   </button>
                                 );
                               })}
@@ -785,9 +784,9 @@ export default function LOA() {
                                       {can('loa.admin') && entry.reason && <span className="text-ash/60 truncate">· {entry.reason}</span>}
                                       {canCancel && (
                                         <button
-                                          onClick={() => window.confirm(`Cancel this LOA for every ${d}?`) && cancel(entry.id)}
+                                          onClick={() => window.confirm(t('loapage.confirmCancelEvery', { day: weekdayName(i) })) && cancel(entry.id)}
                                           className="ml-auto text-ash hover:text-oxblood shrink-0"
-                                          title={`Cancel every ${d} — to drop a single week, use the X on that night in the agenda below`}
+                                          title={t('loapage.cancelEveryTitleAgenda', { day: weekdayName(i) })}
                                         >
                                           <X className="w-3.5 h-3.5" />
                                         </button>
@@ -801,14 +800,14 @@ export default function LOA() {
                                     {skips.length > 0 && (
                                       <div className="flex flex-wrap items-center gap-1.5 pl-24 text-[11px]">
                                         <span className="text-ash/50 inline-flex items-center gap-1">
-                                          <CalendarCheck className="w-3 h-3" /> here on
+                                          <CalendarCheck className="w-3 h-3" /> {t('loapage.hereOn')}
                                         </span>
                                         {skips.map((sd) => (
                                           <button
                                             key={sd}
                                             onClick={() => canCancel && restoreOccurrence(entry.id, sd)}
                                             disabled={!canCancel}
-                                            title={canCancel ? `Put ${shortDate(sd)} back on the LOA` : `Removed from this LOA`}
+                                            title={canCancel ? t('loapage.putBack', { date: shortDate(sd) }) : t('loapage.removedFrom')}
                                             className={`inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-ash/70 ${
                                               canCancel ? 'hover:border-brass hover:text-brassbright' : ''
                                             }`}
@@ -833,7 +832,7 @@ export default function LOA() {
 
               {agendaGroups.length === 0 ? (
                 recurringEntries.length === 0 && (
-                  <div className="panel rounded-lg p-10 text-center text-ash">No upcoming absences on file.</div>
+                  <div className="panel rounded-lg p-10 text-center text-ash">{t('loapage.noneUpcoming')}</div>
                 )
               ) : (
                 <div className="space-y-6">
@@ -841,7 +840,7 @@ export default function LOA() {
                     <div key={date}>
                       <div className="eyebrow text-[10px] text-brass mb-2 flex items-center gap-2">
                         {formatDateHeader(date)}
-                        {date === todayStr && <span className="text-oxblood">· Today</span>}
+                        {date === todayStr && <span className="text-oxblood">· {t('loapage.today')}</span>}
                       </div>
                       <div className="panel rounded-lg divide-y divide-line">
                         {entries.map((e) => (
@@ -852,7 +851,7 @@ export default function LOA() {
                               {e.type === 'recurring' && <Repeat className="w-4 h-4 text-brass" />}
                             </div>
                             <div className="min-w-0 flex-1">
-                              <div className="text-bone text-sm font-medium">{e.display_name || 'Member'}</div>
+                              <div className="text-bone text-sm font-medium">{e.display_name || t('cal.member')}</div>
                               <div className="text-xs text-ash">
                                 {e.type === 'event' && formatEventName(e)}
                                 {e.type === 'range' && formatRangeLabel(e)}
@@ -860,7 +859,7 @@ export default function LOA() {
                               </div>
                               {can('loa.admin') && e.reason && <div className="text-xs text-brass/70 mt-0.5">{e.reason}</div>}
                             </div>
-                            <div className="text-xs text-ash/60 shrink-0 text-right" title="When this LOA was submitted">Filed {fmtDatetime(e.created_at)}</div>
+                            <div className="text-xs text-ash/60 shrink-0 text-right" title={t('loapage.filedTitle')}>{t('loapage.filed', { when: fmtDatetime(e.created_at) })}</div>
                             {(can('loa.admin') || e.discord_id === user?.id) && (
                               e.type === 'recurring' ? (
                                 // A recurring entry is projected onto every
@@ -873,22 +872,22 @@ export default function LOA() {
                                   <button
                                     onClick={() => skipOccurrence(e.id, date)}
                                     className="text-ash hover:text-brassbright"
-                                    title={`Remove just ${formatDateHeader(date)} — every other ${DAYS[e.day_of_week]} stays`}
+                                    title={t('loapage.removeJust', { date: formatDateHeader(date), day: weekdayName(e.day_of_week) })}
                                   >
                                     <X className="w-4 h-4" />
                                   </button>
                                   <button
                                     onClick={() => window.confirm(
-                                      `Cancel this LOA for EVERY ${DAYS[e.day_of_week]}, not just ${formatDateHeader(date)}?`,
+                                      t('loapage.confirmCancelSeries', { day: weekdayName(e.day_of_week), date: formatDateHeader(date) }),
                                     ) && cancel(e.id)}
                                     className="text-ash/50 hover:text-oxblood"
-                                    title={`Cancel the whole series — every ${DAYS[e.day_of_week]}`}
+                                    title={t('loapage.cancelSeriesTitle', { day: weekdayName(e.day_of_week) })}
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
                                   </button>
                                 </div>
                               ) : (
-                                <button onClick={() => cancel(e.id)} className="text-ash hover:text-oxblood shrink-0" title="Cancel LOA">
+                                <button onClick={() => cancel(e.id)} className="text-ash hover:text-oxblood shrink-0" title={t('cal.cancelLoa')}>
                                   <X className="w-4 h-4" />
                                 </button>
                               )
@@ -911,27 +910,27 @@ export default function LOA() {
             <div className="panel rounded-lg p-4">
               <div className="flex items-center justify-between gap-3 mb-4">
                 <button onClick={() => shiftMonth(-1)}
-                  className="p-1.5 rounded-md text-ash hover:text-bone hover:bg-hall transition-colors" title="Previous month">
+                  className="p-1.5 rounded-md text-ash hover:text-bone hover:bg-hall transition-colors" title={t('loapage.prevMonth')}>
                   <ChevronDown className="w-4 h-4 rotate-90" />
                 </button>
                 <div className="flex items-center gap-3">
                   <h3 className="font-display text-lg text-bone tracking-[0.06em]">
-                    {new Date(`${calMonth}-01T12:00:00`).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+                    {cap(fmtDay(`${calMonth}-01`, { month: 'long', year: 'numeric' }))}
                   </h3>
                   {calMonth !== todayStr.slice(0, 7) && (
                     <button onClick={() => setCalMonth(todayStr.slice(0, 7))}
-                      className="text-xs text-brass hover:text-brassbright transition-colors">Today</button>
+                      className="text-xs text-brass hover:text-brassbright transition-colors">{t('loapage.today')}</button>
                   )}
                 </div>
                 <button onClick={() => shiftMonth(1)}
-                  className="p-1.5 rounded-md text-ash hover:text-bone hover:bg-hall transition-colors" title="Next month">
+                  className="p-1.5 rounded-md text-ash hover:text-bone hover:bg-hall transition-colors" title={t('loapage.nextMonth')}>
                   <ChevronDown className="w-4 h-4 -rotate-90" />
                 </button>
               </div>
 
               <div className="grid grid-cols-7 gap-1 mb-1">
-                {DAYS.map((d) => (
-                  <div key={d} className="eyebrow text-[10px] text-ash text-center py-1">{d.slice(0, 3)}</div>
+                {DAYS.map((d, i) => (
+                  <div key={d} className="eyebrow text-[10px] text-ash text-center py-1">{weekdayName(i, 'short')}</div>
                 ))}
               </div>
 
@@ -962,11 +961,11 @@ export default function LOA() {
                       <div className="space-y-0.5">
                         {out.slice(0, 2).map((e) => (
                           <div key={e.id} className="text-[10px] text-ash truncate leading-tight">
-                            {e.display_name || 'Member'}
+                            {e.display_name || t('cal.member')}
                           </div>
                         ))}
                         {out.length > 2 && (
-                          <div className="text-[10px] text-ash/60 leading-tight">+{out.length - 2} more</div>
+                          <div className="text-[10px] text-ash/60 leading-tight">{t('loapage.more', { count: out.length - 2 })}</div>
                         )}
                       </div>
                     </button>
@@ -978,17 +977,17 @@ export default function LOA() {
                 <div className="mt-4 border-t border-line pt-4">
                   <div className="flex items-center justify-between mb-3">
                     <h4 className="text-bone text-sm font-medium">{formatDateHeader(calDay)}</h4>
-                    <button onClick={() => setCalDay(null)} className="text-ash hover:text-bone" title="Close">
+                    <button onClick={() => setCalDay(null)} className="text-ash hover:text-bone" title={t('common.close')}>
                       <X className="w-4 h-4" />
                     </button>
                   </div>
                   <div className="space-y-1.5">
                     {(calendarByDate[calDay] || []).map((e) => (
                       <div key={e.id} className="flex items-center gap-3 bg-hall border border-line rounded-lg px-3 py-2 text-sm">
-                        <span className="text-bone w-40 shrink-0 truncate">{e.display_name || 'Member'}</span>
+                        <span className="text-bone w-40 shrink-0 truncate">{e.display_name || t('cal.member')}</span>
                         <span className="text-ash text-xs flex-1 truncate">
                           {e.type === 'recurring' ? formatRecurringOccurrence(e)
-                            : e.type === 'range' ? `Away ${formatRangeLabel(e)}`
+                            : e.type === 'range' ? t('loapage.awayRange', { range: formatRangeLabel(e) })
                               : formatEventName(e)}
                         </span>
                         {can('loa.admin') && e.reason && (
@@ -1001,7 +1000,7 @@ export default function LOA() {
               )}
 
               {Object.keys(calendarByDate).length === 0 && (
-                <p className="text-ash text-sm text-center py-6">Nobody is marked absent this month.</p>
+                <p className="text-ash text-sm text-center py-6">{t('loapage.noneMonth')}</p>
               )}
             </div>
           )}

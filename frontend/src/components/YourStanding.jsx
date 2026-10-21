@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { ClipboardList, CalendarOff, ClipboardCheck, Gauge, AlertTriangle, ArrowRight } from 'lucide-react';
 import { todayInGuildTz, fmtTimeEst, isAfterMidnight, loaStillApplies } from '../timeUtils';
 import axios from 'axios';
+import { useT, fmtDay } from '../i18n';
 
 // ── WHAT YOU OWE ────────────────────────────────────────────────────────────
 // Home was entirely guild-facing: six requests, not one of them personal. A
@@ -53,6 +54,7 @@ function Action({ tone, icon, children, to, cta }) {
 }
 
 export default function YourStanding() {
+  const { t } = useT();
   const [signups, setSignups] = useState(null);
   const [loa, setLoa] = useState(null);
   const [attendance, setAttendance] = useState(null);
@@ -92,23 +94,23 @@ export default function YourStanding() {
   if (canClaim.length) {
     actions.push(
       <Action
-        key="claim" tone="text-brassbright" to="/attendance/calendar" cta="Ask to be added"
+        key="claim" tone="text-brassbright" to="/attendance/calendar" cta={t('standing.askAdded')}
         icon={<AlertTriangle className="w-4 h-4 shrink-0" />}
       >
-        Attendance missed you on {canClaim.length} night{canClaim.length === 1 ? '' : 's'} you can still claim.
+        {t('standing.missed', { count: canClaim.length })}
       </Action>,
     );
   }
   if (!gear) {
     actions.push(
-      <Action key="nogear" tone="text-ash" to="/gear" cta="Upload one" icon={<Gauge className="w-4 h-4 shrink-0" />}>
-        No gear level on file.
+      <Action key="nogear" tone="text-ash" to="/gear" cta={t('standing.uploadOne')} icon={<Gauge className="w-4 h-4 shrink-0" />}>
+        {t('standing.noGear')}
       </Action>,
     );
   } else if (gearStale) {
     actions.push(
-      <Action key="stalegear" tone="text-ash" to="/gear" cta="Update it" icon={<Gauge className="w-4 h-4 shrink-0" />}>
-        Your gear level is {gearAge} days old.
+      <Action key="stalegear" tone="text-ash" to="/gear" cta={t('standing.updateIt')} icon={<Gauge className="w-4 h-4 shrink-0" />}>
+        {t('standing.gearOld', { count: gearAge })}
       </Action>,
     );
   }
@@ -117,9 +119,9 @@ export default function YourStanding() {
     <section className="border-b border-line bg-hall">
       <div className="max-w-6xl mx-auto px-6 py-7">
         <div className="flex items-baseline justify-between gap-4 mb-4 flex-wrap">
-          <div className="eyebrow text-ash text-[11px]">Where You Stand</div>
+          <div className="eyebrow text-ash text-[11px]">{t('standing.title')}</div>
           <Link to="/attendance/calendar" className="text-xs text-brass hover:text-brassbright transition-colors">
-            The week ahead →
+            {t('standing.weekAhead')}
           </Link>
         </div>
 
@@ -128,34 +130,34 @@ export default function YourStanding() {
             <Fact
               icon={<ClipboardList className="w-4 h-4" />}
               value={going.length}
-              label={`signed up${waitlisted.length ? ` · ${waitlisted.length} waitlisted` : ''}`}
+              label={`${t('standing.signedUp')}${waitlisted.length ? ` · ${t('standing.waitlisted', { count: waitlisted.length })}` : ''}`}
               tone={going.length ? 'text-bone' : 'text-ash/50'}
               to="/signups"
-              title="Upcoming events you've said you're coming to"
+              title={t('standing.signedUpTitle')}
             />
             <Fact
               icon={<CalendarOff className="w-4 h-4" />}
               value={away.length}
-              label="LOA on file"
+              label={t('standing.loaOnFile')}
               tone={away.length ? 'text-bone' : 'text-ash/50'}
               to="/loa"
-              title="Your absences that still apply"
+              title={t('standing.loaTitle')}
             />
             <Fact
               icon={<ClipboardCheck className="w-4 h-4" />}
               value={rate === null ? '—' : `${rate}%`}
-              label="attendance · 30d"
+              label={t('standing.attendance30')}
               tone={rate === null ? 'text-ash/50' : rate >= 70 ? 'text-bone' : 'text-brassbright'}
               to="/attendance/calendar"
-              title={rate === null ? 'No events logged in the last 30 days' : `${attended} of ${logged.length} nights`}
+              title={rate === null ? t('standing.noEvents30') : t('standing.nightsOf', { attended, count: logged.length })}
             />
             <Fact
               icon={<Gauge className="w-4 h-4" />}
               value={gear?.average ?? '—'}
-              label={gear ? `gear · ${gearAge}d ago` : 'no gear level'}
+              label={gear ? t('standing.gearAgo', { days: gearAge }) : t('standing.noGearShort')}
               tone={gear ? (gearStale ? 'text-brassbright' : 'text-bone') : 'text-ash/50'}
               to="/gear"
-              title={gear ? 'Your equipment level' : 'Upload a Watermark Upload to record one'}
+              title={gear ? t('standing.gearTitle') : t('standing.gearUploadTitle')}
             />
           </div>
 
@@ -163,13 +165,13 @@ export default function YourStanding() {
               doesn't tell you whether it's tonight. */}
           {nextUp && (
             <div className="text-sm text-ash border-t border-line pt-3">
-              Next up{' '}
+              {t('standing.nextUp')}{' '}
               <span className="text-bone">{nextUp.title}</span>
               {' · '}
-              {new Date(`${nextUp.event_date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
-              {nextUp.event_time && <> at {fmtTimeEst(nextUp.event_time)}</>}
-              {isAfterMidnight(nextUp.event_time) && <span className="text-ash/60"> (after midnight)</span>}
-              {nextUp.my_status === 'waitlist' && <span className="text-brass"> — you're on the waitlist</span>}
+              {fmtDay(nextUp.event_date, { weekday: 'short', month: 'short', day: 'numeric' })}
+              {nextUp.event_time && <> {t('common.at')} {fmtTimeEst(nextUp.event_time)}</>}
+              {isAfterMidnight(nextUp.event_time) && <span className="text-ash/60"> ({t('common.afterMidnight')})</span>}
+              {nextUp.my_status === 'waitlist' && <span className="text-brass"> — {t('standing.onWaitlist')}</span>}
             </div>
           )}
 

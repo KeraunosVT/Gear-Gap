@@ -1,4 +1,5 @@
 import { daySlot } from '../timeUtils';
+import { translate, fmtDay } from '../i18n';
 
 // ── A WEEK, LAID OUT ON TIME ────────────────────────────────────────────────
 // Seven columns of guild nights with time running down the side. Pulled out of
@@ -22,8 +23,7 @@ const HOUR_PX = 52;
 const BLOCK_MIN = 30;
 const DEFAULT_RANGE = [18 * 60, 24 * 60]; // 6pm–midnight when nothing is timed
 
-const shortDay = (dateStr) =>
-  new Date(`${dateStr}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'numeric', day: 'numeric' });
+const shortDay = (dateStr) => fmtDay(dateStr, { weekday: 'short', month: 'numeric', day: 'numeric' });
 
 function hourLabel(slot) {
   const h = Math.floor(slot / 60) % 24;
@@ -86,7 +86,7 @@ export default function WeekTimeGrid({ columns, today, nowSlot = null, renderIte
             of their own rather than being guessed into a slot. */}
         {anyUntimed && (
           <>
-            <div className="border-b border-line text-[10px] text-ash/60 px-1 py-1.5 text-right">any time</div>
+            <div className="border-b border-line text-[10px] text-ash/60 px-1 py-1.5 text-right">{translate('grid.anyTime')}</div>
             {columns.map((c) => (
               <div key={c.date} className={`border-b border-l border-line p-1 space-y-1 ${c.date === today ? 'bg-brass/5' : ''}`}>
                 {c.items.filter((it) => !it.eventTime).map((it) => (

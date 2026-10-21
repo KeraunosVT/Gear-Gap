@@ -24,6 +24,7 @@ import EmptyState from '../components/ui/EmptyState';
 import ErrorState from '../components/ui/ErrorState';
 import Toast from '../components/ui/Toast';
 import { useFlash } from '../components/ui/useFlash';
+import { useT, translate, fmtDay, weekdayName } from '../i18n';
 
 // ── WHY THIS PAGE EXISTS ALONGSIDE /signups ─────────────────────────────────
 // The Signups page lists occurrences that have been OPENED. Most of a week has
@@ -46,7 +47,10 @@ import { useFlash } from '../components/ui/useFlash';
 // asked "will you be there", that one asked "were you there", over the same
 // nights on the same grid — so they are one page now.
 
-const DAY_NAME = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+// Weekday names in the site language; capitalised for headings, since es/pt
+// write them lowercase mid-sentence.
+const DAY_NAME = (dow) => weekdayName(dow);
+const DAY_TITLE = (dow) => { const n = weekdayName(dow); return n.charAt(0).toUpperCase() + n.slice(1); };
 
 // Four weeks of paging against the server's 30-day member-open horizon. Weeks
 // run Monday to Sunday, so the last day reachable is at most 27 days out (when
@@ -67,8 +71,7 @@ const readView = () => {
 const dowOf = (dateStr) => new Date(`${dateStr}T12:00:00`).getDay();
 const norm = (s) => String(s || '').trim().toLowerCase();
 
-const shortDate = (dateStr) =>
-  new Date(`${dateStr}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+const shortDate = (dateStr) => fmtDay(dateStr);
 
 // Where the guild's wall clock sits in tonight's block, so an event that has
 // already started can be shown as started rather than offering a button the
@@ -93,12 +96,13 @@ const readShowAway = () => {
 
 // How an LOA reads in one line: what kind it is, and when on the night.
 function describeLoa(e) {
+  const t = translate;
   const hours = e.start_time
-    ? (e.end_time ? `${fmtTimeEst(e.start_time)} – ${fmtTimeEst(e.end_time)}` : `From ${fmtTimeEst(e.start_time)}`)
+    ? (e.end_time ? `${fmtTimeEst(e.start_time)} – ${fmtTimeEst(e.end_time)}` : t('cal.loaFrom', { time: fmtTimeEst(e.start_time) }))
     : null;
-  if (e.type === 'range') return { when: 'All night', what: `${shortDate(e.start_date)} – ${shortDate(e.end_date)}` };
-  if (e.type === 'recurring') return { when: hours || 'All night', what: `Every ${DAY_NAME[e.day_of_week]}` };
-  return { when: hours || 'All night', what: e.event_schedule_id ? 'This event only' : 'One night' };
+  if (e.type === 'range') return { when: t('cal.allNight'), what: `${shortDate(e.start_date)} – ${shortDate(e.end_date)}` };
+  if (e.type === 'recurring') return { when: hours || t('cal.allNight'), what: t('cal.everyDay', { day: DAY_NAME(e.day_of_week) }) };
+  return { when: hours || t('cal.allNight'), what: e.event_schedule_id ? t('cal.thisEventOnly') : t('cal.oneNight') };
 }
 
 // One entry per member, for one event. A member can match several (a range
@@ -115,6 +119,7 @@ function awayFor(entries, ctx) {
 }
 
 export default function EventCalendar() {
+  const { t, rich } = useT();
   const { user, can } = useAuth();
   const [showAway, setShowAway] = useState(readShowAway);
   // Two kinds of event, each behind the capability its route already needs: a
@@ -165,7 +170,7 @@ export default function EventCalendar() {
         setLoaEntries(loa.data.entries || []);
         setMyAttendance(att.data.events || []);
       })
-      .catch((err) => setError(err.response?.data?.error || 'Failed to load the calendar.'))
+      .catch((err) => setError(err.response?.data?.error || t('cal.loadFailed')))
       .finally(() => setLoading(false));
   }, []);
 
@@ -287,7 +292,7 @@ export default function EventCalendar() {
     try {
       await fn();
     } catch (err) {
-      flash(err.response?.data?.error || "That didn't work.", false);
+      flash(err.response?.data?.error || t('cal.didntWork'), false);
     } finally {
       setBusy('');
     }
@@ -305,27 +310,27 @@ export default function EventCalendar() {
       });
     load();
     flash(res.data.status === 'waitlist'
-      ? `That one's full — you're on the waitlist for ${row.title}. You'll be moved up if a slot opens.`
-      : `You're in for ${row.title}.`);
+      ? t('cal.joinedWaitlist', { title: row.title })
+      : t('cal.joined', { title: row.title }));
   });
 
   const withdraw = (row) => run(`leave:${row.key}`, async () => {
     const res = await axios.delete(`/api/signups/${row.signupId}/join`);
     load();
     flash(res.data.promoted
-      ? `Withdrawn — ${res.data.promoted.display_name} moved up off the waitlist.`
-      : 'Withdrawn.');
+      ? t('cal.withdrawnPromoted', { name: res.data.promoted.display_name })
+      : t('cal.withdrawn'));
   });
 
   // LOA for one event. Opens a reason form (the server requires a reason);
   // cancelling only ever touches an LOA filed for exactly this event.
   const fileLoa = (row) => setLoaRow(row);
   const cancelLoa = (row) => {
-    if (!window.confirm(`Cancel your LOA for ${row.title} on ${shortDate(row.date)}?`)) return;
+    if (!window.confirm(t('cal.confirmCancelLoa', { title: row.title, date: shortDate(row.date) }))) return;
     run(`loa:${row.key}`, async () => {
       await axios.delete(`/api/loa/${row.myLoaId}`);
       load();
-      flash(`LOA for ${row.title} cancelled.`);
+      flash(t('cal.loaCancelled', { title: row.title }));
     });
   };
 
@@ -335,12 +340,12 @@ export default function EventCalendar() {
   // page uses, which also takes down the Discord post. Scheduled nights aren't
   // offered this: the schedule would just show them again, unopened.
   const removeOneOff = (row) => {
-    if (!window.confirm(`Delete ${row.title} on ${shortDate(row.date)}? Everyone's signups go with it.`)) return;
+    if (!window.confirm(t('cal.confirmDelete', { title: row.title, date: shortDate(row.date) }))) return;
     run(`del:${row.key}`, async () => {
       await axios.delete(`/api/admin/signups/${row.signupId}`);
       setSelected(null);
       load();
-      flash(`${row.title} deleted.`);
+      flash(t('cal.deleted', { title: row.title }));
     });
   };
   const onDelete = canOneOff ? removeOneOff : null;
@@ -349,14 +354,14 @@ export default function EventCalendar() {
   // series. If signups were already opened for it they go too — otherwise the
   // opened occurrence would keep showing as an orphan on that night.
   const skipNight = (row) => {
-    const tail = row.signupId ? " Everyone's signups for it go too." : '';
-    if (!window.confirm(`Remove ${row.title} on ${shortDate(row.date)} only? Other weeks stay on the schedule.${tail}`)) return;
+    const tail = row.signupId ? ` ${t('cal.skipSignupsToo')}` : '';
+    if (!window.confirm(`${t('cal.confirmSkip', { title: row.title, date: shortDate(row.date) })}${tail}`)) return;
     run(`skip:${row.key}`, async () => {
       if (row.signupId) await axios.delete(`/api/admin/signups/${row.signupId}`);
       await axios.post(`/api/admin/event-schedule/${row.scheduleId}/skip`, { date: row.date, skip: true });
       setSelected(null);
       load();
-      flash(`${row.title} removed for ${shortDate(row.date)}.`);
+      flash(t('cal.skipped', { title: row.title, date: shortDate(row.date) }));
     });
   };
   // Opened signups can only be deleted with 'attendance', so a night that has
@@ -370,11 +375,11 @@ export default function EventCalendar() {
     setLateBusy(ev.id);
     try {
       await axios.post('/api/attendance/late', { event_id: ev.id, reason: reason.trim() || null });
-      flash('Asked. An officer will approve or deny it — you\'ll get a DM either way.');
+      flash(t('cal.lateAsked'));
       setAsking(null); setReason('');
       load();
     } catch (err) {
-      flash(err.response?.data?.error || 'Could not file that request.', false);
+      flash(err.response?.data?.error || t('cal.lateFailed'), false);
       // The window may have closed, or an officer may have added you already —
       // either way what's on screen is out of date.
       if (err.response?.status === 409 || err.response?.status === 400) load();
@@ -387,9 +392,9 @@ export default function EventCalendar() {
     setLateBusy(ev.id);
     try {
       await axios.delete(`/api/attendance/late/${ev.request.id}`);
-      flash('Withdrawn.');
+      flash(t('cal.withdrawn'));
     } catch (err) {
-      flash(err.response?.data?.error || 'Could not withdraw that request.', false);
+      flash(err.response?.data?.error || t('cal.lateWithdrawFailed'), false);
     } finally {
       setLateBusy('');
       load();
@@ -411,11 +416,11 @@ export default function EventCalendar() {
     setSelected({ date: a.event_date, attId: a.id });
   };
 
-  if (loading) return <PageShell maxWidth="max-w-3xl"><EmptyState>Reading the week ahead…</EmptyState></PageShell>;
+  if (loading) return <PageShell maxWidth="max-w-3xl"><EmptyState>{t('cal.loading')}</EmptyState></PageShell>;
   if (error) {
     return (
       <PageShell maxWidth="max-w-3xl">
-        <ErrorState title="CALENDAR UNREACHABLE" message={error} onRetry={() => { setLoading(true); load(); }} />
+        <ErrorState title={t('cal.unreachable')} message={error} onRetry={() => { setLoading(true); load(); }} />
       </PageShell>
     );
   }
@@ -441,7 +446,7 @@ export default function EventCalendar() {
     .filter((n) => n.date >= today || n.rows.length);
   const listedRows = listed.reduce((n, d) => n + d.rows.length, 0);
   const listView = listedRows === 0 ? (
-    <EmptyState>{offset < 0 ? 'No attendance was taken that week.' : 'Nothing on the schedule this week.'}</EmptyState>
+    <EmptyState>{offset < 0 ? t('cal.noAttendanceWeek') : t('cal.nothingThisWeek')}</EmptyState>
   ) : (
     <div className="space-y-6">
       {listed.map((night) => (
@@ -467,20 +472,20 @@ export default function EventCalendar() {
     <PageShell maxWidth={view === 'week' ? 'max-w-[1600px]' : 'max-w-3xl'}>
       <div className="flex items-center gap-3 mb-2">
         <CalendarRange className="w-6 h-6 text-brass" />
-        <h1 className="font-display text-2xl tracking-wide text-bone">EVENT CALENDAR</h1>
+        <h1 className="font-display text-2xl tracking-wide text-bone">{t('cal.title')}</h1>
         <div className="ml-auto flex items-center gap-2 flex-wrap justify-end">
           <button
             onClick={toggleShowAway} aria-pressed={showAway}
-            title="Show how many people have an LOA covering each event"
+            title={t('cal.whosAwayTitle')}
             className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border transition-colors ${showAway ? 'border-brass/60 text-brass bg-panelup' : 'border-line text-ash hover:text-bone'}`}
           >
-            <CalendarOff className="w-4 h-4" /> Who's away
+            <CalendarOff className="w-4 h-4" /> {t('cal.whosAway')}
           </button>
           {/* Week/List only where the grid can actually be shown. */}
           <div className="hidden md:flex rounded-lg border border-line overflow-hidden">
-            {[['week', LayoutGrid, 'Week'], ['list', List, 'List']].map(([key, Icon, label]) => (
+            {[['week', LayoutGrid, t('cal.week')], ['list', List, t('cal.list')]].map(([key, Icon, label]) => (
               <button
-                key={key} onClick={() => changeView(key)} title={`${label} view`}
+                key={key} onClick={() => changeView(key)} title={t('cal.viewTitle', { label })}
                 className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm transition-colors ${view === key ? 'bg-panelup text-brass' : 'text-ash hover:text-bone'}`}
               >
                 <Icon className="w-4 h-4" /> {label}
@@ -489,17 +494,17 @@ export default function EventCalendar() {
           </div>
           {canWeekly && (
             <Button variant="secondary" size="none" className="px-3 py-1.5 text-sm" onClick={() => setPosting(true)}>
-              <Send className="w-4 h-4" /> Post to Discord
+              <Send className="w-4 h-4" /> {t('cal.postToDiscord')}
             </Button>
           )}
           {canWeekly && (
             <Button variant="secondary" size="none" className="px-3 py-1.5 text-sm" onClick={() => setManaging(true)}>
-              <Settings className="w-4 h-4" /> Manage schedule
+              <Settings className="w-4 h-4" /> {t('cal.manageSchedule')}
             </Button>
           )}
           {(canOneOff || canWeekly) && (
             <Button size="none" className="px-3 py-1.5 text-sm" onClick={() => setCreating(true)}>
-              <Plus className="w-4 h-4" /> New Event
+              <Plus className="w-4 h-4" /> {t('cal.newEvent')}
             </Button>
           )}
         </div>
@@ -534,8 +539,8 @@ export default function EventCalendar() {
       {managing && (
         <Modal onClose={() => setManaging(false)} maxWidth="max-w-2xl" scrollable>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="font-display text-lg tracking-[0.08em] text-bone">EVENT SCHEDULE</h2>
-            <button onClick={() => setManaging(false)} className="text-ash hover:text-bone text-sm">Close</button>
+            <h2 className="font-display text-lg tracking-[0.08em] text-bone">{t('cal.scheduleTitle')}</h2>
+            <button onClick={() => setManaging(false)} className="text-ash hover:text-bone text-sm">{t('common.close')}</button>
           </div>
           <ScheduleManager schedule={schedule} onChanged={load} />
         </Modal>
@@ -557,9 +562,7 @@ export default function EventCalendar() {
         </div>
       )}
       <p className="text-ash text-sm mb-6">
-        The week ahead, whether or not signups have been opened — saying you're in opens them. Past nights show
-        whether you were counted; if attendance missed you, you can ask to be added for 24 hours after it was taken.
-        {' '}There's no way to say you're out here — <Link to="/loa" className="text-brass hover:text-brassbright underline">file an LOA</Link> for that.
+        {rich('cal.intro', {}, { link: (x) => <Link to="/loa" className="text-brass hover:text-brassbright underline">{x}</Link> })}
       </p>
 
       <Toast msg={msg} />
@@ -567,10 +570,10 @@ export default function EventCalendar() {
       {askable.length > 0 && (
         <div className="panel rounded-lg px-4 py-3 mb-4 text-sm flex flex-wrap items-center gap-x-3 gap-y-2 border-brass/40">
           <Clock className="w-4 h-4 text-brass" />
-          <span className="text-bone">Attendance missed you — you can still ask to be added:</span>
+          <span className="text-bone">{t('cal.askableBanner')}</span>
           {askable.map((a) => (
             <button key={a.id} onClick={() => openLogged(a)} className="text-brass hover:text-brassbright underline underline-offset-2">
-              {a.title} ({new Date(`${a.event_date}T12:00:00`).toLocaleDateString('en-US', { weekday: 'short' })}, {timeLeft(a.window_closes_at)})
+              {a.title} ({fmtDay(a.event_date, { weekday: 'short' })}, {timeLeft(a.window_closes_at)})
             </button>
           ))}
         </div>
@@ -583,16 +586,16 @@ export default function EventCalendar() {
           variant="ghost" size="none" className="px-2 py-1 text-sm"
           onClick={() => setOffset((o) => Math.max(-(WEEKS_BACK - 1), o - 1))} disabled={offset <= -(WEEKS_BACK - 1)}
         >
-          <ChevronLeft className="w-4 h-4" /> Previous
+          <ChevronLeft className="w-4 h-4" /> {t('cal.previous')}
         </Button>
         <div className="text-center">
           <div className="text-bone text-sm">{shortDate(days[0])} – {shortDate(days[6])}</div>
           <div className="eyebrow text-[10px] text-ash/75 mt-0.5">
-            {offset === 0 ? 'This week' : offset > 0 ? `In ${offset} week${offset === 1 ? '' : 's'}` : `${-offset} week${offset === -1 ? '' : 's'} ago`}
-            {myCount > 0 && offset >= 0 && <> · you're in for {myCount}</>}
-            {loggedThisWeek.length > 0 && <> · attended {loggedThisWeek.filter((a) => a.attended).length} of {loggedThisWeek.length}</>}
+            {offset === 0 ? t('cal.thisWeek') : offset > 0 ? t('cal.inWeeks', { count: offset }) : t('cal.weeksAgo', { count: -offset })}
+            {myCount > 0 && offset >= 0 && <> · {t('cal.youreInFor', { count: myCount })}</>}
+            {loggedThisWeek.length > 0 && <> · {t('cal.attendedOf', { attended: loggedThisWeek.filter((a) => a.attended).length, count: loggedThisWeek.length })}</>}
             {offset !== 0 && (
-              <button onClick={() => setOffset(0)} className="ml-2 text-brass hover:text-brassbright normal-case tracking-normal">this week</button>
+              <button onClick={() => setOffset(0)} className="ml-2 text-brass hover:text-brassbright normal-case tracking-normal">{t('cal.thisWeekLink')}</button>
             )}
           </div>
         </div>
@@ -600,7 +603,7 @@ export default function EventCalendar() {
           variant="ghost" size="none" className="px-2 py-1 text-sm"
           onClick={() => setOffset((o) => Math.min(WEEKS_AHEAD - 1, o + 1))} disabled={offset >= WEEKS_AHEAD - 1}
         >
-          Next <ChevronRight className="w-4 h-4" />
+          {t('cal.next')} <ChevronRight className="w-4 h-4" />
         </Button>
       </div>
 
@@ -609,7 +612,7 @@ export default function EventCalendar() {
           {/* Phones get the list either way — seven columns don't fit. */}
           <div className="md:hidden">{listView}</div>
           {totalRows === 0 ? (
-            <div className="hidden md:block"><EmptyState>Nothing on the schedule this week.</EmptyState></div>
+            <div className="hidden md:block"><EmptyState>{t('cal.nothingThisWeek')}</EmptyState></div>
           ) : (
             // Side by side from lg up; between md and lg the panel drops below
             // the grid rather than squeezing seven columns narrower.
@@ -625,7 +628,7 @@ export default function EventCalendar() {
                 {selectedRow ? (
                   <div className="relative">
                     <button
-                      onClick={() => setSelected(null)} aria-label="Close"
+                      onClick={() => setSelected(null)} aria-label={t('common.close')}
                       className="absolute right-0 top-0 text-ash hover:text-bone"
                     >
                       <X className="w-4 h-4" />
@@ -639,7 +642,7 @@ export default function EventCalendar() {
                 ) : (
                   <div className="py-10 text-center text-sm text-ash">
                     <CalendarRange className="w-6 h-6 text-brass/60 mx-auto mb-3" />
-                    Pick an event to see who's in and who's away — or, for a past night, whether you were counted.
+                    {t('cal.pickEvent')}
                   </div>
                 )}
               </aside>
@@ -655,16 +658,17 @@ export default function EventCalendar() {
 // week that silently skips Tuesday reads as a loading bug, and "nothing on"
 // is a real answer to "what's on Tuesday".
 function Night({ night, isTonight, busy, onJoin, onLeave, loa, showAway, onDetails }) {
+  const { t } = useT();
   return (
     <div>
       <div className="flex items-baseline gap-2 mb-2">
-        <h2 className="font-display text-lg tracking-[0.08em] text-bone">{DAY_NAME[night.dow]}</h2>
+        <h2 className="font-display text-lg tracking-[0.08em] text-bone">{DAY_TITLE(night.dow)}</h2>
         <span className="text-ash text-sm">{shortDate(night.date)}</span>
-        {isTonight && <span className="eyebrow text-[10px] text-brass">tonight</span>}
+        {isTonight && <span className="eyebrow text-[10px] text-brass">{t('cal.tonight')}</span>}
       </div>
 
       {night.rows.length === 0 ? (
-        <div className="panel rounded-lg px-4 py-3 text-ash/60 text-sm">Nothing scheduled.</div>
+        <div className="panel rounded-lg px-4 py-3 text-ash/60 text-sm">{t('home.nothingScheduled')}</div>
       ) : (
         <div className="panel rounded-lg divide-y divide-line">
           {night.rows.map((row) => (
@@ -684,6 +688,7 @@ function Night({ night, isTonight, busy, onJoin, onLeave, loa, showAway, onDetai
 // Layout lives in WeekTimeGrid; this supplies the blocks and the category
 // legend.
 function WeekGrid({ nights, today, nowSlot, showAway, selected, onSelect }) {
+  const { t } = useT();
   const isPicked = (date, key) => selected?.date === date && selected?.key === key;
   const present = new Set(nights.flatMap((n) => n.rows.map((r) => categoryOf(r.title).key)));
 
@@ -700,7 +705,7 @@ function WeekGrid({ nights, today, nowSlot, showAway, selected, onSelect }) {
         <div className="flex flex-wrap gap-x-4 gap-y-1 px-4 py-3 text-xs text-ash">
           {[...CATEGORIES, OTHER].filter((c) => present.has(c.key)).map((c) => (
             <span key={c.key} className="inline-flex items-center gap-1.5">
-              <span className="w-2.5 h-2.5 rounded-full" style={{ background: c.color }} /> {c.label}
+              <span className="w-2.5 h-2.5 rounded-full" style={{ background: c.color }} /> {t(`cat.${c.key}`)}
             </span>
           ))}
         </div>
@@ -717,6 +722,7 @@ function WeekGrid({ nights, today, nowSlot, showAway, selected, onSelect }) {
 // once it's over that is the only fact about it worth a glance: filled when
 // you were counted, outlined when you weren't (dashed while you can still ask).
 function Block({ row, fill = false, showAway = false, picked = false, onClick }) {
+  const { t } = useT();
   const cat = categoryOf(row.title);
   const mine = row.myStatus === 'going';
   const awayCount = row.awayList?.length || 0;
@@ -733,7 +739,7 @@ function Block({ row, fill = false, showAway = false, picked = false, onClick })
       <button
         onClick={onClick}
         aria-pressed={picked}
-        title={`${row.title} · ${STANDING_LABEL[s]}${promisedButMissing ? ' · you signed up for this one' : ''}`}
+        title={`${row.title} · ${t(STANDING_LABEL[s])}${promisedButMissing ? ` · ${t('cal.youSignedUpThis')}` : ''}`}
         className={`w-full ${fill ? 'h-full' : ''} flex items-center gap-1 rounded px-1.5 py-0.5 text-left text-[11px] leading-tight overflow-hidden transition-[filter] hover:brightness-125 ${filled ? 'text-white' : 'bg-panel text-bone'} ${ring}`}
         style={filled ? { background: cat.color } : { border: `1px ${s === 'askable' ? 'dashed' : 'solid'} ${cat.color}` }}
       >
@@ -747,7 +753,7 @@ function Block({ row, fill = false, showAway = false, picked = false, onClick })
   return (
     <button
       onClick={onClick}
-      title={`${row.title}${row.eventTime ? ` · ${fmtTimeEst(row.eventTime)}` : ''} · ${row.going} in${awayCount ? ` · ${awayCount} away` : ''}`}
+      title={`${row.title}${row.eventTime ? ` · ${fmtTimeEst(row.eventTime)}` : ''} · ${t('cal.nIn', { count: row.going })}${awayCount ? ` · ${t('cal.nAway', { count: awayCount })}` : ''}`}
       className={`w-full ${fill ? 'h-full' : ''} flex items-center gap-1 rounded px-1.5 py-0.5 text-left text-[11px] leading-tight text-white overflow-hidden transition-[filter] hover:brightness-125 ${row.started ? 'opacity-45' : ''} ${ring || (mine ? 'ring-1 ring-white/70' : '')}`}
       aria-pressed={picked}
       style={{ background: cat.color }}
@@ -777,6 +783,7 @@ function Block({ row, fill = false, showAway = false, picked = false, onClick })
 // thing: flagging anyone who is both on LOA and signed up, which the officer
 // has to resolve and which the server already works out as `conflicts`.
 function EventDetail({ night, row, busy, onJoin, onLeave, loa, late, onDelete = null, onSkip = null }) {
+  const { t, rich } = useT();
   const [conflictIds, setConflictIds] = useState(() => new Set());
 
   useEffect(() => {
@@ -796,7 +803,7 @@ function EventDetail({ night, row, busy, onJoin, onLeave, loa, late, onDelete = 
     <div>
       <div className="flex items-baseline gap-2 mb-3">
         <span className="w-2.5 h-2.5 rounded-full self-center" style={{ background: categoryOf(row.title).color }} />
-        <h2 className="font-display text-lg tracking-[0.08em] text-bone">{DAY_NAME[night.dow]}</h2>
+        <h2 className="font-display text-lg tracking-[0.08em] text-bone">{DAY_TITLE(night.dow)}</h2>
         <span className="text-ash text-sm">{shortDate(night.date)}</span>
       </div>
       <div className="border border-line rounded-lg">
@@ -807,28 +814,28 @@ function EventDetail({ night, row, busy, onJoin, onLeave, loa, late, onDelete = 
           taken for, and the late request if it missed you. */}
       {row.attendance && (
         <div className="mt-4">
-          <div className="eyebrow text-[10px] text-brass mb-2">Your attendance</div>
+          <div className="eyebrow text-[10px] text-brass mb-2">{t('cal.yourAttendance')}</div>
           <div className="border border-line rounded-lg px-3 py-3">
             <NightCard ev={row.attendance} late={late} showTitle={false} />
           </div>
           {row.myStatus === 'going' && !row.attendance.attended && (
             <p className="text-xs text-brassbright mt-2 flex items-start gap-1.5">
               <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
-              You signed up for this one but aren&apos;t on the roll.
-              {row.attendance.can_request ? ' If you were there, ask to be added.' : ''}
+              {t('cal.signedUpNotOnRoll')}
+              {row.attendance.can_request ? ` ${t('cal.ifThereAsk')}` : ''}
             </p>
           )}
         </div>
       )}
       {row.noRoll && (
-        <p className="text-sm text-ash mt-4">No attendance was taken for this night.</p>
+        <p className="text-sm text-ash mt-4">{t('cal.noRoll')}</p>
       )}
 
       <div className="grid grid-cols-3 gap-2 mt-4">
         {[
-          ['signed up', row.going, 'text-bone'],
-          ['away', away.length, away.length ? 'text-brassbright' : 'text-bone'],
-          ['waitlist', row.waitlist, 'text-bone'],
+          [t('cal.statSignedUp'), row.going, 'text-bone'],
+          [t('cal.statAway'), away.length, away.length ? 'text-brassbright' : 'text-bone'],
+          [t('cal.statWaitlist'), row.waitlist, 'text-bone'],
         ].map(([label, n, tone]) => (
           <div key={label} className="bg-panelup rounded-lg py-2 text-center">
             <div className={`font-mono text-lg ${tone}`}>{n}</div>
@@ -837,9 +844,9 @@ function EventDetail({ night, row, busy, onJoin, onLeave, loa, late, onDelete = 
         ))}
       </div>
 
-      <div className="eyebrow text-[10px] text-brass mt-5 mb-2">Away ({away.length})</div>
+      <div className="eyebrow text-[10px] text-brass mt-5 mb-2">{t('cal.awayHeading', { count: away.length })}</div>
       {away.length === 0 ? (
-        <p className="text-sm text-ash">Nobody has an LOA covering this.</p>
+        <p className="text-sm text-ash">{t('cal.nobodyAway')}</p>
       ) : (
         <div className="space-y-1.5">
           {away.map((e) => {
@@ -851,11 +858,11 @@ function EventDetail({ night, row, busy, onJoin, onLeave, loa, late, onDelete = 
                 className={`rounded-lg border px-3 py-2 text-sm ${clash ? 'border-oxblood/60 bg-oxblooddeep/30' : 'border-line bg-hall'}`}
               >
                 <div className="flex items-baseline justify-between gap-3">
-                  <span className="text-bone truncate">{e.display_name || 'Member'}</span>
-                  <span className={`text-xs shrink-0 ${clash ? 'text-brassbright' : 'text-ash'}`}>{clash ? 'Signed up' : when}</span>
+                  <span className="text-bone truncate">{e.display_name || t('cal.member')}</span>
+                  <span className={`text-xs shrink-0 ${clash ? 'text-brassbright' : 'text-ash'}`}>{clash ? t('cal.signedUpCap') : when}</span>
                 </div>
                 <div className="text-xs text-ash mt-0.5">
-                  {clash ? <>On LOA <em>and</em> signed up · {when} · {what}</> : what}
+                  {clash ? <>{rich('cal.onLoaAndSignedUp', {}, { em: (x) => <em>{x}</em> })} · {when} · {what}</> : what}
                 </div>
                 {e.reason && <div className="text-xs text-ash/80 italic mt-0.5">“{e.reason}”</div>}
               </div>
@@ -871,7 +878,7 @@ function EventDetail({ night, row, busy, onJoin, onLeave, loa, late, onDelete = 
             variant="destructive" size="sm" icon={<Trash2 className="w-4 h-4" />}
             disabled={busy === `del:${row.key}`} onClick={() => onDelete(row)}
           >
-            Delete event
+            {t('cal.deleteEvent')}
           </Button>
         </div>
       )}
@@ -882,7 +889,7 @@ function EventDetail({ night, row, busy, onJoin, onLeave, loa, late, onDelete = 
             variant="destructive" size="sm" icon={<Trash2 className="w-4 h-4" />}
             disabled={busy === `skip:${row.key}`} onClick={() => onSkip(row)}
           >
-            Remove this night only
+            {t('cal.removeNightOnly')}
           </Button>
         </div>
       )}
@@ -901,6 +908,7 @@ const FIELD = 'w-full bg-hall border border-line rounded-lg px-3 py-2 text-bone 
 // Saturday is Saturday night's. For a weekly event that means storing it on
 // the next calendar day, which is how the schedule keeps after-midnight rows.
 function NewEventModal({ canOneOff, canWeekly, defaultDate, onClose, onCreated }) {
+  const { t } = useT();
   const [kind, setKind] = useState(canOneOff ? 'once' : 'weekly');
   const [title, setTitle] = useState('');
   const [date, setDate] = useState(defaultDate);
@@ -913,7 +921,7 @@ function NewEventModal({ canOneOff, canWeekly, defaultDate, onClose, onCreated }
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!title.trim()) { setError('Give the event a name.'); return; }
+    if (!title.trim()) { setError(t('cal.needName')); return; }
     setSaving(true); setError('');
     try {
       if (kind === 'once') {
@@ -922,8 +930,8 @@ function NewEventModal({ canOneOff, canWeekly, defaultDate, onClose, onCreated }
           capacity: capacity || null, announce,
         });
         onCreated(res.data.created
-          ? `${title.trim()} added for ${shortDate(date)}${announce ? ' and posted to Discord' : ''}.`
-          : 'That event was already on the calendar.');
+          ? t(announce ? 'cal.addedForPosted' : 'cal.addedFor', { title: title.trim(), date: shortDate(date) })
+          : t('cal.alreadyOnCalendar'));
       } else {
         const n = parseInt(night, 10);
         await axios.post('/api/admin/event-schedule', {
@@ -931,10 +939,10 @@ function NewEventModal({ canOneOff, canWeekly, defaultDate, onClose, onCreated }
           day_of_week: isAfterMidnight(time) ? (n + 1) % 7 : n,
           event_time: time || null,
         });
-        onCreated(`${title.trim()} added every ${DAY_NAME[n]}.`);
+        onCreated(t('cal.addedEvery', { title: title.trim(), day: DAY_NAME(n) }));
       }
     } catch (err) {
-      setError(err.response?.data?.error || 'Could not create that event.');
+      setError(err.response?.data?.error || t('cal.createFailed'));
       setSaving(false);
     }
   };
@@ -942,11 +950,11 @@ function NewEventModal({ canOneOff, canWeekly, defaultDate, onClose, onCreated }
   return (
     <Modal onClose={onClose}>
       <form onSubmit={submit} className="space-y-4">
-        <h2 className="font-display text-lg tracking-[0.08em] text-bone">NEW EVENT</h2>
+        <h2 className="font-display text-lg tracking-[0.08em] text-bone">{t('cal.newEventTitle')}</h2>
 
         {canOneOff && canWeekly && (
           <div className="flex gap-2">
-            {[['once', 'One-off'], ['weekly', 'Weekly']].map(([key, label]) => (
+            {[['once', t('cal.oneOff')], ['weekly', t('cal.weekly')]].map(([key, label]) => (
               <button
                 key={key} type="button" onClick={() => setKind(key)}
                 className={`flex-1 px-3 py-2 rounded-lg border text-sm transition-colors ${kind === key ? 'border-brass text-brass bg-panelup' : 'border-line text-ash hover:text-bone'}`}
@@ -958,42 +966,42 @@ function NewEventModal({ canOneOff, canWeekly, defaultDate, onClose, onCreated }
         )}
 
         <div>
-          <label className="eyebrow text-[10px] text-ash block mb-2">Name</label>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="e.g. Archboss — Morokai" className={FIELD} autoFocus />
+          <label className="eyebrow text-[10px] text-ash block mb-2">{t('cal.name')}</label>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('cal.namePlaceholder')} className={FIELD} autoFocus />
         </div>
 
         <div className="flex gap-3">
           {kind === 'once' ? (
             <div className="flex-1">
-              <label className="eyebrow text-[10px] text-ash block mb-2">Night</label>
+              <label className="eyebrow text-[10px] text-ash block mb-2">{t('cal.night')}</label>
               <input type="date" value={date} min={todayInGuildTz()} onChange={(e) => setDate(e.target.value)} required className={FIELD} />
             </div>
           ) : (
             <div className="flex-1">
-              <label className="eyebrow text-[10px] text-ash block mb-2">Every</label>
+              <label className="eyebrow text-[10px] text-ash block mb-2">{t('cal.every')}</label>
               <select value={night} onChange={(e) => setNight(e.target.value)} className={FIELD}>
-                {DAY_NAME.map((d, i) => <option key={d} value={i}>{d}</option>)}
+                {[0, 1, 2, 3, 4, 5, 6].map((i) => <option key={i} value={i}>{DAY_TITLE(i)}</option>)}
               </select>
             </div>
           )}
           <div className="w-36">
-            <label className="eyebrow text-[10px] text-ash block mb-2">Time (optional)</label>
+            <label className="eyebrow text-[10px] text-ash block mb-2">{t('cal.timeOptional')}</label>
             <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className={FIELD} />
           </div>
         </div>
         {isAfterMidnight(time) && (
-          <p className="text-xs text-ash/70 -mt-2">After midnight — counted as part of the night before.</p>
+          <p className="text-xs text-ash/70 -mt-2">{t('cal.afterMidnightNote')}</p>
         )}
 
         {kind === 'once' && (
           <>
             <div className="w-36">
-              <label className="eyebrow text-[10px] text-ash block mb-2">Cap (optional)</label>
-              <input type="number" min="1" value={capacity} onChange={(e) => setCapacity(e.target.value)} placeholder="No limit" className={FIELD} />
+              <label className="eyebrow text-[10px] text-ash block mb-2">{t('cal.capOptional')}</label>
+              <input type="number" min="1" value={capacity} onChange={(e) => setCapacity(e.target.value)} placeholder={t('cal.noLimit')} className={FIELD} />
             </div>
             <label className="flex items-center gap-2 text-sm text-ash">
               <input type="checkbox" checked={announce} onChange={(e) => setAnnounce(e.target.checked)} />
-              Post the signup to Discord
+              {t('cal.postSignup')}
             </label>
           </>
         )}
@@ -1001,9 +1009,9 @@ function NewEventModal({ canOneOff, canWeekly, defaultDate, onClose, onCreated }
         {error && <div className="text-sm text-oxblood">{error}</div>}
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="neutral" size="sm" onClick={onClose}>Cancel</Button>
+          <Button type="button" variant="neutral" size="sm" onClick={onClose}>{t('common.cancel')}</Button>
           <Button type="submit" size="sm" disabled={saving}>
-            {saving && <Loader2 className="w-4 h-4 animate-spin" />} Create
+            {saving && <Loader2 className="w-4 h-4 animate-spin" />} {t('cal.create')}
           </Button>
         </div>
       </form>
@@ -1024,6 +1032,7 @@ const plusOneMinute = (hhmm) => {
 };
 
 function LoaModal({ row, onClose, onFiled }) {
+  const { t, rich } = useT();
   const [reason, setReason] = useState('');
   const [withdraw, setWithdraw] = useState(Boolean(row.myStatus));
   const [saving, setSaving] = useState(false);
@@ -1031,7 +1040,7 @@ function LoaModal({ row, onClose, onFiled }) {
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!reason.trim()) { setError('Give a reason — officers see it, other members don\'t.'); return; }
+    if (!reason.trim()) { setError(t('cal.loaNeedReason')); return; }
     setSaving(true); setError('');
     try {
       const time = row.eventTime ? String(row.eventTime).slice(0, 5) : null;
@@ -1041,9 +1050,9 @@ function LoaModal({ row, onClose, onFiled }) {
       // After the LOA is saved, so a failed withdraw never leaves you neither
       // signed up nor on LOA.
       if (withdraw && row.signupId) await axios.delete(`/api/signups/${row.signupId}/join`).catch(() => {});
-      onFiled(`LOA filed for ${row.title} on ${shortDate(row.date)}.`);
+      onFiled(t('cal.loaFiled', { title: row.title, date: shortDate(row.date) }));
     } catch (err) {
-      setError(err.response?.data?.error || 'Could not file that LOA.');
+      setError(err.response?.data?.error || t('cal.loaFailed'));
       setSaving(false);
     }
   };
@@ -1051,26 +1060,27 @@ function LoaModal({ row, onClose, onFiled }) {
   return (
     <Modal onClose={onClose}>
       <form onSubmit={submit} className="space-y-4">
-        <h2 className="font-display text-lg tracking-[0.08em] text-bone">LOA</h2>
+        <h2 className="font-display text-lg tracking-[0.08em] text-bone">{t('cal.loaTitle')}</h2>
         <p className="text-sm text-ash">
-          Out for <span className="text-bone">{row.title}</span> on {DAY_NAME[dowOf(row.date)]} {shortDate(row.date)}
-          {row.eventTime ? ` at ${fmtTimeEst(row.eventTime)}` : ''}. Only this event — anything else that night is unaffected.
+          {rich(row.eventTime ? 'cal.loaOutForAt' : 'cal.loaOutFor', {
+            title: row.title, day: DAY_NAME(dowOf(row.date)), date: shortDate(row.date), time: row.eventTime ? fmtTimeEst(row.eventTime) : '',
+          }, { b: (x) => <span className="text-bone">{x}</span> })}
         </p>
         <div>
-          <label className="eyebrow text-[10px] text-ash block mb-2">Reason</label>
-          <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} autoFocus className={FIELD} placeholder="Only officers see this" />
+          <label className="eyebrow text-[10px] text-ash block mb-2">{t('cal.reason')}</label>
+          <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} autoFocus className={FIELD} placeholder={t('cal.reasonPlaceholder')} />
         </div>
         {row.myStatus && (
           <label className="flex items-center gap-2 text-sm text-ash">
             <input type="checkbox" checked={withdraw} onChange={(e) => setWithdraw(e.target.checked)} />
-            Also withdraw my signup
+            {t('cal.alsoWithdraw')}
           </label>
         )}
         {error && <div className="text-sm text-oxblood">{error}</div>}
         <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="neutral" size="sm" onClick={onClose}>Cancel</Button>
+          <Button type="button" variant="neutral" size="sm" onClick={onClose}>{t('common.cancel')}</Button>
           <Button type="submit" size="sm" disabled={saving}>
-            {saving && <Loader2 className="w-4 h-4 animate-spin" />} File LOA
+            {saving && <Loader2 className="w-4 h-4 animate-spin" />} {t('cal.fileLoa')}
           </Button>
         </div>
       </form>
@@ -1096,6 +1106,7 @@ function eventsForPost(schedule, occurrences, date) {
 }
 
 function PostDayModal({ defaultDate, schedule, occurrences, onClose, onPosted }) {
+  const { t } = useT();
   const [date, setDate] = useState(defaultDate);
   const [rows, setRows] = useState(() => eventsForPost(schedule, occurrences, defaultDate));
   const [channels, setChannels] = useState([]);
@@ -1114,7 +1125,7 @@ function PostDayModal({ defaultDate, schedule, occurrences, onClose, onPosted })
         const configured = res.data.default_channel_id;
         setChannelId(list.some((c) => c.id === configured) ? configured : list[0]?.id || '');
       })
-      .catch(() => setError('Could not load the channel list — is the bot online?'));
+      .catch(() => setError(t('cal.channelsFailed')));
   }, []);
 
   const changeDate = (d) => {
@@ -1128,15 +1139,15 @@ function PostDayModal({ defaultDate, schedule, occurrences, onClose, onPosted })
   const submit = async (e) => {
     e.preventDefault();
     const events = rows.filter((r) => r.name.trim()).map((r) => ({ name: r.name.trim(), time: r.time || null }));
-    if (!events.length) { setError('Add at least one event.'); return; }
-    if (!channelId) { setError('Pick a channel.'); return; }
+    if (!events.length) { setError(t('cal.needEvent')); return; }
+    if (!channelId) { setError(t('cal.needChannel')); return; }
     setSaving(true); setError('');
     try {
       await axios.post('/api/admin/event-schedule/post-day', { date, events, channel_id: channelId, note });
       const ch = channels.find((c) => c.id === channelId);
-      onPosted(`Posted ${shortDate(date)}'s events${ch ? ` to #${ch.name}` : ''}.`);
+      onPosted(t(ch ? 'cal.postedTo' : 'cal.posted', { date: shortDate(date), channel: ch?.name }));
     } catch (err) {
-      setError(err.response?.data?.error || 'Could not post.');
+      setError(err.response?.data?.error || t('cal.postFailed'));
       setSaving(false);
     }
   };
@@ -1144,15 +1155,15 @@ function PostDayModal({ defaultDate, schedule, occurrences, onClose, onPosted })
   return (
     <Modal onClose={onClose} scrollable>
       <form onSubmit={submit} className="space-y-4">
-        <h2 className="font-display text-lg tracking-[0.08em] text-bone">POST TO DISCORD</h2>
+        <h2 className="font-display text-lg tracking-[0.08em] text-bone">{t('cal.postTitle')}</h2>
 
         <div className="flex gap-3">
           <div className="flex-1">
-            <label className="eyebrow text-[10px] text-ash block mb-2">Night</label>
+            <label className="eyebrow text-[10px] text-ash block mb-2">{t('cal.night')}</label>
             <input type="date" value={date} onChange={(e) => changeDate(e.target.value)} required className={FIELD} />
           </div>
           <div className="flex-1">
-            <label className="eyebrow text-[10px] text-ash block mb-2">Channel</label>
+            <label className="eyebrow text-[10px] text-ash block mb-2">{t('cal.channel')}</label>
             <select value={channelId} onChange={(e) => setChannelId(e.target.value)} className={FIELD}>
               {channels.length === 0 && <option value="">—</option>}
               {channels.map((c) => <option key={c.id} value={c.id}>#{c.name}</option>)}
@@ -1161,38 +1172,38 @@ function PostDayModal({ defaultDate, schedule, occurrences, onClose, onPosted })
         </div>
 
         <div>
-          <label className="eyebrow text-[10px] text-ash block mb-2">Events</label>
-          {rows.length === 0 && <p className="text-sm text-ash mb-2">Nothing on the calendar that night — add events below.</p>}
+          <label className="eyebrow text-[10px] text-ash block mb-2">{t('cal.events')}</label>
+          {rows.length === 0 && <p className="text-sm text-ash mb-2">{t('cal.postNothing')}</p>}
           <div className="space-y-2">
             {rows.map((r) => (
               <div key={r.key} className="flex gap-2 items-center">
-                <input value={r.name} onChange={(e) => edit(r.key, 'name', e.target.value)} placeholder="Event name" className={`${FIELD} flex-1`} />
-                <input type="time" value={r.time} onChange={(e) => edit(r.key, 'time', e.target.value)} className={`${FIELD} !w-32`} title="Guild time; blank = time TBA" />
-                <button type="button" onClick={() => remove(r.key)} title="Remove from this post" className="p-1 text-ash hover:text-oxblood shrink-0">
+                <input value={r.name} onChange={(e) => edit(r.key, 'name', e.target.value)} placeholder={t('cal.eventName')} className={`${FIELD} flex-1`} />
+                <input type="time" value={r.time} onChange={(e) => edit(r.key, 'time', e.target.value)} className={`${FIELD} !w-32`} title={t('cal.postTimeTitle')} />
+                <button type="button" onClick={() => remove(r.key)} title={t('cal.removeFromPost')} className="p-1 text-ash hover:text-oxblood shrink-0">
                   <X className="w-4 h-4" />
                 </button>
               </div>
             ))}
           </div>
           <button type="button" onClick={add} className="mt-2 inline-flex items-center gap-1 text-sm text-brass hover:text-brassbright">
-            <Plus className="w-4 h-4" /> Add event
+            <Plus className="w-4 h-4" /> {t('cal.addEvent')}
           </button>
           <p className="text-xs text-ash/70 mt-2">
-            Times are guild time; Discord shows each reader their own local time and a live countdown. After-midnight times count as part of this night.
+            {t('cal.postTimesNote')}
           </p>
         </div>
 
         <div>
-          <label className="eyebrow text-[10px] text-ash block mb-2">Message (optional)</label>
-          <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="Shown above the list — e.g. a role ping" className={FIELD} />
+          <label className="eyebrow text-[10px] text-ash block mb-2">{t('cal.messageOptional')}</label>
+          <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder={t('cal.messagePlaceholder')} className={FIELD} />
         </div>
 
         {error && <div className="text-sm text-oxblood">{error}</div>}
 
         <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="neutral" size="sm" onClick={onClose}>Cancel</Button>
+          <Button type="button" variant="neutral" size="sm" onClick={onClose}>{t('common.cancel')}</Button>
           <Button type="submit" size="sm" disabled={saving || !channelId}>
-            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Post
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} {t('cal.post')}
           </Button>
         </div>
       </form>
@@ -1201,6 +1212,7 @@ function PostDayModal({ defaultDate, schedule, occurrences, onClose, onPosted })
 }
 
 function EventRow({ row, busy, onJoin, onLeave, loa = null, showAway = false, onDetails = null }) {
+  const { t } = useT();
   const joining = busy === `join:${row.key}`;
   const leaving = busy === `leave:${row.key}`;
   const working = joining || leaving;
@@ -1227,13 +1239,13 @@ function EventRow({ row, busy, onJoin, onLeave, loa = null, showAway = false, on
                 information that decides whether to be the first. */}
             <span className={row.going ? 'text-bone font-mono' : 'text-ash/50 font-mono'}>{row.going}</span>
             {row.capacity ? <span className="text-ash/50 font-mono">/{row.capacity}</span> : null}
-            in
-            {row.waitlist > 0 && <span className="text-ash/50">· {row.waitlist} waiting</span>}
+            {t('cal.in')}
+            {row.waitlist > 0 && <span className="text-ash/50">· {t('cal.nWaiting', { count: row.waitlist })}</span>}
           </span>
 
           {isAfterMidnight(row.eventTime) && (
-            <span className="inline-flex items-center gap-1 text-ash/50" title="Runs after midnight — still part of this night">
-              <Clock className="w-3 h-3" /> after midnight
+            <span className="inline-flex items-center gap-1 text-ash/50" title={t('cal.afterMidnightTitle')}>
+              <Clock className="w-3 h-3" /> {t('common.afterMidnight')}
             </span>
           )}
 
@@ -1241,18 +1253,18 @@ function EventRow({ row, busy, onJoin, onLeave, loa = null, showAway = false, on
               allowed — you may have filed a range and made an exception for
               this one night — so the pair shows as a warning, not a block. */}
           {row.away && !row.myStatus && (
-            <span className="inline-flex items-center gap-1 text-brass" title="You have an LOA covering this">
-              <CalendarOff className="w-3 h-3" /> you're away
+            <span className="inline-flex items-center gap-1 text-brass" title={t('cal.awayTitle')}>
+              <CalendarOff className="w-3 h-3" /> {t('cal.youreAway')}
             </span>
           )}
           {row.away && row.myStatus && (
-            <span className="inline-flex items-center gap-1 text-oxblood" title="You have an LOA covering this and you're signed up">
-              <AlertTriangle className="w-3 h-3" /> on LOA and signed up
+            <span className="inline-flex items-center gap-1 text-oxblood" title={t('cal.awaySignedUpTitle')}>
+              <AlertTriangle className="w-3 h-3" /> {t('cal.awaySignedUp')}
             </span>
           )}
           {/* No number: the member list doesn't carry a waitlist position, and
               inventing one would be worse than not saying. */}
-          {isWaitlisted && <span className="text-brass">waitlisted</span>}
+          {isWaitlisted && <span className="text-brass">{t('cal.waitlistedLower')}</span>}
           {/* Your attendance on a logged night, opening the same detail —
               where the late request lives — on tap. */}
           {row.attendance && onDetails && (() => {
@@ -1261,14 +1273,14 @@ function EventRow({ row, busy, onJoin, onLeave, loa = null, showAway = false, on
             const tone = { attended: 'text-emerald-400', pending: 'text-brass', askable: 'text-brassbright', denied: 'text-oxblood', missed: 'text-ash' }[s];
             return (
               <button onClick={() => onDetails(row)} className={`inline-flex items-center gap-1 hover:underline ${tone}`}>
-                <Icon className="w-3 h-3" /> {STANDING_LABEL[s]}
+                <Icon className="w-3 h-3" /> {t(STANDING_LABEL[s])}
               </button>
             );
           })()}
           {/* The list view's way into the same detail the grid opens on click. */}
           {showAway && onDetails && row.awayList?.length > 0 && (
             <button onClick={() => onDetails(row)} className="inline-flex items-center gap-1 text-ash hover:text-brass transition-colors">
-              <CalendarOff className="w-3 h-3" /> {row.awayList.length} away
+              <CalendarOff className="w-3 h-3" /> {t('cal.nAway', { count: row.awayList.length })}
             </button>
           )}
         </div>
@@ -1281,39 +1293,39 @@ function EventRow({ row, busy, onJoin, onLeave, loa = null, showAway = false, on
         <Button
           variant="ghost" size="none" className="px-2 py-1.5 text-sm shrink-0 text-brass"
           onClick={() => loa.onCancel(row)} disabled={busy === `loa:${row.key}`}
-          title="You filed an LOA for this event — cancel it"
+          title={t('cal.cancelLoaTitle')}
         >
-          <CalendarOff className="w-4 h-4" /> Cancel LOA
+          <CalendarOff className="w-4 h-4" /> {t('cal.cancelLoa')}
         </Button>
       ) : !row.away && (row.scheduleId || row.eventTime) ? (
         <Button
           variant="secondary" size="none" className="px-2 py-1.5 text-sm shrink-0"
-          onClick={() => loa.onFile(row)} title="File an LOA for this event only"
+          onClick={() => loa.onFile(row)} title={t('cal.fileLoaTitle')}
         >
-          <CalendarOff className="w-4 h-4" /> LOA
+          <CalendarOff className="w-4 h-4" /> {t('cal.loaButton')}
         </Button>
       ) : null)}
 
       <div className="shrink-0">
         {row.started ? (
-          <span className="text-ash/40 text-xs">started</span>
+          <span className="text-ash/40 text-xs">{t('cal.started')}</span>
         ) : row.myStatus ? (
           <Button
             variant="secondary" size="none" className="px-3 py-1.5 text-sm"
             onClick={() => onLeave(row)} disabled={working}
-            title={isIn ? "You're signed up — withdraw" : "You're on the waitlist — withdraw"}
+            title={isIn ? t('cal.withdrawInTitle') : t('cal.withdrawWaitTitle')}
           >
             {leaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-            {isIn ? "I'm in" : 'Waitlisted'}
+            {isIn ? t('cal.imIn') : t('cal.waitlistedCap')}
           </Button>
         ) : (
           <Button
             size="none" className="px-3 py-1.5 text-sm"
             onClick={() => onJoin(row)} disabled={working}
-            title={row.signupId ? 'Sign up' : 'Sign up — this also opens signups for the night'}
+            title={row.signupId ? t('cal.signUp') : t('cal.signUpOpens')}
           >
             {joining ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-            I'm in
+            {t('cal.imIn')}
           </Button>
         )}
       </div>

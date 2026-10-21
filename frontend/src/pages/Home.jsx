@@ -8,6 +8,7 @@ import ErrorState from '../components/ui/ErrorState';
 import StatTile from '../components/ui/StatTile';
 import YourStanding from '../components/YourStanding';
 import ItemTooltip, { gradeStyle } from '../components/ItemTooltip';
+import { useT, fmtDay } from '../i18n';
 
 // Walks forward by guild night, not calendar day, so the 12:30am event shows
 // as the tail of the night it belongs to instead of that morning's first item.
@@ -27,8 +28,8 @@ function nextOccurrences(schedule, todayStr, count = 3) {
   return out.slice(0, count);
 }
 
-function fmtCountdown(ms) {
-  if (ms <= 0) return 'Up now';
+function fmtCountdown(ms, t) {
+  if (ms <= 0) return t('elites.upNow');
   const totalSec = Math.floor(ms / 1000);
   const h = Math.floor(totalSec / 3600);
   const m = Math.floor((totalSec % 3600) / 60);
@@ -36,6 +37,7 @@ function fmtCountdown(ms) {
 }
 
 export default function Home() {
+  const { t } = useT();
   const { house } = useGuild();
   const [stats, setStats] = useState({});
   const [recentMatches, setRecentMatches] = useState([]);
@@ -115,10 +117,10 @@ export default function Home() {
   }, []);
 
   const ledger = [
-    { label: 'Active Members', value: stats.activeMembers ?? '—', icon: <Users className="w-4 h-4" /> },
-    { label: 'Tanks',          value: stats.tanks ?? '—',         icon: <Shield className="w-4 h-4" /> },
-    { label: 'DPS',            value: stats.dps ?? '—',           icon: <Swords className="w-4 h-4" /> },
-    { label: 'Healers',        value: stats.healers ?? '—',       icon: <Heart className="w-4 h-4" /> },
+    { label: t('home.activeMembers'), value: stats.activeMembers ?? '—', icon: <Users className="w-4 h-4" /> },
+    { label: t('home.tanks'),         value: stats.tanks ?? '—',         icon: <Shield className="w-4 h-4" /> },
+    { label: t('home.dps'),           value: stats.dps ?? '—',           icon: <Swords className="w-4 h-4" /> },
+    { label: t('home.healers'),       value: stats.healers ?? '—',       icon: <Heart className="w-4 h-4" /> },
   ];
 
   const eliteByLocation = Object.fromEntries(eliteTimers.map((t) => [t.location, t]));
@@ -146,8 +148,8 @@ export default function Home() {
       {error ? (
         <div className="max-w-6xl mx-auto px-6 py-16">
           <ErrorState
-            title="The record is sealed"
-            message="The standing could not be read from the records. The hall may be offline — try again."
+            title={t('home.errorTitle')}
+            message={t('home.errorMessage')}
             onRetry={fetchData}
           />
         </div>
@@ -157,7 +159,7 @@ export default function Home() {
           <section className="border-b border-line bg-hall">
             <div className="max-w-6xl mx-auto px-6 py-10">
               <div className="eyebrow text-ash text-[11px] text-center mb-7">
-                Standing of the House
+                {t('home.standing')}
               </div>
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {ledger.map((item) => (
@@ -173,21 +175,21 @@ export default function Home() {
               <div className="panel rounded-lg overflow-hidden">
                 <div className="flex items-center justify-between px-5 py-4 border-b border-line">
                   <div className="flex items-baseline gap-3">
-                    <h2 className="font-display text-lg text-bone tracking-[0.08em]">War Record</h2>
+                    <h2 className="font-display text-lg text-bone tracking-[0.08em]">{t('nav.War Record')}</h2>
                     {wdl && (
                       <span className="text-xs text-ash font-mono">
-                        Last 20: <span className="text-emerald-400">{wdl.w}</span>/<span className="text-amber-400">{wdl.d}</span>/<span className="text-oxblood">{wdl.l}</span>
+                        {t('home.last20')} <span className="text-emerald-400">{wdl.w}</span>/<span className="text-amber-400">{wdl.d}</span>/<span className="text-oxblood">{wdl.l}</span>
                       </span>
                     )}
                   </div>
                   <Link to="/war-record" className="text-xs text-brass hover:text-brassbright transition-colors shrink-0">
-                    Full record →
+                    {t('home.fullRecord')}
                   </Link>
                 </div>
                 {loading ? (
-                  <div className="py-14 text-center text-ash text-sm">Reading the record…</div>
+                  <div className="py-14 text-center text-ash text-sm">{t('home.readingRecord')}</div>
                 ) : recentMatches.length === 0 ? (
-                  <div className="py-14 text-center text-ash text-sm">No engagements logged yet.</div>
+                  <div className="py-14 text-center text-ash text-sm">{t('home.noEngagements')}</div>
                 ) : (
                   <div className="divide-y divide-line">
                     {recentMatches.slice(0, 3).map((m) => (
@@ -200,18 +202,18 @@ export default function Home() {
               <div className="panel rounded-lg overflow-hidden">
                 <div className="flex items-center justify-between px-5 py-4 border-b border-line">
                   <h2 className="font-display text-lg text-bone tracking-[0.08em] flex items-center gap-2">
-                    <CalendarDays className="w-4 h-4 text-brass" /> Upcoming Events
+                    <CalendarDays className="w-4 h-4 text-brass" /> {t('home.upcoming')}
                   </h2>
                 </div>
                 {upcoming.length === 0 ? (
-                  <div className="py-14 text-center text-ash text-sm">Nothing scheduled.</div>
+                  <div className="py-14 text-center text-ash text-sm">{t('home.nothingScheduled')}</div>
                 ) : (
                   <div className="divide-y divide-line">
                     {upcoming.map((ev, i) => (
                       <div key={i} className="flex items-center justify-between px-5 py-3">
                         <span className="text-sm text-bone truncate">{ev.name}</span>
                         <span className="text-xs text-ash font-mono shrink-0 ml-3">
-                          {new Date(ev.date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                          {fmtDay(ev.date)}
                           {ev.event_time ? ` · ${fmtTimeEst(ev.event_time)}` : ''}
                         </span>
                       </div>
@@ -226,11 +228,11 @@ export default function Home() {
               <div className="panel rounded-lg overflow-hidden">
                 <div className="px-5 py-4 border-b border-line">
                   <h2 className="font-display text-base text-bone tracking-[0.06em] flex items-center gap-2">
-                    <Users className="w-4 h-4 text-brass" /> Latest Members
+                    <Users className="w-4 h-4 text-brass" /> {t('home.latestMembers')}
                   </h2>
                 </div>
                 {latestMembers.length === 0 ? (
-                  <div className="py-10 text-center text-ash text-sm">No new members yet.</div>
+                  <div className="py-10 text-center text-ash text-sm">{t('home.noNewMembers')}</div>
                 ) : (
                   <div className="divide-y divide-line">
                     {latestMembers.map((m) => (
@@ -252,24 +254,24 @@ export default function Home() {
               <div className="panel rounded-lg overflow-hidden">
                 <div className="px-5 py-4 border-b border-line">
                   <h2 className="font-display text-base text-bone tracking-[0.06em] flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-brass" /> Elite Timers
+                    <Clock className="w-4 h-4 text-brass" /> {t('home.eliteTimers')}
                   </h2>
                 </div>
                 {eliteLocations.length === 0 ? (
-                  <div className="py-10 text-center text-ash text-sm">No timers reported yet.</div>
+                  <div className="py-10 text-center text-ash text-sm">{t('home.noTimers')}</div>
                 ) : (
                   <div className="divide-y divide-line">
                     {eliteLocations.slice(0, 4).map((loc) => {
-                      const t = eliteByLocation[loc];
-                      const remaining = t ? new Date(t.next_spawn_at).getTime() - now : null;
+                      const timer = eliteByLocation[loc];
+                      const remaining = timer ? new Date(timer.next_spawn_at).getTime() - now : null;
                       const urgent = remaining !== null && remaining > 0 && remaining < 10 * 60 * 1000;
                       const up = remaining !== null && remaining <= 0;
                       return (
                         <div key={loc} className="flex items-center justify-between px-5 py-3">
                           <span className="text-sm text-bone truncate">{loc}</span>
-                          {t ? (
+                          {timer ? (
                             <span className={`text-xs font-mono shrink-0 ml-3 ${up ? 'text-emerald-400' : urgent ? 'text-oxblood' : 'text-brassbright'}`}>
-                              {fmtCountdown(remaining)}
+                              {fmtCountdown(remaining, t)}
                             </span>
                           ) : (
                             <span className="text-xs font-mono text-ash/40 shrink-0 ml-3">—</span>
@@ -284,14 +286,14 @@ export default function Home() {
               <div className="panel rounded-lg overflow-hidden">
                 <div className="flex items-center justify-between px-5 py-4 border-b border-line">
                   <h2 className="font-display text-base text-bone tracking-[0.06em] flex items-center gap-2">
-                    <Package className="w-4 h-4 text-brass" /> Top Wishlisted
+                    <Package className="w-4 h-4 text-brass" /> {t('home.topWishlisted')}
                   </h2>
                   <Link to="/loot" className="text-xs text-brass hover:text-brassbright transition-colors shrink-0">
-                    View all →
+                    {t('home.viewAll')}
                   </Link>
                 </div>
                 {topWishlist.length === 0 ? (
-                  <div className="py-10 text-center text-ash text-sm">Nothing wishlisted yet.</div>
+                  <div className="py-10 text-center text-ash text-sm">{t('home.nothingWishlisted')}</div>
                 ) : (
                   <div className="divide-y divide-line">
                     {topWishlist.map(({ item, count }) => (
@@ -314,6 +316,7 @@ export default function Home() {
 }
 
 function EngagementRow({ match }) {
+  const { t } = useT();
   const { aliases } = useGuild();
   const result = match.result;
   // Older rows carry whatever name we fought under at the time, so match
@@ -321,9 +324,7 @@ function EngagementRow({ match }) {
   const held = result ? result === 'Win' : aliases.includes(match.winningGuild);
   const decided = result ? result !== 'Draw' : match.killDifference > 0;
 
-  const date = match.match_date
-    ? new Date(match.match_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-    : '—';
+  const date = match.match_date ? fmtDay(match.match_date) : '—';
 
   return (
     <Link
@@ -333,16 +334,16 @@ function EngagementRow({ match }) {
       <div className="w-14 shrink-0 font-mono text-xs text-ash">{date}</div>
       <div className="min-w-0 flex-1">
         <div className="text-sm font-medium text-bone truncate group-hover:text-brassbright transition-colors">
-          {match.title || 'Wargame engagement'}
+          {match.title || t('home.engagement')}
         </div>
       </div>
       <div className="shrink-0 text-right">
         {decided ? (
           <span className={`text-xs font-semibold ${held ? 'text-emerald-400' : 'text-oxblood'}`}>
-            {held ? 'Held' : 'Lost'}
+            {held ? t('home.held') : t('home.lost')}
           </span>
         ) : (
-          <span className="text-xs font-semibold text-amber-400">Contested</span>
+          <span className="text-xs font-semibold text-amber-400">{t('home.contested')}</span>
         )}
       </div>
     </Link>

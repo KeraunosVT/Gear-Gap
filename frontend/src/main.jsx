@@ -5,6 +5,7 @@ import App from './App.jsx'
 import { getInitialTheme, applyTheme } from './theme.js'
 import { getInitialPalette, applyPalette } from './palette.js'
 import { GuildProvider } from './guild.jsx'
+import { I18nProvider } from './i18n.jsx'
 import './index.css'
 
 // Set before first render so there's no flash of the wrong theme/palette.
@@ -26,8 +27,10 @@ axios.defaults.withCredentials = true
 // both are in place.
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <GuildProvider>
-      <App />
-    </GuildProvider>
+    <I18nProvider>
+      <GuildProvider>
+        <App />
+      </GuildProvider>
+    </I18nProvider>
   </React.StrictMode>
 )

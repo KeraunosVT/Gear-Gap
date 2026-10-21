@@ -8,6 +8,7 @@ import Sigil from './Sigil';
 import { useGuild } from '../guild';
 import { useAuth } from '../auth';
 import { getDisplayTimezone, setDisplayTimezone, TIMEZONE_OPTIONS } from '../timeUtils';
+import { useT, LANGUAGES } from '../i18n';
 
 export const guildLinks = [
   { to: '/', label: 'Dashboard', end: true, icon: LayoutDashboard },
@@ -87,7 +88,12 @@ export function getInitialSidebarCollapsed() {
   return window.matchMedia('(max-width: 767px)').matches;
 }
 
+// Nav labels stay English in the tables above (the Topbar matches on them too)
+// and are translated at render through the `nav.<label>` keys.
+export const navLabel = (t, label) => t(`nav.${label}`);
+
 export default function Sidebar({ collapsed }) {
+  const { t } = useT();
   const { user, logout, can } = useAuth();
   const { house, tag } = useGuild();
   // Section disappears entirely when no capability opens anything in it.
@@ -111,9 +117,9 @@ export default function Sidebar({ collapsed }) {
       </NavLink>
 
       <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-4">
-        <NavSection title="Guild" links={guildLinks} linkClass={linkClass} collapsed={collapsed} />
-        {user && <NavSection title="Member" links={memberLinks} linkClass={linkClass} collapsed={collapsed} />}
-        {adminNav.length > 0 && <NavSection title="Admin" links={adminNav} linkClass={linkClass} collapsed={collapsed} />}
+        <NavSection title={t('nav.section.guild')} links={guildLinks} linkClass={linkClass} collapsed={collapsed} />
+        {user && <NavSection title={t('nav.section.member')} links={memberLinks} linkClass={linkClass} collapsed={collapsed} />}
+        {adminNav.length > 0 && <NavSection title={t('nav.section.admin')} links={adminNav} linkClass={linkClass} collapsed={collapsed} />}
       </nav>
 
       {user && (
@@ -121,7 +127,7 @@ export default function Sidebar({ collapsed }) {
           {/* Avatar and name are one link to your own profile. Collapsed, the
               avatar is the only affordance left, so it carries the link. */}
           <Link
-            to="/me" title="My profile"
+            to="/me" title={t('nav.myProfile')}
             className={`flex items-center gap-2.5 min-w-0 text-bone hover:text-brassbright transition-colors ${collapsed ? '' : 'flex-1'}`}
           >
             {user.avatar
@@ -132,7 +138,7 @@ export default function Sidebar({ collapsed }) {
           {!collapsed && (
             <>
               <SettingsMenu />
-              <button onClick={logout} title="Sign out" aria-label="Sign out" className="p-1.5 rounded-md text-ash hover:text-oxblood hover:bg-panel transition-colors shrink-0">
+              <button onClick={logout} title={t('nav.signOut')} aria-label={t('nav.signOut')} className="p-1.5 rounded-md text-ash hover:text-oxblood hover:bg-panel transition-colors shrink-0">
                 <LogOut className="w-4 h-4" />
               </button>
             </>
@@ -144,6 +150,7 @@ export default function Sidebar({ collapsed }) {
 }
 
 function SettingsMenu() {
+  const { t, lang, setLang } = useT();
   const [open, setOpen] = useState(false);
   const [timezone, setTimezone] = useState(getDisplayTimezone);
   const ref = useRef(null);
@@ -170,7 +177,7 @@ function SettingsMenu() {
     <div ref={ref} className="relative shrink-0">
       <button
         onClick={() => setOpen((o) => !o)}
-        title="Settings" aria-label="Settings" aria-haspopup="true" aria-expanded={open}
+        title={t('settings.title')} aria-label={t('settings.title')} aria-haspopup="true" aria-expanded={open}
         className="p-1.5 rounded-md text-ash hover:text-bone hover:bg-panel transition-colors"
       >
         <Settings className="w-4 h-4" />
@@ -178,8 +185,15 @@ function SettingsMenu() {
 
       {open && (
         <div className="absolute bottom-full left-0 mb-2 w-64 panel rounded-sm shadow-xl p-3 z-50">
-          <div className="eyebrow text-[10px] text-ash mb-2">Settings</div>
-          <label className="eyebrow text-[10px] text-ash/75 block mb-1.5">Timezone</label>
+          <div className="eyebrow text-[10px] text-ash mb-2">{t('settings.title')}</div>
+          <label className="eyebrow text-[10px] text-ash/75 block mb-1.5">{t('settings.language')}</label>
+          <select
+            value={lang} onChange={(e) => setLang(e.target.value)}
+            className="w-full mb-3 bg-hall border border-line rounded-md px-2.5 py-2 text-sm text-bone focus:outline-none focus:border-brass"
+          >
+            {LANGUAGES.map((l) => <option key={l.code} value={l.code}>{l.label}</option>)}
+          </select>
+          <label className="eyebrow text-[10px] text-ash/75 block mb-1.5">{t('settings.timezone')}</label>
           <select
             value={timezone} onChange={(e) => chooseTimezone(e.target.value)}
             className="w-full bg-hall border border-line rounded-md px-2.5 py-2 text-sm text-bone focus:outline-none focus:border-brass"
@@ -193,6 +207,7 @@ function SettingsMenu() {
 }
 
 function NavSection({ title, links, linkClass, collapsed }) {
+  const { t } = useT();
   const { pathname } = useLocation();
   const [expanded, setExpanded] = useState(() => new Set());
 
@@ -208,7 +223,8 @@ function NavSection({ title, links, linkClass, collapsed }) {
     <div>
       {!collapsed && <div className="eyebrow text-[10px] text-ash/75 px-3 mb-1.5">{title}</div>}
       <div className="space-y-0.5">
-        {links.map(({ to, label, end, icon: Icon, children }) => {
+        {links.map(({ to, label: rawLabel, end, icon: Icon, children }) => {
+          const label = navLabel(t, rawLabel);
           // Collapsed rail has no room for a chevron/sub-list — just link
           // straight to the parent page, same as any other icon-only item.
           //
@@ -236,7 +252,7 @@ function NavSection({ title, links, linkClass, collapsed }) {
                   <span className="truncate">{label}</span>
                 </NavLink>
                 <button
-                  onClick={() => toggle(to)} aria-label={open ? `Collapse ${label}` : `Expand ${label}`} aria-expanded={open}
+                  onClick={() => toggle(to)} aria-label={open ? t('nav.collapse', { label }) : t('nav.expand', { label })} aria-expanded={open}
                   className="p-1 -mr-1 shrink-0 text-ash hover:text-bone"
                 >
                   <ChevronDown className={`w-3.5 h-3.5 transition-transform ${open ? 'rotate-180' : ''}`} />
@@ -249,7 +265,7 @@ function NavSection({ title, links, linkClass, collapsed }) {
                       key={child.to} to={child.to}
                       className={({ isActive }) => `block px-3 py-1.5 rounded-md text-sm truncate transition-colors ${isActive ? 'text-brassbright bg-panel' : 'text-ash hover:text-bone'}`}
                     >
-                      {child.label}
+                      {navLabel(t, child.label)}
                     </NavLink>
                   ))}
                 </div>
