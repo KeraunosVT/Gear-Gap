@@ -880,6 +880,11 @@ export default function Parties() {
 
   const activeMember = activeId ? byId[activeId] : null;
 
+  // Fill is standby, not a real party, so it's counted apart from the total.
+  const slottedCount = PARTY_IDS.filter((pid) => pid !== FILL_PARTY_ID)
+    .reduce((n, pid) => n + items[pid].length, 0);
+  const fillCount = items[FILL_PARTY_ID].length;
+
   return (
     <PageShell maxWidth="max-w-none" paddingX="px-2">
       <div className="panel rounded-lg p-4 mb-6 flex flex-wrap items-center gap-3">
@@ -1082,6 +1087,11 @@ export default function Parties() {
 
           {/* Parties + Absent */}
           <div className="flex flex-col gap-1.5">
+            <div className="eyebrow text-[10px] text-ash flex items-center gap-2">
+              <Users className="w-3.5 h-3.5" />
+              <span><span className="font-mono text-bone">{slottedCount}</span> slotted</span>
+              {fillCount > 0 && <span>· <span className="font-mono text-bone">{fillCount}</span> in Fill</span>}
+            </div>
             {[PARTY_IDS.slice(0, 6), PARTY_IDS.slice(6, 12)].map((row, i) => (
               <div key={i} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3 items-start">
                 {row.map((pid) => (
