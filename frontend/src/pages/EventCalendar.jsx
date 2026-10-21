@@ -1219,8 +1219,11 @@ function EventRow({ row, busy, onJoin, onLeave, loa = null, showAway = false, on
   const isIn = row.myStatus === 'going';
   const isWaitlisted = row.myStatus === 'waitlist';
 
+  // Wraps rather than squeezes: in the narrow side panel the buttons drop to
+  // their own line (the title's basis is what triggers it) instead of
+  // crushing the title to nothing.
   return (
-    <div className="flex items-center gap-3 px-4 py-3">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
       <div className="w-24 shrink-0 text-sm">
         {row.eventTime ? (
           <span className={row.started ? 'text-ash/40' : 'text-brassbright font-mono'}>{fmtTimeEst(row.eventTime)}</span>
@@ -1229,7 +1232,7 @@ function EventRow({ row, busy, onJoin, onLeave, loa = null, showAway = false, on
         )}
       </div>
 
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 basis-36">
         <div className={`truncate ${row.started ? 'text-ash/60' : 'text-bone'}`}>{row.title}</div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-0.5 text-xs">
           <span className="inline-flex items-center gap-1 text-ash">
@@ -1289,45 +1292,47 @@ function EventRow({ row, busy, onJoin, onLeave, loa = null, showAway = false, on
       {/* LOA for just this event. Hidden once it's started, and when a broader
           LOA (a range, a standing night) already covers it — that one is
           managed on the LOA page. A one-off with no time can't be scoped. */}
-      {loa && !row.started && (row.myLoaId ? (
-        <Button
-          variant="ghost" size="none" className="px-2 py-1.5 text-sm shrink-0 text-brass"
-          onClick={() => loa.onCancel(row)} disabled={busy === `loa:${row.key}`}
-          title={t('cal.cancelLoaTitle')}
-        >
-          <CalendarOff className="w-4 h-4" /> {t('cal.cancelLoa')}
-        </Button>
-      ) : !row.away && (row.scheduleId || row.eventTime) ? (
-        <Button
-          variant="secondary" size="none" className="px-2 py-1.5 text-sm shrink-0"
-          onClick={() => loa.onFile(row)} title={t('cal.fileLoaTitle')}
-        >
-          <CalendarOff className="w-4 h-4" /> {t('cal.loaButton')}
-        </Button>
-      ) : null)}
+      <div className="ml-auto flex items-center gap-2 shrink-0">
+        {loa && !row.started && (row.myLoaId ? (
+          <Button
+            variant="ghost" size="none" className="px-2 py-1.5 text-sm shrink-0 text-brass"
+            onClick={() => loa.onCancel(row)} disabled={busy === `loa:${row.key}`}
+            title={t('cal.cancelLoaTitle')}
+          >
+            <CalendarOff className="w-4 h-4" /> {t('cal.cancelLoa')}
+          </Button>
+        ) : !row.away && (row.scheduleId || row.eventTime) ? (
+          <Button
+            variant="secondary" size="none" className="px-2 py-1.5 text-sm shrink-0"
+            onClick={() => loa.onFile(row)} title={t('cal.fileLoaTitle')}
+          >
+            <CalendarOff className="w-4 h-4" /> {t('cal.loaButton')}
+          </Button>
+        ) : null)}
 
-      <div className="shrink-0">
-        {row.started ? (
-          <span className="text-ash/40 text-xs">{t('cal.started')}</span>
-        ) : row.myStatus ? (
-          <Button
-            variant="secondary" size="none" className="px-3 py-1.5 text-sm"
-            onClick={() => onLeave(row)} disabled={working}
-            title={isIn ? t('cal.withdrawInTitle') : t('cal.withdrawWaitTitle')}
-          >
-            {leaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-            {isIn ? t('cal.imIn') : t('cal.waitlistedCap')}
-          </Button>
-        ) : (
-          <Button
-            size="none" className="px-3 py-1.5 text-sm"
-            onClick={() => onJoin(row)} disabled={working}
-            title={row.signupId ? t('cal.signUp') : t('cal.signUpOpens')}
-          >
-            {joining ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-            {t('cal.imIn')}
-          </Button>
-        )}
+        <div className="shrink-0">
+          {row.started ? (
+            <span className="text-ash/40 text-xs">{t('cal.started')}</span>
+          ) : row.myStatus ? (
+            <Button
+              variant="secondary" size="none" className="px-3 py-1.5 text-sm"
+              onClick={() => onLeave(row)} disabled={working}
+              title={isIn ? t('cal.withdrawInTitle') : t('cal.withdrawWaitTitle')}
+            >
+              {leaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+              {isIn ? t('cal.imIn') : t('cal.waitlistedCap')}
+            </Button>
+          ) : (
+            <Button
+              size="none" className="px-3 py-1.5 text-sm"
+              onClick={() => onJoin(row)} disabled={working}
+              title={row.signupId ? t('cal.signUp') : t('cal.signUpOpens')}
+            >
+              {joining ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+              {t('cal.imIn')}
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );
