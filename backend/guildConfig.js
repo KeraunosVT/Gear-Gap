@@ -31,7 +31,7 @@ const CACHE_TTL_MS = (parseInt(process.env.GUILD_CONFIG_CACHE_SECONDS, 10) || 30
 const COLUMNS = [
   'id', 'house', 'tag', 'aliases', 'motto', 'creed', 'timezone', 'day_start',
   'admin_role_ids', 'allowed_role_ids', 'member_role_ids',
-  'roster_channel_id', 'loa_channel_id', 'announce_channel_id', 'signup_channel_id',
+  'roster_channel_id', 'loa_channel_id', 'announce_channel_id', 'signup_channel_id', 'calendar_channel_id',
   'attendance_voice_channel_id', 'loa_notify_discord_id', 'updated_at',
 ].join(', ');
 
@@ -60,6 +60,7 @@ const DEFAULTS = Object.freeze({
   loa_channel_id: null,
   announce_channel_id: null,
   signup_channel_id: null,
+  calendar_channel_id: null,
   attendance_voice_channel_id: null,
   // Null means nobody is DMed about LOA cancellations, which is what every
   // deployment did before migration 018.
@@ -166,6 +167,10 @@ const signupChannelId = () => {
   return c.signup_channel_id || c.announce_channel_id || null;
 };
 
+// The Event Calendar's day posts: their own channel if set, else wherever
+// signups go.
+const calendarChannelId = () => get().calendar_channel_id || signupChannelId();
+
 // The alias -> canonical-tag map server.js collapses `guild_name` through.
 // Built fresh on each call from the live config; the old module-scope version
 // of this map is precisely why a rename used to need a redeploy.
@@ -209,6 +214,7 @@ module.exports = {
   get,
   invalidate,
   signupChannelId,
+  calendarChannelId,
   aliasMap,
   canonicalGuild,
   publicIdentity,

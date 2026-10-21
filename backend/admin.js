@@ -2482,16 +2482,17 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
   });
 
   // ── Post a night's events to Discord ─────────────────────────────────────────
-  // Under /event-schedule so it takes the 'schedule' capability. The channel is
-  // picked per post; the default is the signup channel.
+  // Under /event-schedule so it takes the 'schedule' capability. The channel
+  // defaults to the Event Calendar channel in Guild Settings; the form can
+  // override it for one post.
   router.get('/event-schedule/post-channels', (req, res) => {
-    res.json({ channels: gateway.listTextChannels(), default_channel_id: guildConfig.signupChannelId() });
+    res.json({ channels: gateway.listTextChannels(), default_channel_id: guildConfig.calendarChannelId() });
   });
 
   router.post('/event-schedule/post-day', async (req, res) => {
     const { date, events, channel_id, note } = req.body || {};
     try {
-      const channelId = channel_id || guildConfig.signupChannelId();
+      const channelId = channel_id || guildConfig.calendarChannelId();
       if (!channelId) return res.status(400).json({ error: 'Pick a channel to post to.' });
       const payload = buildDayPost({ date, events, note, house: guildConfig.get().house });
       await postToChannel(channelId, payload);

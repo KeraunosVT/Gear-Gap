@@ -988,8 +988,6 @@ function NewEventModal({ canOneOff, canWeekly, defaultDate, onClose, onCreated }
 // line, change a time, add something that isn't on the schedule. The server
 // turns each time into a Discord timestamp, so readers see it in their own
 // timezone with a live countdown.
-const POST_CHANNEL_KEY = 'calendarPostChannel';
-
 // The night's events as editable lines: scheduled ones (minus nights removed
 // from the calendar), then one-offs opened for that night.
 function eventsForPost(schedule, occurrences, date) {
@@ -1016,10 +1014,10 @@ function PostDayModal({ defaultDate, schedule, occurrences, onClose, onPosted })
       .then((res) => {
         const list = res.data.channels || [];
         setChannels(list);
-        let remembered = '';
-        try { remembered = localStorage.getItem(POST_CHANNEL_KEY) || ''; } catch { /* per-viewer nicety only */ }
-        const pick = [remembered, res.data.default_channel_id].find((id) => id && list.some((c) => c.id === id));
-        setChannelId(pick || list[0]?.id || '');
+        // Starts on the Event Calendar channel from Guild Settings every time;
+        // picking another here only changes this one post.
+        const configured = res.data.default_channel_id;
+        setChannelId(list.some((c) => c.id === configured) ? configured : list[0]?.id || '');
       })
       .catch(() => setError('Could not load the channel list — is the bot online?'));
   }, []);
@@ -1040,7 +1038,6 @@ function PostDayModal({ defaultDate, schedule, occurrences, onClose, onPosted })
     setSaving(true); setError('');
     try {
       await axios.post('/api/admin/event-schedule/post-day', { date, events, channel_id: channelId, note });
-      try { localStorage.setItem(POST_CHANNEL_KEY, channelId); } catch { /* per-viewer nicety only */ }
       const ch = channels.find((c) => c.id === channelId);
       onPosted(`Posted ${shortDate(date)}'s events${ch ? ` to #${ch.name}` : ''}.`);
     } catch (err) {

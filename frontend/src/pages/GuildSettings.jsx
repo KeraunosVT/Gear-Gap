@@ -30,6 +30,7 @@ const CHANNELS = [
   { key: 'loa_channel_id', label: 'LOA', hint: 'Where filed absences are announced' },
   { key: 'announce_channel_id', label: 'Announcements', hint: 'Where /announce posts' },
   { key: 'signup_channel_id', label: 'Signups', hint: 'Falls back to Announcements when left blank' },
+  { key: 'calendar_channel_id', label: 'Event Calendar', hint: "Where the calendar's Post to Discord goes. Falls back to Signups when left blank" },
 ];
 
 const ROLE_GROUPS = [

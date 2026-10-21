@@ -218,6 +218,10 @@ select '031 · event_schedule.skip_dates is date[]',
         where table_schema = 'public' and table_name = 'event_schedule'
           and column_name = 'skip_dates'), false)
 union all
+select '032 · guild_config.calendar_channel_id',
+       (select count(*) from information_schema.columns
+        where table_schema = 'public' and table_name = 'guild_config' and column_name = 'calendar_channel_id') = 1
+union all
 select '019 · normalise_guild_name(text)',
        (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.proname = 'normalise_guild_name') = 1
