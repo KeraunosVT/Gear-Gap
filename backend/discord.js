@@ -175,6 +175,18 @@ async function postEmbed(embed, content) {
   );
 }
 
+// Post a message to any channel the caller names — for posts whose channel is
+// picked per post rather than fixed in Guild Settings.
+async function postToChannel(channelId, payload) {
+  if (!botConfigured) throw new Error('Discord bot is not configured.');
+  if (!channelId) throw new Error('Pick a channel to post to.');
+  await axios.post(
+    `${API}/channels/${channelId}/messages`,
+    payload,
+    { headers: { ...authHeaders(), 'Content-Type': 'application/json' } }
+  );
+}
+
 // Post an image file to the configured roster channel.
 async function postImage(buffer, filename, content) {
   if (!botConfigured) throw new Error('Discord bot is not configured.');
@@ -234,5 +246,5 @@ function invalidateCaches() {
 }
 
 module.exports = {
-  listMembers, listRoles, fetchMember, fetchRoleGrants, postEmbed, postImage, botConfigured, invalidateCaches,
+  listMembers, listRoles, fetchMember, fetchRoleGrants, postEmbed, postImage, postToChannel, botConfigured, invalidateCaches,
 };

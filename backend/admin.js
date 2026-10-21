@@ -4,7 +4,8 @@ const crypto = require('crypto');
 const multer = require('multer');
 const Papa = require('papaparse');
 const { parseScreenshot, parseCsv, WEAPONS } = require('./ingest');
-const { listMembers, listRoles, postEmbed, postImage } = require('./discord');
+const { listMembers, listRoles, postEmbed, postImage, postToChannel } = require('./discord');
+const { buildDayPost } = require('./dayPost');
 const perms = require('./permissions');
 const createLoa = require('./loa');
 const { todayInGuildTz } = createLoa;
@@ -2478,6 +2479,29 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     const { error } = await supabase.from('event_schedule').update(update).eq('id', req.params.id);
     if (error) return res.status(500).json({ error: 'Failed to update event.' });
     res.json({ ok: true });
+  });
+
+  // ── Post a night's events to Discord ─────────────────────────────────────────
+  // Under /event-schedule so it takes the 'schedule' capability. The channel is
+  // picked per post; the default is the signup channel.
+  router.get('/event-schedule/post-channels', (req, res) => {
+    res.json({ channels: gateway.listTextChannels(), default_channel_id: guildConfig.signupChannelId() });
+  });
+
+  router.post('/event-schedule/post-day', async (req, res) => {
+    const { date, events, channel_id, note } = req.body || {};
+    try {
+      const channelId = channel_id || guildConfig.signupChannelId();
+      if (!channelId) return res.status(400).json({ error: 'Pick a channel to post to.' });
+      const payload = buildDayPost({ date, events, note, house: guildConfig.get().house });
+      await postToChannel(channelId, payload);
+      res.json({ ok: true });
+    } catch (err) {
+      const discordMsg = err.response?.data?.message;
+      res.status(err.status || (discordMsg ? 502 : 500)).json({
+        error: discordMsg ? `Discord refused the post: ${discordMsg}` : err.message || 'Failed to post.',
+      });
+    }
   });
 
   // Cancel (skip: true) or restore (skip: false) one night of a weekly event

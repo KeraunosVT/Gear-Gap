@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import axios from 'axios';
 import {
   CalendarRange, Check, ChevronLeft, ChevronRight, Clock, Loader2, Users, CalendarOff, AlertTriangle, Plus,
-  LayoutGrid, List, Settings, Trash2, X,
+  LayoutGrid, List, Settings, Trash2, X, Send,
 } from 'lucide-react';
 import ScheduleManager from '../components/ScheduleManager';
 import WeekTimeGrid from '../components/WeekTimeGrid';
@@ -124,6 +124,7 @@ export default function EventCalendar() {
   const canWeekly = can('schedule');
   const [creating, setCreating] = useState(false);
   const [managing, setManaging] = useState(false);
+  const [posting, setPosting] = useState(false);
   const [view, setView] = useState(readView);
   // The grid's blocks are too small for buttons, so a click opens the event's
   // row in a modal. Held as a key and re-found each render, so the modal shows
@@ -467,6 +468,11 @@ export default function EventCalendar() {
             ))}
           </div>
           {canWeekly && (
+            <Button variant="secondary" size="none" className="px-3 py-1.5 text-sm" onClick={() => setPosting(true)}>
+              <Send className="w-4 h-4" /> Post to Discord
+            </Button>
+          )}
+          {canWeekly && (
             <Button variant="secondary" size="none" className="px-3 py-1.5 text-sm" onClick={() => setManaging(true)}>
               <Settings className="w-4 h-4" /> Manage schedule
             </Button>
@@ -485,6 +491,15 @@ export default function EventCalendar() {
           defaultDate={days[0] < today ? today : days[0]}
           onClose={() => setCreating(false)}
           onCreated={(text) => { setCreating(false); flash(text); load(); }}
+        />
+      )}
+
+      {posting && (
+        <PostDayModal
+          defaultDate={selected?.date && selected.date >= today ? selected.date : today}
+          schedule={schedule} occurrences={occurrences}
+          onClose={() => setPosting(false)}
+          onPosted={(text) => { setPosting(false); flash(text); }}
         />
       )}
 
@@ -961,6 +976,131 @@ function NewEventModal({ canOneOff, canWeekly, defaultDate, onClose, onCreated }
           <Button type="button" variant="neutral" size="sm" onClick={onClose}>Cancel</Button>
           <Button type="submit" size="sm" disabled={saving}>
             {saving && <Loader2 className="w-4 h-4 animate-spin" />} Create
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// ── POST A NIGHT TO DISCORD ─────────────────────────────────────────────────
+// Filled from the calendar for the picked night, then edited by hand: drop a
+// line, change a time, add something that isn't on the schedule. The server
+// turns each time into a Discord timestamp, so readers see it in their own
+// timezone with a live countdown.
+const POST_CHANNEL_KEY = 'calendarPostChannel';
+
+// The night's events as editable lines: scheduled ones (minus nights removed
+// from the calendar), then one-offs opened for that night.
+function eventsForPost(schedule, occurrences, date) {
+  const sched = eventsForGuildDay(schedule, dowOf(date), date);
+  const ids = new Set(sched.map((s) => s.id));
+  const extra = occurrences.filter((o) => o.event_date === date && !ids.has(o.event_schedule_id));
+  return [
+    ...sched.map((s) => ({ name: s.name, time: s.event_time || '' })),
+    ...extra.map((o) => ({ name: o.title, time: o.event_time || '' })),
+  ].map((e, i) => ({ ...e, key: `${date}:${i}` }));
+}
+
+function PostDayModal({ defaultDate, schedule, occurrences, onClose, onPosted }) {
+  const [date, setDate] = useState(defaultDate);
+  const [rows, setRows] = useState(() => eventsForPost(schedule, occurrences, defaultDate));
+  const [channels, setChannels] = useState([]);
+  const [channelId, setChannelId] = useState('');
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    axios.get('/api/admin/event-schedule/post-channels')
+      .then((res) => {
+        const list = res.data.channels || [];
+        setChannels(list);
+        let remembered = '';
+        try { remembered = localStorage.getItem(POST_CHANNEL_KEY) || ''; } catch { /* per-viewer nicety only */ }
+        const pick = [remembered, res.data.default_channel_id].find((id) => id && list.some((c) => c.id === id));
+        setChannelId(pick || list[0]?.id || '');
+      })
+      .catch(() => setError('Could not load the channel list — is the bot online?'));
+  }, []);
+
+  const changeDate = (d) => {
+    setDate(d);
+    if (d) setRows(eventsForPost(schedule, occurrences, d));
+  };
+  const edit = (key, field, value) => setRows((rs) => rs.map((r) => (r.key === key ? { ...r, [field]: value } : r)));
+  const remove = (key) => setRows((rs) => rs.filter((r) => r.key !== key));
+  const add = () => setRows((rs) => [...rs, { key: `new:${Date.now()}`, name: '', time: '' }]);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    const events = rows.filter((r) => r.name.trim()).map((r) => ({ name: r.name.trim(), time: r.time || null }));
+    if (!events.length) { setError('Add at least one event.'); return; }
+    if (!channelId) { setError('Pick a channel.'); return; }
+    setSaving(true); setError('');
+    try {
+      await axios.post('/api/admin/event-schedule/post-day', { date, events, channel_id: channelId, note });
+      try { localStorage.setItem(POST_CHANNEL_KEY, channelId); } catch { /* per-viewer nicety only */ }
+      const ch = channels.find((c) => c.id === channelId);
+      onPosted(`Posted ${shortDate(date)}'s events${ch ? ` to #${ch.name}` : ''}.`);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not post.');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal onClose={onClose} scrollable>
+      <form onSubmit={submit} className="space-y-4">
+        <h2 className="font-display text-lg tracking-[0.08em] text-bone">POST TO DISCORD</h2>
+
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <label className="eyebrow text-[10px] text-ash block mb-2">Night</label>
+            <input type="date" value={date} onChange={(e) => changeDate(e.target.value)} required className={FIELD} />
+          </div>
+          <div className="flex-1">
+            <label className="eyebrow text-[10px] text-ash block mb-2">Channel</label>
+            <select value={channelId} onChange={(e) => setChannelId(e.target.value)} className={FIELD}>
+              {channels.length === 0 && <option value="">—</option>}
+              {channels.map((c) => <option key={c.id} value={c.id}>#{c.name}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label className="eyebrow text-[10px] text-ash block mb-2">Events</label>
+          {rows.length === 0 && <p className="text-sm text-ash mb-2">Nothing on the calendar that night — add events below.</p>}
+          <div className="space-y-2">
+            {rows.map((r) => (
+              <div key={r.key} className="flex gap-2 items-center">
+                <input value={r.name} onChange={(e) => edit(r.key, 'name', e.target.value)} placeholder="Event name" className={`${FIELD} flex-1`} />
+                <input type="time" value={r.time} onChange={(e) => edit(r.key, 'time', e.target.value)} className={`${FIELD} !w-32`} title="Guild time; blank = time TBA" />
+                <button type="button" onClick={() => remove(r.key)} title="Remove from this post" className="p-1 text-ash hover:text-oxblood shrink-0">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+          </div>
+          <button type="button" onClick={add} className="mt-2 inline-flex items-center gap-1 text-sm text-brass hover:text-brassbright">
+            <Plus className="w-4 h-4" /> Add event
+          </button>
+          <p className="text-xs text-ash/70 mt-2">
+            Times are guild time; Discord shows each reader their own local time and a live countdown. After-midnight times count as part of this night.
+          </p>
+        </div>
+
+        <div>
+          <label className="eyebrow text-[10px] text-ash block mb-2">Message (optional)</label>
+          <textarea value={note} onChange={(e) => setNote(e.target.value)} rows={2} placeholder="Shown above the list — e.g. a role ping" className={FIELD} />
+        </div>
+
+        {error && <div className="text-sm text-oxblood">{error}</div>}
+
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="neutral" size="sm" onClick={onClose}>Cancel</Button>
+          <Button type="submit" size="sm" disabled={saving || !channelId}>
+            {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Post
           </Button>
         </div>
       </form>
