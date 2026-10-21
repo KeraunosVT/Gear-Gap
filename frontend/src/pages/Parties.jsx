@@ -293,6 +293,11 @@ export default function Parties() {
   const signupRef = useRef(signupById);
   useEffect(() => { signupRef.current = signupById; }, [signupById]);
 
+  // Top-of-page bars the officer has closed ('signup', 'loaConflict'). Scoped
+  // to the occasion: moving the date/event brings them back.
+  const [dismissedBars, setDismissedBars] = useState(() => new Set());
+  const dismissBar = (key) => setDismissedBars((prev) => new Set(prev).add(key));
+
   const rolesByModeRef = useRef(rolesByMode);
   useEffect(() => { rolesByModeRef.current = rolesByMode; }, [rolesByMode]);
 
@@ -410,6 +415,7 @@ export default function Parties() {
     const key = `${loaDate}|${loaEvent}`;
     if (loaFetchedFor.current === key) return;
     loaFetchedFor.current = key;
+    setDismissedBars(new Set());
     fetchLoa(loaDate, loaEvent).then(setLoaById);
     fetchSignups(loaDate, loaEvent).then(setSignupById);
   }, [loaDate, loaEvent]);
@@ -959,7 +965,7 @@ export default function Parties() {
       {/* Who said they're coming. Deliberately says nothing about anyone else:
           no signup is undecided, not out, and the LOA bars below are the only
           thing on this page that means absent. */}
-      {signupById.size > 0 && (
+      {signupById.size > 0 && !dismissedBars.has('signup') && (
         <div className="mb-3 px-5 py-3 rounded-lg border border-brass/40 bg-panel text-sm flex items-center justify-between gap-4">
           <div className="flex items-center gap-2 text-bone">
             <ClipboardList className="w-4 h-4 text-brass shrink-0" />
@@ -987,6 +993,9 @@ export default function Parties() {
               Seed parties
             </Button>
           )}
+          <button onClick={() => dismissBar('signup')} className="p-1 text-ash hover:text-bone shrink-0" title="Dismiss">
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
@@ -1009,7 +1018,7 @@ export default function Parties() {
       )}
 
       {/* Live conflict prompt: members definitely out, still on the board. */}
-      {loaConflicts.full.length > 0 && (
+      {loaConflicts.full.length > 0 && !dismissedBars.has('loaConflict') && (
         <div className="mb-3 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-sm flex items-center justify-between gap-4">
           <div className="flex items-center gap-2 text-bone">
             <CalendarOff className="w-4 h-4 text-oxblood shrink-0" />
@@ -1030,6 +1039,9 @@ export default function Parties() {
           <Button variant="secondary" size="none" className="px-3 py-1.5 text-xs shrink-0" onClick={benchLoaConflicts}>
             Move {loaConflicts.full.length} to Absent
           </Button>
+          <button onClick={() => dismissBar('loaConflict')} className="p-1 text-ash hover:text-bone shrink-0" title="Dismiss">
+            <X className="w-4 h-4" />
+          </button>
         </div>
       )}
 
