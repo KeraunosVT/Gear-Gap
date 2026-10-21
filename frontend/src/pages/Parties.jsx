@@ -278,6 +278,10 @@ export default function Parties() {
   // Tuesday's LOA shouldn't stay parked once you switch to Saturday.
   const [absentWhy, setAbsentWhy] = useState({});
   const [schedule, setSchedule] = useState([]);
+  // One-off events opened for the picked night (signups with no schedule
+  // entry). They sit in the event picker beside the weekly ones, as
+  // `signup:<id>` so the two kinds of id can't collide.
+  const [oneOffs, setOneOffs] = useState([]);
   const [classMode, setClassMode] = useState('pvp');
   const [classAssignments, setClassAssignments] = useState({ pvp: {}, pve: {} });
 
@@ -367,8 +371,15 @@ export default function Parties() {
   // Resolves to who's out for a date/event instead of setting state itself —
   // load() needs the roster's own LOA picture in hand to diff it against what
   // was saved, before any of it reaches the board.
+  // The query for an occasion. A one-off is asked about by its signup id: the
+  // server reads its time from that, and (date, no schedule id) couldn't tell
+  // two one-offs on the same night apart anyway.
+  const occasionParams = (date, event) => (String(event).startsWith('signup:')
+    ? `signup=${event.slice('signup:'.length)}`
+    : `date=${date}${event ? `&event=${event}` : ''}`);
+
   const fetchLoa = (date, event) => {
-    const params = `date=${date}${event ? `&event=${event}` : ''}`;
+    const params = occasionParams(date, event);
     return axios.get(`/api/admin/loa/unavailable?${params}`)
       .then((res) => new Map((res.data.unavailable || []).map((u) => [u.discord_id, u])))
       .catch(() => new Map());
@@ -378,7 +389,7 @@ export default function Parties() {
   // An empty map is the normal answer — most occasions have no signup open, and
   // this route is deliberately readable with the 'parties' capability alone.
   const fetchSignups = (date, event) => {
-    const params = `date=${date}${event ? `&event=${event}` : ''}`;
+    const params = occasionParams(date, event);
     return axios.get(`/api/admin/signups/by-occasion?${params}`)
       .then((res) => new Map([
         ...(res.data.going || []).map((e) => [e.discord_id, 'going']),
@@ -391,6 +402,15 @@ export default function Parties() {
     if (!loaDate) return [];
     return eventsForGuildDay(schedule, new Date(loaDate + 'T12:00:00').getDay(), loaDate);
   }, [loaDate, schedule]);
+
+  useEffect(() => {
+    if (!loaDate) { setOneOffs([]); return undefined; }
+    let live = true;
+    axios.get(`/api/admin/signups/by-occasion/one-offs?date=${loaDate}`)
+      .then((res) => { if (live) setOneOffs(res.data.events || []); })
+      .catch(() => { if (live) setOneOffs([]); });
+    return () => { live = false; };
+  }, [loaDate]);
 
   // Which date+event the LOA set in state was fetched for. Keeps load() — which
   // fetches its roster's occasion itself — from triggering a duplicate round
@@ -739,7 +759,8 @@ export default function Parties() {
     // The occasion the board is currently set to is the occasion the roster is
     // for — that's what makes re-checking LOA on load possible.
     event_date: loaDate || null,
-    event_schedule_id: loaEvent || null,
+    // A one-off has no schedule id; the roster keeps just its night.
+    event_schedule_id: loaEvent && !loaEvent.startsWith('signup:') ? loaEvent : null,
   });
 
   const save = async () => {
@@ -927,6 +948,11 @@ export default function Parties() {
               <option key={s.id} value={s.id}>
                 {s.name}{s.event_time ? ` — ${fmtTimeEst(s.event_time)}` : ''}
                 {isAfterMidnight(s.event_time) ? ` ${DAY_ABBR[s.day_of_week]}` : ''}
+              </option>
+            ))}
+            {oneOffs.map((o) => (
+              <option key={o.id} value={`signup:${o.id}`}>
+                {o.title}{o.event_time ? ` — ${fmtTimeEst(o.event_time)}` : ''} (one-off)
               </option>
             ))}
           </select>

@@ -274,3 +274,28 @@ describe('loa.unavailableOn honours removed occurrences', () => {
     assert.equal((await loa.unavailableOn({ date: TUE })).length, 1);
   });
 });
+
+// A one-off event (no schedule entry) is asked about by its own time, from the
+// party builder. Only unscoped LOAs apply to it.
+describe('loa.unavailableOn for a one-off event', () => {
+  const oneOff = { date: TUE, eventTime: '21:00', oneOff: true };
+
+  test('an LOA scoped to a weekly event does not cover the one-off', async () => {
+    const loa = createLoa(listSupabase([{ ...RECURRING, event_schedule_id: 'ev-1' }]));
+    assert.deepEqual(await loa.unavailableOn(oneOff), []);
+  });
+
+  test('the time window is checked against the one-off\'s time', async () => {
+    const after22 = createLoa(listSupabase([{ ...RECURRING, start_time: '22:00' }]));
+    assert.deepEqual(await after22.unavailableOn(oneOff), []);
+    const after20 = createLoa(listSupabase([{ ...RECURRING, start_time: '20:00' }]));
+    const out = await after20.unavailableOn(oneOff);
+    assert.equal(out.length, 1);
+    assert.equal(out[0].partial, false, 'a known time makes it a definite yes');
+  });
+
+  test('a whole-night LOA still covers it', async () => {
+    const loa = createLoa(listSupabase([RECURRING]));
+    assert.equal((await loa.unavailableOn(oneOff)).length, 1);
+  });
+});

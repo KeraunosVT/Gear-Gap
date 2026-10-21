@@ -302,8 +302,8 @@ export default function LOA() {
     const [ey, em, ed] = end.split('-').map(Number);
     const last = Date.UTC(ey, em - 1, ed);
     const out = [];
-    for (let t = Date.UTC(sy, sm - 1, sd); t <= last; t += 86400000) {
-      out.push(new Date(t).toISOString().slice(0, 10));
+    for (let ms = Date.UTC(sy, sm - 1, sd); ms <= last; ms += 86400000) {
+      out.push(new Date(ms).toISOString().slice(0, 10));
     }
     return out;
   };
@@ -367,8 +367,8 @@ export default function LOA() {
     const gridStart = new Date(first.getTime() - first.getUTCDay() * 86400000);
     const gridEnd = new Date(last.getTime() + (6 - last.getUTCDay()) * 86400000);
     const cells = [];
-    for (let t = gridStart.getTime(); t <= gridEnd.getTime(); t += 86400000) {
-      const iso = new Date(t).toISOString().slice(0, 10);
+    for (let ms = gridStart.getTime(); ms <= gridEnd.getTime(); ms += 86400000) {
+      const iso = new Date(ms).toISOString().slice(0, 10);
       cells.push({ date: iso, inMonth: iso.slice(0, 7) === calMonth });
     }
     return cells;

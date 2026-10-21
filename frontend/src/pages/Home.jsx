@@ -123,7 +123,7 @@ export default function Home() {
     { label: t('home.healers'),       value: stats.healers ?? '—',       icon: <Heart className="w-4 h-4" /> },
   ];
 
-  const eliteByLocation = Object.fromEntries(eliteTimers.map((t) => [t.location, t]));
+  const eliteByLocation = Object.fromEntries(eliteTimers.map((tm) => [tm.location, tm]));
 
   return (
     <div>

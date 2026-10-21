@@ -34,7 +34,7 @@ export default function EliteTimerBar() {
     return () => clearInterval(tick);
   }, []);
 
-  const byLocation = Object.fromEntries(timers.map((t) => [t.location, t]));
+  const byLocation = Object.fromEntries(timers.map((tm) => [tm.location, tm]));
 
   return (
     <div className="border-b border-line bg-panel/60">
@@ -43,14 +43,14 @@ export default function EliteTimerBar() {
           <Clock className="w-3.5 h-3.5" /> {t('elites.title')}
         </span>
         {Object.keys(LOCATIONS).map((loc) => {
-          const t = byLocation[loc];
-          const remaining = t ? new Date(t.next_spawn_at).getTime() - now : null;
+          const timer = byLocation[loc];
+          const remaining = timer ? new Date(timer.next_spawn_at).getTime() - now : null;
           const urgent = remaining !== null && remaining > 0 && remaining < 10 * 60 * 1000;
           const up = remaining !== null && remaining <= 0;
           return (
             <span key={loc} className="inline-flex items-center gap-1.5 shrink-0">
               <span className="text-ash">{loc}</span>
-              {t ? (
+              {timer ? (
                 <span className={`font-mono ${up ? 'text-emerald-400' : urgent ? 'text-oxblood' : 'text-brassbright'}`}>
                   {fmtCountdown(remaining, t)}
                 </span>

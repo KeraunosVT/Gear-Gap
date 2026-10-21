@@ -224,7 +224,12 @@ module.exports = function createLoa(supabase, identities = null) {
     // verified to collide, but with no event selected there's no time to
     // compare against, so it's a heads-up rather than a hard block — someone
     // out after 8pm is still available for the 6pm.
-    async unavailableOn({ date, eventScheduleId = null }) {
+    //
+    // A one-off event (an opened signup with no schedule entry) has no schedule
+    // id to look a time up by, so the caller passes its `eventTime` and
+    // `oneOff: true`: then only unscoped LOAs apply — one scoped to a weekly
+    // event isn't about this one — and the time window is checked against it.
+    async unavailableOn({ date, eventScheduleId = null, eventTime: oneOffTime = null, oneOff = false }) {
       if (!isValidDate(date)) throw httpError(400, 'Date must be in YYYY-MM-DD format.');
       const dow = dayOfWeek(date);
       // Paged, because this reads EVERY entry and matches in JS — recurring
@@ -255,8 +260,10 @@ module.exports = function createLoa(supabase, identities = null) {
         console.error('loa.unavailableOn error:', err.message);
         throw httpError(500, 'Failed to load LOAs.');
       }
-      const eventTime = eventRow?.event_time || null;
-      const inScope = (e) => !e.event_schedule_id || !eventScheduleId || e.event_schedule_id === eventScheduleId;
+      const eventTime = eventRow?.event_time || oneOffTime || null;
+      const inScope = oneOff
+        ? (e) => !e.event_schedule_id
+        : (e) => !e.event_schedule_id || !eventScheduleId || e.event_schedule_id === eventScheduleId;
 
       const out = new Map();
       (data || []).forEach((e) => {

@@ -506,6 +506,27 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
     },
 
     // The party builder's feed: who committed to this occasion.
+    // The one-off events opened for a night — signups with no schedule entry —
+    // for the party builder's event picker, which otherwise only knows the
+    // weekly schedule. Cancelled ones are left out.
+    async oneOffsOn(eventDate) {
+      if (!isValidDate(eventDate)) throw httpError(400, 'Date must be in YYYY-MM-DD format.');
+      const { data, error } = await supabase.from('signup_events')
+        .select('id, title, event_date, event_time, status')
+        .eq('event_date', eventDate).is('event_schedule_id', null).neq('status', 'cancelled')
+        .order('event_time', { ascending: true, nullsFirst: true });
+      if (error) { console.error('signups.oneOffsOn error:', error.message); throw httpError(500, 'Failed to load events.'); }
+      return data || [];
+    },
+
+    // signedUpFor, by signup id — how the party builder asks about a one-off,
+    // which (date, schedule id) can't single out when a night has several.
+    async signedUpForId(id) {
+      const event = await loadEvent(id);
+      const { going, waitlist } = await entriesFor(event.id);
+      return { event, going, waitlist };
+    },
+
     async signedUpFor({ eventDate, eventScheduleId = null }) {
       const event = await this.getByOccasion({ eventDate, eventScheduleId });
       if (!event) return { event: null, going: [], waitlist: [] };

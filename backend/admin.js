@@ -2320,9 +2320,23 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
   // The party builder's feed. Note this path takes the 'parties' capability
   // rather than 'attendance' (see permissions.js) — a parties officer has to be
   // able to read it to seed a roster.
+  // A night's one-off events, for the party builder's picker. Under
+  // /signups/by-occasion so it takes 'parties', like the route below.
+  router.get('/signups/by-occasion/one-offs', async (req, res) => {
+    if (!signups) return res.status(503).json({ error: 'Database not configured.' });
+    try {
+      res.json({ events: await signups.oneOffsOn(req.query.date || todayInGuildTz()) });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
+  // ?signup=<id> picks a one-off directly — a night can have several, and
+  // (date, no schedule id) would only ever find the first.
   router.get('/signups/by-occasion', async (req, res) => {
     if (!signups) return res.status(503).json({ error: 'Database not configured.' });
     try {
+      if (req.query.signup) return res.json(await signups.signedUpForId(req.query.signup));
       res.json(await signups.signedUpFor({
         eventDate: req.query.date || todayInGuildTz(),
         eventScheduleId: req.query.event || null,
@@ -2637,6 +2651,17 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     if (!loa) return res.status(503).json({ error: 'Database not configured.' });
     const date = req.query.date || todayInGuildTz();
     try {
+      // ?signup=<id>: a one-off event, checked against its own night and time.
+      if (req.query.signup && signups) {
+        const ev = await signups.get(req.query.signup);
+        const unavailable = await loa.unavailableOn({
+          date: ev.event_date,
+          eventScheduleId: ev.event_schedule_id || null,
+          eventTime: ev.event_time || null,
+          oneOff: !ev.event_schedule_id,
+        });
+        return res.json({ date: ev.event_date, unavailable });
+      }
       const unavailable = await loa.unavailableOn({ date, eventScheduleId: req.query.event || null });
       res.json({ date, unavailable });
     } catch (err) {
