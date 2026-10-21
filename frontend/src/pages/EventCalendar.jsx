@@ -125,6 +125,7 @@ export default function EventCalendar() {
   const [creating, setCreating] = useState(false);
   const [managing, setManaging] = useState(false);
   const [posting, setPosting] = useState(false);
+  const [loaRow, setLoaRow] = useState(null); // the event the LOA form is open for
   const [view, setView] = useState(readView);
   // The grid's blocks are too small for buttons, so a click opens the event's
   // row in a modal. Held as a key and re-found each render, so the modal shows
@@ -251,6 +252,11 @@ export default function EventCalendar() {
           capacity: r.occ?.capacity ?? null,
           // `away` is still "am I away" — the warning on my own row.
           away: awayList.some((e) => e.discord_id === user?.id),
+          // An LOA I filed for exactly this event, which the row can cancel.
+          // Anything broader (a range, a standing night) is the LOA page's.
+          myLoaId: loaEntries.find((e) => e.discord_id === user?.id && e.type === 'event' && e.event_date === date
+            && (r.scheduleId ? e.event_schedule_id === r.scheduleId : !e.event_schedule_id && Boolean(r.eventTime)
+              && String(e.start_time || '').slice(0, 5) === String(r.eventTime).slice(0, 5)))?.id || null,
           awayList,
           // A week starts on Monday now, so earlier nights of this week are on
           // screen too — everything on them is over. Tonight's events are over
@@ -310,6 +316,20 @@ export default function EventCalendar() {
       ? `Withdrawn — ${res.data.promoted.display_name} moved up off the waitlist.`
       : 'Withdrawn.');
   });
+
+  // LOA for one event. Opens a reason form (the server requires a reason);
+  // cancelling only ever touches an LOA filed for exactly this event.
+  const fileLoa = (row) => setLoaRow(row);
+  const cancelLoa = (row) => {
+    if (!window.confirm(`Cancel your LOA for ${row.title} on ${shortDate(row.date)}?`)) return;
+    run(`loa:${row.key}`, async () => {
+      await axios.delete(`/api/loa/${row.myLoaId}`);
+      load();
+      flash(`LOA for ${row.title} cancelled.`);
+    });
+  };
+
+  const loaActions = { onFile: fileLoa, onCancel: cancelLoa };
 
   // Deleting a one-off is deleting its signup — the same route the Signups
   // page uses, which also takes down the Discord post. Scheduled nights aren't
@@ -428,7 +448,7 @@ export default function EventCalendar() {
         <Night
           key={night.date} night={night}
           isTonight={night.date === today}
-          busy={busy} onJoin={signUp} onLeave={withdraw}
+          busy={busy} onJoin={signUp} onLeave={withdraw} loa={loaActions}
           showAway={showAway} onDetails={(row) => setSelected({ date: night.date, key: row.key })}
         />
       ))}
@@ -494,6 +514,14 @@ export default function EventCalendar() {
         />
       )}
 
+      {loaRow && (
+        <LoaModal
+          row={loaRow}
+          onClose={() => setLoaRow(null)}
+          onFiled={(text) => { setLoaRow(null); flash(text); load(); }}
+        />
+      )}
+
       {posting && (
         <PostDayModal
           defaultDate={selected?.date && selected.date >= today ? selected.date : today}
@@ -522,7 +550,7 @@ export default function EventCalendar() {
           <Modal onClose={() => setSelected(null)} scrollable>
             <EventDetail
               night={selectedNight} row={{ ...selectedRow, date: selectedNight.date }}
-              busy={busy} onJoin={signUp} onLeave={withdraw} late={late} onDelete={onDelete}
+              busy={busy} onJoin={signUp} onLeave={withdraw} loa={loaActions} late={late} onDelete={onDelete}
               onSkip={onSkip && canSkip({ ...selectedRow, date: selectedNight.date }) ? onSkip : null}
             />
           </Modal>
@@ -604,7 +632,7 @@ export default function EventCalendar() {
                     </button>
                     <EventDetail
                       night={selectedNight} row={{ ...selectedRow, date: selectedNight.date }}
-                      busy={busy} onJoin={signUp} onLeave={withdraw} late={late} onDelete={onDelete}
+                      busy={busy} onJoin={signUp} onLeave={withdraw} loa={loaActions} late={late} onDelete={onDelete}
                       onSkip={onSkip && canSkip({ ...selectedRow, date: selectedNight.date }) ? onSkip : null}
                     />
                   </div>
@@ -626,7 +654,7 @@ export default function EventCalendar() {
 // One night's agenda. Nights with nothing scheduled still get a heading — a
 // week that silently skips Tuesday reads as a loading bug, and "nothing on"
 // is a real answer to "what's on Tuesday".
-function Night({ night, isTonight, busy, onJoin, onLeave, showAway, onDetails }) {
+function Night({ night, isTonight, busy, onJoin, onLeave, loa, showAway, onDetails }) {
   return (
     <div>
       <div className="flex items-baseline gap-2 mb-2">
@@ -642,7 +670,7 @@ function Night({ night, isTonight, busy, onJoin, onLeave, showAway, onDetails })
           {night.rows.map((row) => (
             <EventRow
               key={row.key} row={{ ...row, date: night.date }}
-              busy={busy} onJoin={onJoin} onLeave={onLeave}
+              busy={busy} onJoin={onJoin} onLeave={onLeave} loa={loa}
               showAway={showAway} onDetails={onDetails}
             />
           ))}
@@ -748,7 +776,7 @@ function Block({ row, fill = false, showAway = false, picked = false, onClick })
 // counts — so it is fetched when the event has been opened. It is used for one
 // thing: flagging anyone who is both on LOA and signed up, which the officer
 // has to resolve and which the server already works out as `conflicts`.
-function EventDetail({ night, row, busy, onJoin, onLeave, late, onDelete = null, onSkip = null }) {
+function EventDetail({ night, row, busy, onJoin, onLeave, loa, late, onDelete = null, onSkip = null }) {
   const [conflictIds, setConflictIds] = useState(() => new Set());
 
   useEffect(() => {
@@ -772,7 +800,7 @@ function EventDetail({ night, row, busy, onJoin, onLeave, late, onDelete = null,
         <span className="text-ash text-sm">{shortDate(night.date)}</span>
       </div>
       <div className="border border-line rounded-lg">
-        <EventRow row={row} busy={busy} onJoin={onJoin} onLeave={onLeave} />
+        <EventRow row={row} busy={busy} onJoin={onJoin} onLeave={onLeave} loa={loa} />
       </div>
 
       {/* The looking-back half: where you stand on a night attendance was
@@ -983,6 +1011,73 @@ function NewEventModal({ canOneOff, canWeekly, defaultDate, onClose, onCreated }
   );
 }
 
+// ── LOA FOR ONE EVENT ───────────────────────────────────────────────────────
+// The same per-event LOA the LOA page files, pre-scoped to the clicked row. A
+// scheduled event is scoped by its schedule id; a one-off has none, so it is
+// scoped by a one-minute window at its start time — which covers that event
+// and nothing else that night. A one-off with no time can't be scoped at all,
+// so the row doesn't offer this (see canLoa in EventRow).
+const plusOneMinute = (hhmm) => {
+  const [h, m] = hhmm.split(':').map(Number);
+  const t = (h * 60 + m + 1) % 1440;
+  return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
+};
+
+function LoaModal({ row, onClose, onFiled }) {
+  const [reason, setReason] = useState('');
+  const [withdraw, setWithdraw] = useState(Boolean(row.myStatus));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!reason.trim()) { setError('Give a reason — officers see it, other members don\'t.'); return; }
+    setSaving(true); setError('');
+    try {
+      const time = row.eventTime ? String(row.eventTime).slice(0, 5) : null;
+      await axios.post('/api/loa', row.scheduleId
+        ? { type: 'event', event_date: row.date, event_schedule_id: row.scheduleId, reason: reason.trim() }
+        : { type: 'event', event_date: row.date, start_time: time, end_time: plusOneMinute(time), reason: reason.trim() });
+      // After the LOA is saved, so a failed withdraw never leaves you neither
+      // signed up nor on LOA.
+      if (withdraw && row.signupId) await axios.delete(`/api/signups/${row.signupId}/join`).catch(() => {});
+      onFiled(`LOA filed for ${row.title} on ${shortDate(row.date)}.`);
+    } catch (err) {
+      setError(err.response?.data?.error || 'Could not file that LOA.');
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal onClose={onClose}>
+      <form onSubmit={submit} className="space-y-4">
+        <h2 className="font-display text-lg tracking-[0.08em] text-bone">LOA</h2>
+        <p className="text-sm text-ash">
+          Out for <span className="text-bone">{row.title}</span> on {DAY_NAME[dowOf(row.date)]} {shortDate(row.date)}
+          {row.eventTime ? ` at ${fmtTimeEst(row.eventTime)}` : ''}. Only this event — anything else that night is unaffected.
+        </p>
+        <div>
+          <label className="eyebrow text-[10px] text-ash block mb-2">Reason</label>
+          <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={3} autoFocus className={FIELD} placeholder="Only officers see this" />
+        </div>
+        {row.myStatus && (
+          <label className="flex items-center gap-2 text-sm text-ash">
+            <input type="checkbox" checked={withdraw} onChange={(e) => setWithdraw(e.target.checked)} />
+            Also withdraw my signup
+          </label>
+        )}
+        {error && <div className="text-sm text-oxblood">{error}</div>}
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="neutral" size="sm" onClick={onClose}>Cancel</Button>
+          <Button type="submit" size="sm" disabled={saving}>
+            {saving && <Loader2 className="w-4 h-4 animate-spin" />} File LOA
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
 // ── POST A NIGHT TO DISCORD ─────────────────────────────────────────────────
 // Filled from the calendar for the picked night, then edited by hand: drop a
 // line, change a time, add something that isn't on the schedule. The server
@@ -1105,7 +1200,7 @@ function PostDayModal({ defaultDate, schedule, occurrences, onClose, onPosted })
   );
 }
 
-function EventRow({ row, busy, onJoin, onLeave, showAway = false, onDetails = null }) {
+function EventRow({ row, busy, onJoin, onLeave, loa = null, showAway = false, onDetails = null }) {
   const joining = busy === `join:${row.key}`;
   const leaving = busy === `leave:${row.key}`;
   const working = joining || leaving;
@@ -1178,6 +1273,26 @@ function EventRow({ row, busy, onJoin, onLeave, showAway = false, onDetails = nu
           )}
         </div>
       </div>
+
+      {/* LOA for just this event. Hidden once it's started, and when a broader
+          LOA (a range, a standing night) already covers it — that one is
+          managed on the LOA page. A one-off with no time can't be scoped. */}
+      {loa && !row.started && (row.myLoaId ? (
+        <Button
+          variant="ghost" size="none" className="px-2 py-1.5 text-sm shrink-0 text-brass"
+          onClick={() => loa.onCancel(row)} disabled={busy === `loa:${row.key}`}
+          title="You filed an LOA for this event — cancel it"
+        >
+          <CalendarOff className="w-4 h-4" /> Cancel LOA
+        </Button>
+      ) : !row.away && (row.scheduleId || row.eventTime) ? (
+        <Button
+          variant="secondary" size="none" className="px-2 py-1.5 text-sm shrink-0"
+          onClick={() => loa.onFile(row)} title="File an LOA for this event only"
+        >
+          <CalendarOff className="w-4 h-4" /> LOA
+        </Button>
+      ) : null)}
 
       <div className="shrink-0">
         {row.started ? (
