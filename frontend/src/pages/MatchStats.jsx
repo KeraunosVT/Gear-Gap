@@ -57,6 +57,9 @@ export default function MatchStats() {
   const [detailError, setDetailError] = useState(false);
   const [mapStats, setMapStats] = useState([]);
   const [deleting, setDeleting] = useState(false);
+  // Class picked in Fielded Classes; narrows the Full Roster. Cleared on
+  // match change — a class from one engagement may not exist in the next.
+  const [classFilter, setClassFilter] = useState(null);
   const [msg, flash] = useFlash();
 
   const loadMatches = () => {
@@ -82,7 +85,7 @@ export default function MatchStats() {
   };
 
   useEffect(() => { loadMatches(); }, []);
-  useEffect(() => { loadDetail(selectedMatchId); }, [selectedMatchId]);
+  useEffect(() => { loadDetail(selectedMatchId); setClassFilter(null); }, [selectedMatchId]);
   useEffect(() => { loadMapStats(); }, []);
 
   const loadMapStats = () => {
@@ -156,9 +159,11 @@ export default function MatchStats() {
   // `players` directly and must keep doing so — they have their own orderings,
   // and a count doesn't care about any of them.
   const sortedPlayers = useMemo(
-    () => sortRows(players, rosterSort.key, rosterSort.dir,
+    () => sortRows(
+      classFilter ? players.filter((p) => getClassName(p.weapon_1, p.weapon_2) === classFilter) : players,
+      rosterSort.key, rosterSort.dir,
       (p, k) => (k === 'class' ? getClassName(p.weapon_1, p.weapon_2) : p[k])),
-    [players, rosterSort.key, rosterSort.dir],
+    [players, classFilter, rosterSort.key, rosterSort.dir],
   );
 
   const topKills = [...players].sort((a, b) => (b.kills || 0) - (a.kills || 0)).slice(0, 10);
@@ -342,8 +347,18 @@ export default function MatchStats() {
               <div className="grid grid-cols-2 md:grid-cols-3 gap-2.5">
                 {classBreakdown.length > 0 ? classBreakdown.map((item, i) => {
                   const total = classBreakdown.reduce((a, b) => a + b.count, 0);
+                  const active = classFilter === item.name;
                   return (
-                    <div key={i} className="flex justify-between items-center bg-hall border border-line rounded-lg px-3 py-2">
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => setClassFilter(active ? null : item.name)}
+                      aria-pressed={active}
+                      title={active ? 'Show all classes' : `Show only ${item.name} in the roster`}
+                      className={`flex justify-between items-center border rounded-lg px-3 py-2 text-left transition-colors ${
+                        active ? 'bg-brass/15 border-brass' : 'bg-hall border-line hover:border-brass/60'
+                      }`}
+                    >
                       <span className="font-medium text-brassbright">{item.name}</span>
                       <div className="text-right font-mono">
                         <span className="text-bone">{item.count}</span>
@@ -351,7 +366,7 @@ export default function MatchStats() {
                           {((item.count / total) * 100).toFixed(0)}%
                         </span>
                       </div>
-                    </div>
+                    </button>
                   );
                 }) : (
                   <p className="col-span-full text-center py-8 text-ash">No class data recorded.</p>
@@ -363,7 +378,16 @@ export default function MatchStats() {
           {/* Full roster */}
           <div>
             <h3 className="font-display text-xl text-bone tracking-[0.08em] mb-3 flex items-center gap-3">
-              <Sword className="w-5 h-5 text-brass" /> Full Roster
+              <Sword className="w-5 h-5 text-brass" /> {classFilter ? `${classFilter} Roster` : 'Full Roster'}
+              {classFilter && (
+                <button
+                  type="button"
+                  onClick={() => setClassFilter(null)}
+                  className="font-sans text-sm tracking-normal text-ash hover:text-brass transition-colors"
+                >
+                  Show all
+                </button>
+              )}
             </h3>
             <Table maxHeight="max-h-[620px]" minWidth="min-w-[900px]">
               <Thead sticky>
