@@ -184,6 +184,83 @@ module.exports = function createLoa(supabase, identities = null) {
     return rows.map((e) => ({ ...e, display_name: ids.displayNameFor(e.discord_id, e.display_name) }));
   };
 
+  // An optional scheduled event, checked against the night it's being tied to.
+  // Against the night it belongs to, not the calendar day it's stored on —
+  // otherwise picking Saturday + the 12:30am event is rejected as a mismatch,
+  // even though that's exactly Saturday night's last event.
+  const scheduledEventName = async (eventScheduleId, dow, mismatch) => {
+    if (!eventScheduleId) return null;
+    const { data: ev, error: evErr } = await supabase.from('event_schedule')
+      .select('id, name, day_of_week, event_time').eq('id', eventScheduleId).single();
+    if (evErr || !ev) throw httpError(400, 'Unknown event.');
+    if (guildDayOfWeek(ev.day_of_week, ev.event_time) !== dow) throw httpError(400, mismatch);
+    return ev.name;
+  };
+
+  // Validation per type, shared by the submit* methods and update() so an edit
+  // is held to exactly the rules a fresh submission is. Each returns the
+  // columns to store plus what the announcement needs — cleaned times rather
+  // than the raw input, since "9pm" is accepted but isn't displayable.
+  const eventFields = async ({ eventDate, eventScheduleId, startTime, endTime, reason }) => {
+    if (!isValidDate(eventDate)) throw httpError(400, 'Date must be in YYYY-MM-DD format.');
+    const { cleanStart, cleanEnd } = parseTimeWindow(startTime, endTime);
+    if (!eventScheduleId && !cleanStart) throw httpError(400, 'Pick an event or a start time.');
+    const cleanReason = requireReason(reason);
+    const eventName = await scheduledEventName(eventScheduleId, dayOfWeek(eventDate), "That event isn't scheduled on that date.");
+    return {
+      cols: {
+        type: 'event',
+        event_date: eventDate,
+        event_schedule_id: eventScheduleId || null,
+        start_date: null,
+        end_date: null,
+        start_time: cleanStart,
+        end_time: cleanEnd,
+        reason: cleanReason.slice(0, 500),
+      },
+      eventName, startTime: cleanStart, endTime: cleanEnd,
+    };
+  };
+
+  const rangeFields = ({ startDate, endDate, reason }) => {
+    if (!isValidDate(startDate) || !isValidDate(endDate)) throw httpError(400, 'Dates must be in YYYY-MM-DD format.');
+    if (new Date(endDate) < new Date(startDate)) throw httpError(400, 'End date must be after start date.');
+    const cleanReason = requireReason(reason);
+    return {
+      cols: {
+        type: 'range',
+        event_date: null,
+        event_schedule_id: null,
+        start_date: startDate,
+        end_date: endDate,
+        reason: cleanReason.slice(0, 500),
+      },
+    };
+  };
+
+  const recurringFields = async ({ dayOfWeek: dow, eventScheduleId, startTime, endTime, reason }) => {
+    if (!Number.isInteger(dow) || dow < 0 || dow > 6) throw httpError(400, 'Day of week must be between 0 and 6.');
+    const cleanReason = requireReason(reason);
+    const { cleanStart, cleanEnd } = parseTimeWindow(startTime, endTime);
+    const eventName = await scheduledEventName(eventScheduleId, dow, "That event isn't scheduled on that day.");
+    return {
+      cols: {
+        type: 'recurring',
+        event_date: null,
+        event_schedule_id: eventScheduleId || null,
+        start_date: null,
+        end_date: null,
+        day_of_week: dow,
+        start_time: cleanStart,
+        end_time: cleanEnd,
+        reason: cleanReason.slice(0, 500),
+      },
+      eventName, startTime: cleanStart, endTime: cleanEnd,
+    };
+  };
+
+  const FIELDS_FOR = { event: eventFields, range: rangeFields, recurring: recurringFields };
+
   return {
     isValidDate,
     parseTimeOfDay,
@@ -310,60 +387,27 @@ module.exports = function createLoa(supabase, identities = null) {
     // and turns the open-ended cutoff into a window ("out from 7 to 8, back
     // after") — mirrors submitRecurring's same three knobs.
     async submitEvent({ discordId, displayName, eventDate, eventScheduleId, startTime, endTime, reason }) {
-      if (!isValidDate(eventDate)) throw httpError(400, 'Date must be in YYYY-MM-DD format.');
-      const { cleanStart, cleanEnd } = parseTimeWindow(startTime, endTime);
-      if (!eventScheduleId && !cleanStart) throw httpError(400, 'Pick an event or a start time.');
-      const cleanReason = requireReason(reason);
-
-      let eventName = null;
-      if (eventScheduleId) {
-        const { data: ev, error: evErr } = await supabase.from('event_schedule')
-          .select('id, name, day_of_week, event_time').eq('id', eventScheduleId).single();
-        if (evErr || !ev) throw httpError(400, 'Unknown event.');
-        // Against the night it belongs to, not the calendar day it's stored on
-        // — otherwise picking Saturday + the 12:30am event is rejected as a
-        // mismatch, even though that's exactly Saturday night's last event.
-        if (guildDayOfWeek(ev.day_of_week, ev.event_time) !== dayOfWeek(eventDate)) {
-          throw httpError(400, "That event isn't scheduled on that date.");
-        }
-        eventName = ev.name;
-      }
-
+      const v = await eventFields({ eventDate, eventScheduleId, startTime, endTime, reason });
       const name = await resolveName(discordId, displayName);
       const { data: row, error } = await supabase.from('loa_entries').insert({
         discord_id: discordId,
         display_name: name,
-        type: 'event',
-        event_date: eventDate,
-        event_schedule_id: eventScheduleId || null,
-        start_date: null,
-        end_date: null,
-        start_time: cleanStart,
-        end_time: cleanEnd,
-        reason: cleanReason.slice(0, 500),
+        ...v.cols,
       }).select('id').single();
       if (error) { console.error('loa.submitEvent error:', error.message); throw httpError(500, 'Failed to submit LOA.'); }
       // Cleaned times and the resolved name come back out so callers announce
       // what was stored rather than the raw input — "9pm" is accepted here but
       // isn't displayable, and the caller's name may be a Discord username.
-      return { id: row.id, displayName: name, eventName, startTime: cleanStart, endTime: cleanEnd };
+      return { id: row.id, displayName: name, eventName: v.eventName, startTime: v.startTime, endTime: v.endTime };
     },
 
     async submitRange({ discordId, displayName, startDate, endDate, reason }) {
-      if (!isValidDate(startDate) || !isValidDate(endDate)) throw httpError(400, 'Dates must be in YYYY-MM-DD format.');
-      if (new Date(endDate) < new Date(startDate)) throw httpError(400, 'End date must be after start date.');
-      const cleanReason = requireReason(reason);
-
+      const v = rangeFields({ startDate, endDate, reason });
       const name = await resolveName(discordId, displayName);
       const { data: row, error } = await supabase.from('loa_entries').insert({
         discord_id: discordId,
         display_name: name,
-        type: 'range',
-        event_date: null,
-        event_schedule_id: null,
-        start_date: startDate,
-        end_date: endDate,
-        reason: cleanReason.slice(0, 500),
+        ...v.cols,
       }).select('id').single();
       if (error) { console.error('loa.submitRange error:', error.message); throw httpError(500, 'Failed to submit LOA.'); }
       return { id: row.id, displayName: name };
@@ -377,37 +421,57 @@ module.exports = function createLoa(supabase, identities = null) {
     // /loa/unavailable compares it against each event's own scheduled time.
     // `endTime` narrows that further into a window ("out 7-8, back after").
     async submitRecurring({ discordId, displayName, dayOfWeek: dow, eventScheduleId, startTime, endTime, reason }) {
-      if (!Number.isInteger(dow) || dow < 0 || dow > 6) throw httpError(400, 'Day of week must be between 0 and 6.');
-      const cleanReason = requireReason(reason);
-      const { cleanStart, cleanEnd } = parseTimeWindow(startTime, endTime);
-      let eventName = null;
-      if (eventScheduleId) {
-        const { data: ev, error: evErr } = await supabase.from('event_schedule')
-          .select('id, name, day_of_week, event_time').eq('id', eventScheduleId).single();
-        if (evErr || !ev) throw httpError(400, 'Unknown event.');
-        // The night it belongs to, as in submitEvent above.
-        if (guildDayOfWeek(ev.day_of_week, ev.event_time) !== dow) {
-          throw httpError(400, "That event isn't scheduled on that day.");
-        }
-        eventName = ev.name;
-      }
-
+      const v = await recurringFields({ dayOfWeek: dow, eventScheduleId, startTime, endTime, reason });
       const name = await resolveName(discordId, displayName);
       const { data: row, error } = await supabase.from('loa_entries').insert({
         discord_id: discordId,
         display_name: name,
-        type: 'recurring',
-        event_date: null,
-        event_schedule_id: eventScheduleId || null,
-        start_date: null,
-        end_date: null,
-        day_of_week: dow,
-        start_time: cleanStart,
-        end_time: cleanEnd,
-        reason: cleanReason.slice(0, 500),
+        ...v.cols,
       }).select('id').single();
       if (error) { console.error('loa.submitRecurring error:', error.message); throw httpError(500, 'Failed to submit LOA.'); }
-      return { id: row.id, displayName: name, eventName, startTime: cleanStart, endTime: cleanEnd };
+      return { id: row.id, displayName: name, eventName: v.eventName, startTime: v.startTime, endTime: v.endTime };
+    },
+
+    // Rewrites an existing entry in place — owner or LOA admin, as with
+    // cancel(). The type is fixed: a single night turned into a date range is a
+    // different LOA, not an edit of this one, so `fields` carries what that
+    // type is submitted with and goes through the same validation.
+    //
+    // Returns the row as it was and as it is now, plus the announcement's
+    // message id, so the caller can rewrite the channel post and say what
+    // changed. Read before the write for the same reason cancel() does.
+    async update({ id, discordId, isAdmin, fields }) {
+      const { data: before } = await supabase.from('loa_entries').select('*').eq('id', id).single();
+      if (!before) throw httpError(404, 'LOA not found.');
+      if (before.discord_id !== discordId && !isAdmin) throw httpError(403, 'You can only edit your own LOA.');
+      const toFields = FIELDS_FOR[before.type];
+      if (!toFields) throw httpError(400, 'This LOA can\'t be edited.');
+
+      const v = await toFields(fields || {});
+      const patch = { ...v.cols };
+      // Skipped dates name nights the old weekday landed on. Moved to another
+      // day, none of them is one this rule covers any more, and leaving them
+      // would hand setOccurrenceSkipped dates it refuses to touch.
+      if (before.type === 'recurring' && patch.day_of_week !== before.day_of_week) patch.skip_dates = [];
+
+      const { error } = await supabase.from('loa_entries').update(patch).eq('id', id);
+      if (error) { console.error('loa.update error:', error.message); throw httpError(500, 'Failed to update LOA.'); }
+
+      // Best-effort, as in cancel(): the old event's name only feeds the
+      // "was:" line of the notice.
+      let beforeEventName = null;
+      if (before.event_schedule_id) {
+        const { data: ev } = await supabase.from('event_schedule')
+          .select('name').eq('id', before.event_schedule_id).single();
+        beforeEventName = ev?.name || null;
+      }
+
+      const [named] = await withNames([before]);
+      return {
+        messageId: before.discord_message_id || null,
+        before: { ...named, event_name: beforeEventName },
+        after: { ...named, ...patch, event_name: v.eventName || null },
+      };
     },
 
     // Best-effort — called after announceLoa() posts to Discord, to remember

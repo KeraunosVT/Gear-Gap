@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth';
-import { CalendarOff, CalendarX2, Trash2, Settings, X, Repeat, ChevronDown, CalendarCheck, Undo2 } from 'lucide-react';
+import { CalendarOff, CalendarX2, Trash2, Settings, X, Repeat, ChevronDown, CalendarCheck, Undo2, Pencil } from 'lucide-react';
 
 import { fmtTimeEst, fmtDatetime, todayInGuildTz, eventsForGuildDay, loaSkipsDate } from '../timeUtils';
 import Tabs from '../components/ui/Tabs';
@@ -50,6 +50,12 @@ export default function LOA() {
   const [submitFor, setSubmitFor] = useState('');
   const [submitForQuery, setSubmitForQuery] = useState('');
   const [submitForOpen, setSubmitForOpen] = useState(false);
+
+  // The entry being edited, or null when the Submit form is filing a new one.
+  // Editing reuses that form rather than a second copy of it; editReturnTab is
+  // where the edit was started from, so saving drops you back there.
+  const [editing, setEditing] = useState(null);
+  const [editReturnTab, setEditReturnTab] = useState('mine');
 
   // Which members' rows are expanded in the Recurring weekly grid, to show
   // each day's detail (event/time-of-day scope, reason) instead of just a dot.
@@ -109,6 +115,12 @@ export default function LOA() {
 
   const toggleRecurDay = (i) => {
     setRecurDays((prev) => {
+      // A recurring entry is one weekday, so editing one moves it rather than
+      // adding days — those would be new entries, which is what Submit is for.
+      if (editing) {
+        if (!prev.has(i)) setRecurEventScheduleId('');
+        return new Set([i]);
+      }
       const next = new Set(prev);
       next.has(i) ? next.delete(i) : next.add(i);
       if (next.size !== 1) setRecurEventScheduleId('');
@@ -207,8 +219,7 @@ export default function LOA() {
         });
         flash(submitTarget ? t('loapage.submittedFor', { name: submitTarget.name }) : t('loapage.submitted'));
       }
-      setEventDate(''); setEventScheduleId(''); setEventStartTime(''); setEventEndTime(''); setStartDate(''); setEndDate('');
-      setRecurDays(new Set()); setRecurEventScheduleId(''); setRecurStartTime(''); setRecurEndTime(''); setReason(''); setSubmitFor(''); setSubmitForQuery('');
+      resetForm();
       load();
     } catch (err) {
       flash(err.response?.data?.error || t('loapage.submitFailed'), false);
@@ -216,6 +227,73 @@ export default function LOA() {
       setSubmitting(false);
     }
   };
+
+  const resetForm = () => {
+    setEventDate(''); setEventScheduleId(''); setEventStartTime(''); setEventEndTime(''); setStartDate(''); setEndDate('');
+    setRecurDays(new Set()); setRecurEventScheduleId(''); setRecurStartTime(''); setRecurEndTime(''); setReason(''); setSubmitFor(''); setSubmitForQuery('');
+  };
+
+  // Loads an entry into the Submit form. Officers can do this for anyone's
+  // entry, members for their own — the server enforces the same rule. The
+  // board strips reasons for non-officers, so a member's own entry is taken
+  // from My LOAs, which still has it.
+  const startEdit = (entry) => {
+    const e = myEntries.find((m) => m.id === entry.id) || entry;
+    const hhmm = (v) => (v ? String(v).slice(0, 5) : '');
+    resetForm();
+    setLoaType(e.type);
+    if (e.type === 'event') {
+      setEventDate(e.event_date || '');
+      setEventScheduleId(e.event_schedule_id || '');
+      setEventStartTime(hhmm(e.start_time));
+      setEventEndTime(hhmm(e.end_time));
+    } else if (e.type === 'range') {
+      setStartDate(e.start_date || '');
+      setEndDate(e.end_date || '');
+    } else {
+      setRecurDays(new Set([e.day_of_week]));
+      setRecurEventScheduleId(e.event_schedule_id || '');
+      setRecurStartTime(hhmm(e.start_time));
+      setRecurEndTime(hhmm(e.end_time));
+    }
+    setReason(e.reason || '');
+    setEditing(e);
+    setEditReturnTab(tab);
+    setTab('submit');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const stopEdit = () => {
+    resetForm();
+    setEditing(null);
+    setTab(editReturnTab);
+  };
+
+  const saveEdit = async () => {
+    setSubmitting(true);
+    const body = { reason };
+    if (loaType === 'event') {
+      Object.assign(body, { event_date: eventDate, event_schedule_id: eventScheduleId || undefined, start_time: eventStartTime || undefined, end_time: eventEndTime || undefined });
+    } else if (loaType === 'range') {
+      Object.assign(body, { start_date: startDate, end_date: endDate });
+    } else {
+      Object.assign(body, { day_of_week: [...recurDays][0], event_schedule_id: recurEventScheduleId || undefined, start_time: recurStartTime || undefined, end_time: recurEndTime || undefined });
+    }
+    try {
+      await axios.patch(`/api/loa/${editing.id}`, body);
+      flash(editing.discord_id === user?.id ? t('loapage.saved') : t('loapage.savedFor', { name: editing.display_name || t('cal.member') }));
+      stopEdit();
+      load();
+    } catch (err) {
+      flash(err.response?.data?.error || t('loapage.saveFailed'), false);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // The pencil is offered wherever the X is: your own entries, or anyone's
+  // for an officer.
+  const canEdit = (e) => can('loa.admin') || e.discord_id === user?.id;
 
   // Cancels the WHOLE entry. For a recurring one that means every future
   // occurrence of it, so the callers that offer this on a single night confirm
@@ -504,7 +582,19 @@ export default function LOA() {
           {/* Submit */}
           {tab === 'submit' && (
             <div className="panel rounded-lg p-6 space-y-5">
-              {can('loa.admin') && (
+              {editing && (
+                <div className="flex items-center justify-between gap-3 flex-wrap px-4 py-3 rounded-lg border border-brass/50 bg-hall">
+                  <span className="inline-flex items-center gap-2 text-sm text-bone">
+                    <Pencil className="w-4 h-4 text-brass" />
+                    {editing.discord_id === user?.id
+                      ? t('loapage.editingMine')
+                      : t('loapage.editing', { name: editing.display_name || t('cal.member') })}
+                  </span>
+                  <button type="button" onClick={stopEdit} className="text-sm text-ash hover:text-bone">{t('loapage.stopEditing')}</button>
+                </div>
+              )}
+
+              {can('loa.admin') && !editing && (
                 <div className="relative w-full md:w-64">
                   <label className="eyebrow text-[10px] text-ash block mb-2">{t('loapage.submitFor')}</label>
                   <div className="relative">
@@ -536,17 +626,19 @@ export default function LOA() {
                 </div>
               )}
 
-              <div className="flex gap-3">
-                <button onClick={() => setLoaType('event')}
-                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${loaType === 'event' ? 'border-brass bg-panel text-brassbright' : 'border-line text-ash hover:text-bone'}`}>
+              {/* An edit keeps its type — the server refuses to change it — so
+                  the other two are shown but locked rather than hidden. */}
+              <div className="flex gap-3" title={editing ? t('loapage.typeLocked') : undefined}>
+                <button onClick={() => setLoaType('event')} disabled={editing && loaType !== 'event'}
+                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors disabled:opacity-30 disabled:pointer-events-none ${loaType === 'event' ? 'border-brass bg-panel text-brassbright' : 'border-line text-ash hover:text-bone'}`}>
                   <CalendarX2 className="w-4 h-4" /> {t('loapage.typeEvent')}
                 </button>
-                <button onClick={() => setLoaType('range')}
-                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${loaType === 'range' ? 'border-brass bg-panel text-brassbright' : 'border-line text-ash hover:text-bone'}`}>
+                <button onClick={() => setLoaType('range')} disabled={editing && loaType !== 'range'}
+                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors disabled:opacity-30 disabled:pointer-events-none ${loaType === 'range' ? 'border-brass bg-panel text-brassbright' : 'border-line text-ash hover:text-bone'}`}>
                   <CalendarOff className="w-4 h-4" /> {t('loapage.typeRange')}
                 </button>
-                <button onClick={() => setLoaType('recurring')}
-                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${loaType === 'recurring' ? 'border-brass bg-panel text-brassbright' : 'border-line text-ash hover:text-bone'}`}>
+                <button onClick={() => setLoaType('recurring')} disabled={editing && loaType !== 'recurring'}
+                  className={`inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors disabled:opacity-30 disabled:pointer-events-none ${loaType === 'recurring' ? 'border-brass bg-panel text-brassbright' : 'border-line text-ash hover:text-bone'}`}>
                   <Repeat className="w-4 h-4" /> {t('loapage.typeRecurring')}
                 </button>
               </div>
@@ -605,7 +697,7 @@ export default function LOA() {
               {loaType === 'recurring' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
-                    <label className="eyebrow text-[10px] text-ash block mb-2">{t('loapage.days', { count: Math.max(1, recurDays.size) })} <span className="text-ash/50">{t('loapage.daysHint')}</span></label>
+                    <label className="eyebrow text-[10px] text-ash block mb-2">{t('loapage.days', { count: Math.max(1, recurDays.size) })} {!editing && <span className="text-ash/50">{t('loapage.daysHint')}</span>}</label>
                     <div className="flex flex-wrap gap-1.5">
                       {DAYS.map((d, i) => (
                         <button
@@ -650,10 +742,17 @@ export default function LOA() {
                   className="w-full bg-hall border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass" />
               </div>
 
-              <button onClick={submit} disabled={submitting || !(canSubmitEvent || canSubmitRange || canSubmitRecurring)}
-                className="px-6 py-3 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40">
-                {submitting ? t('loapage.submitting') : t('loapage.tabSubmit')}
-              </button>
+              <div className="flex items-center gap-3">
+                <button onClick={editing ? saveEdit : submit} disabled={submitting || !(canSubmitEvent || canSubmitRange || canSubmitRecurring)}
+                  className="px-6 py-3 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40">
+                  {editing
+                    ? (submitting ? t('loapage.saving') : t('loapage.saveChanges'))
+                    : (submitting ? t('loapage.submitting') : t('loapage.tabSubmit'))}
+                </button>
+                {editing && (
+                  <button type="button" onClick={stopEdit} className="px-4 py-3 text-sm text-ash hover:text-bone">{t('common.cancel')}</button>
+                )}
+              </div>
             </div>
           )}
 
@@ -700,6 +799,9 @@ export default function LOA() {
                         )}
                       </div>
                       <div className="text-xs text-ash/60 shrink-0 text-right" title={t('loapage.filedTitle')}>{t('loapage.filed', { when: fmtDatetime(e.created_at) })}</div>
+                      <button onClick={() => startEdit(e)} className="text-ash hover:text-brassbright shrink-0" title={t('loapage.editLoa')}>
+                        <Pencil className="w-3.5 h-3.5" />
+                      </button>
                       <button
                         onClick={() => (e.type !== 'recurring'
                           || window.confirm(t('loapage.confirmCancelEvery', { day: weekdayName(e.day_of_week) }))) && cancel(e.id)}
@@ -784,8 +886,17 @@ export default function LOA() {
                                       {can('loa.admin') && entry.reason && <span className="text-ash/60 truncate">· {entry.reason}</span>}
                                       {canCancel && (
                                         <button
+                                          onClick={() => startEdit(entry)}
+                                          className="ml-auto text-ash hover:text-brassbright shrink-0"
+                                          title={t('loapage.editEveryTitle', { day: weekdayName(i) })}
+                                        >
+                                          <Pencil className="w-3 h-3" />
+                                        </button>
+                                      )}
+                                      {canCancel && (
+                                        <button
                                           onClick={() => window.confirm(t('loapage.confirmCancelEvery', { day: weekdayName(i) })) && cancel(entry.id)}
-                                          className="ml-auto text-ash hover:text-oxblood shrink-0"
+                                          className="text-ash hover:text-oxblood shrink-0"
                                           title={t('loapage.cancelEveryTitleAgenda', { day: weekdayName(i) })}
                                         >
                                           <X className="w-3.5 h-3.5" />
@@ -860,7 +971,16 @@ export default function LOA() {
                               {can('loa.admin') && e.reason && <div className="text-xs text-brass/70 mt-0.5">{e.reason}</div>}
                             </div>
                             <div className="text-xs text-ash/60 shrink-0 text-right" title={t('loapage.filedTitle')}>{t('loapage.filed', { when: fmtDatetime(e.created_at) })}</div>
-                            {(can('loa.admin') || e.discord_id === user?.id) && (
+                            {canEdit(e) && (
+                              <button
+                                onClick={() => startEdit(e)}
+                                className="text-ash hover:text-brassbright shrink-0"
+                                title={e.type === 'recurring' ? t('loapage.editEveryTitle', { day: weekdayName(e.day_of_week) }) : t('loapage.editLoa')}
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            {canEdit(e) && (
                               e.type === 'recurring' ? (
                                 // A recurring entry is projected onto every
                                 // matching night, so this row is ONE occurrence

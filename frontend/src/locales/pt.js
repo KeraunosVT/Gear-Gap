@@ -411,6 +411,17 @@ export default {
   'loapage.more_other': '+{count} a mais',
   'loapage.awayRange': 'Ausente {range}',
   'loapage.noneMonth': 'Ninguém está marcado como ausente neste mês.',
+  'loapage.editLoa': 'Editar ausência',
+  'loapage.editEveryTitle': 'Editar a ausência de toda {day}',
+  'loapage.editing': 'Editando a ausência de {name}',
+  'loapage.editingMine': 'Editando sua ausência',
+  'loapage.stopEditing': 'Parar de editar',
+  'loapage.typeLocked': 'Não é possível mudar o tipo de uma ausência. Cancele-a e registre uma nova.',
+  'loapage.saveChanges': 'Salvar alterações',
+  'loapage.saving': 'Salvando…',
+  'loapage.saved': 'Ausência atualizada.',
+  'loapage.savedFor': 'Ausência atualizada para {name}.',
+  'loapage.saveFailed': 'Não foi possível atualizar a ausência.',
 
   // ── LOA week grid ──
   'loagrid.membersAway_one': '{count} membro ausente em algum momento',

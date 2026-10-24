@@ -415,6 +415,17 @@ export default {
   'loapage.more_other': '+{count} more',
   'loapage.awayRange': 'Away {range}',
   'loapage.noneMonth': 'Nobody is marked absent this month.',
+  'loapage.editLoa': 'Edit LOA',
+  'loapage.editEveryTitle': 'Edit the LOA for every {day}',
+  'loapage.editing': "Editing {name}'s LOA",
+  'loapage.editingMine': 'Editing your LOA',
+  'loapage.stopEditing': 'Stop editing',
+  'loapage.typeLocked': "An LOA's type can't be changed. Cancel it and submit a new one instead.",
+  'loapage.saveChanges': 'Save changes',
+  'loapage.saving': 'Saving…',
+  'loapage.saved': 'LOA updated.',
+  'loapage.savedFor': 'LOA updated for {name}.',
+  'loapage.saveFailed': 'Failed to update LOA.',
 
   // ── LOA week grid ──
   'loagrid.membersAway_one': '{count} member away at some point',

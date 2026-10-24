@@ -553,6 +553,39 @@ async function announceLoaEntry(entry) {
   return announceLoa(loaAnnouncement(entry));
 }
 
+// The same line, from a stored loa_entries row (plus the event_name the caller
+// looked up) rather than the camelCase shape submit hands over.
+function loaRowAnnouncement(entry) {
+  return loaAnnouncement({
+    type: entry.type,
+    displayName: entry.display_name || 'Someone',
+    eventName: entry.event_name,
+    eventDate: entry.event_date,
+    startDate: entry.start_date,
+    endDate: entry.end_date,
+    dayOfWeek: entry.day_of_week,
+    startTime: entry.start_time,
+    endTime: entry.end_time,
+  });
+}
+
+// Rewrites an LOA's channel post after the entry is edited, so the channel
+// never shows dates the LOA no longer has. Edited rather than reposted: a new
+// message would bump it to the bottom and read as a second absence. Best-effort
+// like deleteLoaMessage — a post someone removed by hand just stays removed.
+async function editLoaMessage(messageId, entry) {
+  const loaChannel = loaChannelId();
+  if (!messageId || !loaChannel || !entry) return;
+  const guild = getGuild();
+  const channel = guild?.channels.cache.get(loaChannel);
+  if (!channel?.isTextBased()) return;
+  try {
+    await channel.messages.edit(messageId, loaRowAnnouncement(entry));
+  } catch (err) {
+    console.error('LOA message edit error:', err.message);
+  }
+}
+
 // Deletes a previously-announced LOA message when its entry is cancelled.
 // Best-effort: an already-deleted message (e.g. an officer removed it by hand)
 // or a missing channel/permission just gets logged, not surfaced to the caller
@@ -590,17 +623,7 @@ async function notifyLoaCancelled(entry, actor) {
 
   // Same wording as the original announcement, so the notice reads as the
   // undoing of a specific post rather than as a separate kind of event.
-  const summary = loaAnnouncement({
-    type: entry.type,
-    displayName: entry.display_name || 'Someone',
-    eventName: entry.event_name,
-    eventDate: entry.event_date,
-    startDate: entry.start_date,
-    endDate: entry.end_date,
-    dayOfWeek: entry.day_of_week,
-    startTime: entry.start_time,
-    endTime: entry.end_time,
-  }).replace(/^📋 /, '');
+  const summary = loaRowAnnouncement(entry).replace(/^📋 /, '');
 
   // Who cancelled it, but only when that isn't the member themselves —
   // "cancelled by an officer" is the part worth knowing, and saying "cancelled
@@ -649,6 +672,38 @@ async function notifyLoaOccurrence(entry, date, skipped, actor) {
     await user.send(lines.join('\n'));
   } catch (err) {
     console.warn(`LOA occurrence DM to ${target} failed:`, err.message);
+  }
+}
+
+// An LOA changed after it was filed. The channel post is rewritten in place
+// (editLoaMessage), which is exactly the kind of change nobody notices, so the
+// person tracking absences gets the before and after. Same rules as the
+// cancellation notice: never to the person who made the change, and never
+// awaited by its caller.
+async function notifyLoaEdited(before, after, actor) {
+  const target = loaNotifyDiscordId();
+  if (!ready || !client || !target || !before || !after) return;
+  if (actor?.id && String(actor.id) === String(target)) return;
+
+  const was = loaRowAnnouncement(before).replace(/^📋 /, '');
+  const now = loaRowAnnouncement(after).replace(/^📋 /, '');
+  const reasonChanged = (before.reason || '') !== (after.reason || '');
+  // Saved without changing anything — nothing to tell anyone.
+  if (was === now && !reasonChanged) return;
+
+  const byOther = actor?.id && String(actor.id) !== String(after.discord_id);
+  const lines = [
+    `✏️ **LOA changed** — was: ${was}`,
+    was !== now ? `Now: ${now}` : null,
+    reasonChanged && after.reason ? `New reason: ${String(after.reason).slice(0, 300)}` : null,
+    byOther ? `Changed by **${actor.name || actor.id}**.` : null,
+  ].filter(Boolean);
+
+  try {
+    const user = await client.users.fetch(String(target));
+    await user.send(lines.join('\n'));
+  } catch (err) {
+    console.warn(`LOA edit DM to ${target} failed:`, err.message);
   }
 }
 
@@ -1458,7 +1513,9 @@ module.exports = {
   getVoiceMembers,
   announceLoaEntry,
   deleteLoaMessage,
+  editLoaMessage,
   notifyLoaCancelled,
+  notifyLoaEdited,
   notifyLoaOccurrence,
   notifyAttendance,
   announceSignup,

@@ -700,6 +700,39 @@ app.delete('/api/loa/:id', async (req, res) => {
   }
 });
 
+// Edit an LOA in place. Officers (loa.admin) can edit anyone's, members only
+// their own — the same rule as cancelling. The body carries the fields its
+// type is submitted with; the type itself can't change.
+app.patch('/api/loa/:id', async (req, res) => {
+  if (!loa) return res.status(503).json({ error: 'Database not configured.' });
+  const { event_date, event_schedule_id, start_date, end_date, day_of_week, start_time, end_time, reason } = req.body || {};
+  try {
+    const { messageId, before, after } = await loa.update({
+      id: req.params.id,
+      discordId: req.user.id,
+      isAdmin: userHas(req.user, 'loa.admin'),
+      fields: {
+        eventDate: event_date,
+        eventScheduleId: event_schedule_id,
+        startDate: start_date,
+        endDate: end_date,
+        dayOfWeek: parseInt(day_of_week, 10),
+        startTime: start_time,
+        endTime: end_time,
+        reason,
+      },
+    });
+    res.json({ ok: true });
+    // After the response and never awaited, like submit and cancel: the edit
+    // is already saved, and a slow Discord mustn't make it look like it failed.
+    gateway.editLoaMessage(messageId, after);
+    gateway.notifyLoaEdited(before, after, { id: req.user.id, name: req.user.username })
+      .catch((err) => console.error('LOA edit notice error:', err.message));
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
 // Remove ONE occurrence from a recurring LOA, or put it back.
 //
 // Separate from DELETE /api/loa/:id on purpose. That one cancels the standing
