@@ -476,7 +476,7 @@ function ByWeapon({ members, canPrioritize, onPriority }) {
     members.forEach((m) => m.shards.weapons.forEach((w) => {
       if (w.boss !== src.key) return;
       if (!byWeapon.has(w.weapon)) byWeapon.set(w.weapon, []);
-      byWeapon.get(w.weapon).push({ id: m.id, name: m.name, avatar: m.avatar, build: w.build, need: w.need, priority: w.priority || '' });
+      byWeapon.get(w.weapon).push({ id: m.id, name: m.name, avatar: m.avatar, build: w.build, need: w.need, priority: w.priority || '', updated: w.updated });
     }));
     const cost = costFor(src.key);
     const weapons = [...byWeapon.entries()]
@@ -523,7 +523,7 @@ function ByWeapon({ members, canPrioritize, onPriority }) {
                     <tr className="eyebrow text-[10px] text-ash text-left">
                       <th className="px-5 py-2.5 font-normal">Weapon</th>
                       <th className="px-3 py-2.5 font-normal text-right">Wants</th>
-                      <th className="px-3 py-2.5 font-normal">Members · build{canPrioritize ? ' · priority' : ''} · still needed</th>
+                      <th className="px-3 py-2.5 font-normal">Members · build{canPrioritize ? ' · priority' : ''} · still needed · last updated</th>
                       <th className="px-5 py-2.5 font-normal text-right">Still needed / total cost</th>
                     </tr>
                   </thead>
@@ -552,6 +552,9 @@ function ByWeapon({ members, canPrioritize, onPriority }) {
                                 )}
                                 <span className="text-xs text-ash">
                                   {x.need === null ? <span className="text-amber-400">not set</span> : <>needs <span className="font-mono text-bone">{x.need}</span> of {g.cost}</>}
+                                </span>
+                                <span className="text-xs text-ash/70 whitespace-nowrap" title={x.updated ? new Date(x.updated).toLocaleString() : undefined}>
+                                  · {x.updated ? `updated ${new Date(x.updated).toLocaleDateString()}` : 'not updated yet'}
                                 </span>
                               </div>
                             ))}
