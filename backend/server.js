@@ -355,7 +355,15 @@ app.put('/api/shards/:discordId', async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
   // Each weapon's need is capped at its own cost (90 archboss, 60 Heroic). The
   // page clamps as you type, but this is the one that decides.
-  const shards = shardWishlist.normalize(req.body?.shards);
+  let shards = shardWishlist.normalize(req.body?.shards);
+  // Priority is an officer's call; a member saving their own row keeps
+  // whatever priorities are already stored, whatever the request says.
+  if (!userHas(req.user, 'loot.awards')) {
+    const { data: existing, error: readError } = await supabase.from('shard_counts')
+      .select('shards').eq('discord_id', target).maybeSingle();
+    if (readError) { console.error('Shard read error:', readError.message); return res.status(500).json({ error: 'Failed to save shards.' }); }
+    shards = shardWishlist.keepPriorities(shards, existing?.shards);
+  }
   const display_name = (req.body?.display_name || req.user.username || '').slice(0, 120);
   const { error } = await supabase.from('shard_counts')
     .upsert({ discord_id: target, display_name, shards, updated_at: new Date().toISOString() });

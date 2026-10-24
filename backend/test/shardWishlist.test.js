@@ -3,7 +3,7 @@
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
-const { read, normalize, shardFor, costFor } = require('../shardWishlist');
+const { read, normalize, keepPriorities, shardFor, costFor } = require('../shardWishlist');
 
 const W = (boss, weapon, extra = {}) => ({ boss, weapon, build: '', ...extra });
 const needOf = (s, weapon) => s.weapons.find((w) => w.weapon === weapon)?.need;
@@ -36,6 +36,32 @@ describe('normalize', () => {
 
   test('keeps an unset need as null rather than 0', () => {
     assert.equal(normalize({ weapons: [W('Tevent', 'Inferno Fangs')] }).weapons[0].need, null);
+  });
+
+  test('priority is high, low or normal — anything else is normal', () => {
+    const s = normalize({ weapons: [
+      W('Tevent', 'Inferno Fangs', { priority: 'high' }),
+      W('Heroic', 'Heroic Orb', { priority: 'low' }),
+      W('Heroic', 'Heroic Staff', { priority: 'urgent' }),
+    ] });
+    assert.deepEqual(s.weapons.map((w) => w.priority), ['high', 'low', '']);
+  });
+});
+
+describe('keepPriorities', () => {
+  test('a member\'s save can\'t change priority, add it, or carry it to a new weapon', () => {
+    const stored = { v: 2, weapons: [W('Tevent', 'Inferno Fangs', { need: 90, priority: 'low' })], unlinked: {} };
+    const sent = normalize({ weapons: [
+      W('Tevent', 'Inferno Fangs', { need: 40, priority: 'high' }),
+      W('Heroic', 'Heroic Orb', { need: 60, priority: 'high' }),
+    ] });
+    const s = keepPriorities(sent, stored);
+    assert.deepEqual(s.weapons.map((w) => [w.weapon, w.need, w.priority]), [['Inferno Fangs', 40, 'low'], ['Heroic Orb', 60, '']]);
+  });
+
+  test('no stored row means everything is normal', () => {
+    const s = keepPriorities(normalize({ weapons: [W('Tevent', 'Inferno Fangs', { priority: 'high' })] }), null);
+    assert.equal(s.weapons[0].priority, '');
   });
 });
 

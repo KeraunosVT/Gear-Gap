@@ -5,7 +5,11 @@
 // they still need (0 up to the weapon's cost). Per-shard totals are never
 // stored: they are the sum over the weapons, plus `unlinked`.
 //
-//   { v: 2, weapons: [{ boss, weapon, build, need }], unlinked: { <shard key>: n } }
+//   { v: 2, weapons: [{ boss, weapon, build, need, priority }], unlinked: { <shard key>: n } }
+//
+// `priority` is 'high', 'low' or '' (normal) — an officer's call on who gets
+// that weapon's shards first. Members save their own rows, so the route keeps
+// the stored priorities for anyone who can't set them (see keepPriorities).
 //
 // `need` is null when nobody has said yet — a weapon carried over from the old
 // wishlist whose shard count couldn't be pinned to it. Null counts toward
@@ -24,6 +28,7 @@ const BOSS_WEAPONS = require('../shared/archbossWeapons.json');
 const SHARD_WEAPONS = require('../shared/shardWeapons.json');
 
 const BUILDS = ['PvP', 'PvE'];
+const PRIORITIES = ['high', 'low'];
 const TYPE_KEYS = SHARDS.types.map((t) => t.key);
 const SOURCES = new Map(SHARD_WEAPONS.sources.map((s) => [s.key, s]));
 const WEAPONS_BY_SOURCE = new Map(
@@ -75,6 +80,7 @@ function normalize(raw) {
         weapon: w.weapon,
         build: BUILDS.includes(w.build) ? w.build : '',
         need: n === null ? null : Math.max(0, Math.min(costFor(w.boss), n)),
+        priority: PRIORITIES.includes(w.priority) ? w.priority : '',
       };
     });
   const unlinked = {};
@@ -124,4 +130,15 @@ function read(stored) {
   return stored.v === 2 ? normalize(stored) : fromLegacy(stored);
 }
 
-module.exports = { read, normalize, fromLegacy, shardFor, costFor };
+// A save from someone who can't set priority: whatever they sent, each weapon
+// carries the priority already stored for it. A newly linked weapon starts
+// normal; an unlinked one takes its priority with it.
+function keepPriorities(incoming, stored) {
+  const had = new Map(read(stored).weapons.map((w) => [`${w.boss}|${w.weapon}`, w.priority]));
+  return {
+    ...incoming,
+    weapons: incoming.weapons.map((w) => ({ ...w, priority: had.get(`${w.boss}|${w.weapon}`) || '' })),
+  };
+}
+
+module.exports = { read, normalize, fromLegacy, keepPriorities, shardFor, costFor };

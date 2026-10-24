@@ -24,6 +24,10 @@ import EmptyState from '../components/ui/EmptyState';
 // stated once, in the JSON; only these few lines of reading it are doubled.
 
 const BUILDS = ['PvP', 'PvE'];
+// Officer-set; '' is normal. Only officers can change it — the server keeps
+// stored priorities on anyone else's save.
+const PRIORITIES = [{ key: 'high', label: 'High' }, { key: '', label: 'Normal' }, { key: 'low', label: 'Low' }];
+const PRIORITY_RANK = { high: 0, '': 1, low: 2 };
 const SOURCES = SHARD_WEAPONS.sources;
 const SOURCE = new Map(SOURCES.map((s) => [s.key, s]));
 const WEAPONS_BY_SOURCE = new Map(SOURCES.map((s) => [s.key, s.weapons || BOSS_WEAPONS[s.key] || []]));
@@ -73,6 +77,33 @@ function BuildPill({ build }) {
   );
 }
 
+function PriorityPill({ priority }) {
+  if (priority === 'high') return <span className="text-[10px] font-bold tracking-wide rounded-full px-2 py-0.5 border text-brassbright border-brass/60 bg-brass/10">HIGH</span>;
+  if (priority === 'low') return <span className="text-[10px] font-bold tracking-wide rounded-full px-2 py-0.5 border text-ash border-line">LOW</span>;
+  return null;
+}
+
+// Officers get the switch; everyone else sees the pill, or nothing for normal.
+function PriorityControl({ priority, editable, onChange, label }) {
+  if (!editable) return <PriorityPill priority={priority} />;
+  return (
+    <div className="inline-flex items-center rounded-full border border-line bg-hall p-0.5" role="group" aria-label={`Priority for ${label}`}>
+      {PRIORITIES.map((p) => (
+        <button
+          key={p.key} type="button" onClick={() => onChange(p.key)} aria-pressed={priority === p.key}
+          className={`px-2 py-0.5 rounded-full text-[9px] font-bold tracking-wide transition-colors ${
+            priority === p.key
+              ? (p.key === 'high' ? 'bg-brass text-ink' : p.key === 'low' ? 'bg-panelup text-bone' : 'bg-line text-bone')
+              : 'text-ash hover:text-bone'
+          }`}
+        >
+          {p.label.toUpperCase()}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function SourceLabel({ source }) {
   return SOURCE.get(source)?.heroic
     ? <span className="text-[10px] font-bold tracking-wide rounded-full px-2 py-0.5 border text-violet-300 border-violet-400/40">HEROIC</span>
@@ -106,6 +137,7 @@ export default function Shards() {
   const [pickerId, setPickerId] = useState(null);
 
   const canEdit = (id) => user && (can('loot.awards') || user.id === id);
+  const canPrioritize = !!user && can('loot.awards');
 
   const load = () => {
     setLoading(true); setError('');
@@ -151,6 +183,10 @@ export default function Shards() {
     })),
   }), false);
   const saveIfDirty = (member) => { if (dirty[member.id]) persist(member); };
+  const setPriority = (id, key, priority) => change(id, (s) => ({
+    ...s,
+    weapons: s.weapons.map((w) => (keyOf(w) !== key ? w : { ...w, priority })),
+  }), true);
   const unlink = (id, key) => change(id, (s) => ({ ...s, weapons: s.weapons.filter((w) => keyOf(w) !== key) }), true);
   const clearUnlinked = (m) => {
     if (!window.confirm(`Clear ${unlinkedTotal(m.shards)} shards not linked to a weapon for ${m.name}? Link the weapons they were for first, or that demand is lost.`)) return;
@@ -167,7 +203,7 @@ export default function Shards() {
         weapons: [...picks].map(([key, build]) => {
           const [boss, weapon] = key.split('|');
           const prev = had.get(key);
-          return { boss, weapon, build, need: prev ? prev.need : costFor(boss) };
+          return { boss, weapon, build, need: prev ? prev.need : costFor(boss), priority: prev ? prev.priority : '' };
         }),
       };
     }, true);
@@ -249,7 +285,7 @@ export default function Shards() {
       {loading ? (
         <EmptyState>Reading the vault…</EmptyState>
       ) : view === 'weapon' ? (
-        <ByWeapon members={members} />
+        <ByWeapon members={members} canPrioritize={canPrioritize} onPriority={setPriority} />
       ) : ordered.length === 0 ? (
         <EmptyState>No members found.</EmptyState>
       ) : (
@@ -259,6 +295,8 @@ export default function Shards() {
               key={m.id} m={m}
               mine={user && m.id === user.id}
               editable={canEdit(m.id)}
+              canPrioritize={canPrioritize}
+              onPriority={(key, p) => setPriority(m.id, key, p)}
               isOpen={open.has(m.id)}
               status={status[m.id]}
               onToggle={() => toggleOpen(m.id)}
@@ -283,7 +321,7 @@ export default function Shards() {
   );
 }
 
-function MemberCard({ m, mine, editable, isOpen, status, onToggle, onNeed, onBlur, onUnlink, onClearUnlinked, onPick }) {
+function MemberCard({ m, mine, editable, canPrioritize, onPriority, isOpen, status, onToggle, onNeed, onBlur, onUnlink, onClearUnlinked, onPick }) {
   const s = m.shards;
   const unlinked = unlinkedTotal(s);
   const unset = unsetCount(s);
@@ -334,6 +372,7 @@ function MemberCard({ m, mine, editable, isOpen, status, onToggle, onNeed, onBlu
                     <th className="px-5 py-2.5 font-normal">Weapon</th>
                     <th className="px-3 py-2.5 font-normal">Source</th>
                     <th className="px-3 py-2.5 font-normal">Build</th>
+                    <th className="px-3 py-2.5 font-normal">Priority</th>
                     <th className="px-3 py-2.5 font-normal">Shard</th>
                     <th className="px-3 py-2.5 font-normal">Still needed</th>
                     <th className="px-3 py-2.5 w-10"></th>
@@ -348,6 +387,9 @@ function MemberCard({ m, mine, editable, isOpen, status, onToggle, onNeed, onBlu
                         <td className="px-5 py-2.5 text-bone">{w.weapon}</td>
                         <td className="px-3 py-2.5"><SourceLabel source={w.boss} /></td>
                         <td className="px-3 py-2.5"><BuildPill build={w.build} /></td>
+                        <td className="px-3 py-2.5">
+                          <PriorityControl priority={w.priority || ''} editable={canPrioritize} label={w.weapon} onChange={(p) => onPriority(key, p)} />
+                        </td>
                         <td className="px-3 py-2.5 text-ash">{SHARD_LABEL.get(shardFor(w.boss, w.weapon))}</td>
                         <td className="px-3 py-2.5">
                           <div className="flex items-center gap-3">
@@ -381,7 +423,7 @@ function MemberCard({ m, mine, editable, isOpen, status, onToggle, onNeed, onBlu
                   {unlinked > 0 && (
                     <tr className="border-t border-dashed border-amber-400/30 bg-amber-400/5">
                       <td className="px-5 py-2.5 text-amber-400">Not linked to a weapon</td>
-                      <td className="px-3 py-2.5 text-xs text-ash" colSpan={2}>From before weapons carried shards</td>
+                      <td className="px-3 py-2.5 text-xs text-ash" colSpan={3}>From before weapons carried shards</td>
                       <td className="px-3 py-2.5" colSpan={2}>
                         <div className="flex flex-wrap gap-1.5">
                           {Object.entries(s.unlinked).map(([k, n]) => (
@@ -415,8 +457,9 @@ function MemberCard({ m, mine, editable, isOpen, status, onToggle, onNeed, onBlu
   );
 }
 
-// Every linked weapon in the guild, grouped by where it drops, with who wants it.
-function ByWeapon({ members }) {
+// Every linked weapon in the guild, grouped by where it drops, with who wants
+// it — high priority first, then whoever still needs the most.
+function ByWeapon({ members, canPrioritize, onPriority }) {
   const [source, setSource] = useState('all');
 
   const groups = useMemo(() => SOURCES.map((src) => {
@@ -424,12 +467,13 @@ function ByWeapon({ members }) {
     members.forEach((m) => m.shards.weapons.forEach((w) => {
       if (w.boss !== src.key) return;
       if (!byWeapon.has(w.weapon)) byWeapon.set(w.weapon, []);
-      byWeapon.get(w.weapon).push({ id: m.id, name: m.name, avatar: m.avatar, build: w.build, need: w.need });
+      byWeapon.get(w.weapon).push({ id: m.id, name: m.name, avatar: m.avatar, build: w.build, need: w.need, priority: w.priority || '' });
     }));
     const cost = costFor(src.key);
     const weapons = [...byWeapon.entries()]
       .map(([weapon, wanters]) => ({
-        weapon, wanters: wanters.sort((a, b) => (b.need || 0) - (a.need || 0)),
+        weapon,
+        wanters: wanters.sort((a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || (b.need || 0) - (a.need || 0)),
         need: wanters.reduce((a, x) => a + (x.need || 0), 0),
         cost: cost * wanters.length,
       }))
@@ -470,7 +514,7 @@ function ByWeapon({ members }) {
                     <tr className="eyebrow text-[10px] text-ash text-left">
                       <th className="px-5 py-2.5 font-normal">Weapon</th>
                       <th className="px-3 py-2.5 font-normal text-right">Wants</th>
-                      <th className="px-3 py-2.5 font-normal">Members · build · still needed</th>
+                      <th className="px-3 py-2.5 font-normal">Members · build · priority · still needed</th>
                       <th className="px-5 py-2.5 font-normal text-right">Still needed / total cost</th>
                     </tr>
                   </thead>
@@ -491,6 +535,10 @@ function ByWeapon({ members }) {
                                   : <span className="w-5 h-5 rounded-full bg-panelup border border-line flex items-center justify-center text-[9px] text-brass">{(x.name || '?')[0].toUpperCase()}</span>}
                                 <span className="text-bone min-w-[90px]">{x.name}</span>
                                 <BuildPill build={x.build} />
+                                <PriorityControl
+                                  priority={x.priority} editable={canPrioritize} label={`${x.name}'s ${w.weapon}`}
+                                  onChange={(p) => onPriority(x.id, `${g.key}|${w.weapon}`, p)}
+                                />
                                 <span className="text-xs text-ash">
                                   {x.need === null ? <span className="text-amber-400">not set</span> : <>needs <span className="font-mono text-bone">{x.need}</span> of {g.cost}</>}
                                 </span>
