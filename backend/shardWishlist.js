@@ -8,8 +8,9 @@
 //   { v: 2, weapons: [{ boss, weapon, build, need, priority }], unlinked: { <shard key>: n } }
 //
 // `priority` is 'high', 'low' or '' (normal) — an officer's call on who gets
-// that weapon's shards first. Members save their own rows, so the route keeps
-// the stored priorities for anyone who can't set them (see keepPriorities).
+// that weapon's shards first, seen only by officers. Members save their own
+// rows, so the route keeps the stored priorities for anyone who can't set them
+// (keepPriorities) and blanks them on the way out (hidePriorities).
 //
 // `need` is null when nobody has said yet — a weapon carried over from the old
 // wishlist whose shard count couldn't be pinned to it. Null counts toward
@@ -141,4 +142,10 @@ function keepPriorities(incoming, stored) {
   };
 }
 
-module.exports = { read, normalize, fromLegacy, keepPriorities, shardFor, costFor };
+// Priority is officers-only to see, not just to set: anyone else gets every
+// weapon back as normal.
+function hidePriorities(s) {
+  return { ...s, weapons: s.weapons.map((w) => ({ ...w, priority: '' })) };
+}
+
+module.exports = { read, normalize, fromLegacy, keepPriorities, hidePriorities, shardFor, costFor };

@@ -3,7 +3,7 @@
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
-const { read, normalize, keepPriorities, shardFor, costFor } = require('../shardWishlist');
+const { read, normalize, keepPriorities, hidePriorities, shardFor, costFor } = require('../shardWishlist');
 
 const W = (boss, weapon, extra = {}) => ({ boss, weapon, build: '', ...extra });
 const needOf = (s, weapon) => s.weapons.find((w) => w.weapon === weapon)?.need;
@@ -57,6 +57,11 @@ describe('keepPriorities', () => {
     ] });
     const s = keepPriorities(sent, stored);
     assert.deepEqual(s.weapons.map((w) => [w.weapon, w.need, w.priority]), [['Inferno Fangs', 40, 'low'], ['Heroic Orb', 60, '']]);
+  });
+
+  test('hidePriorities blanks every priority and touches nothing else', () => {
+    const s = normalize({ weapons: [W('Tevent', 'Inferno Fangs', { need: 30, priority: 'high' })] });
+    assert.deepEqual(hidePriorities(s).weapons[0], { ...s.weapons[0], priority: '' });
   });
 
   test('no stored row means everything is normal', () => {

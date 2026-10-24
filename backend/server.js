@@ -326,7 +326,12 @@ app.get('/api/members', async (req, res) => {
       ]);
       ids = snapshot;
       // Old-shape rows are converted here on the way out; see shardWishlist.js.
-      (shardData || []).forEach((r) => { counts[r.discord_id] = shardWishlist.read(r.shards); });
+      // Priorities are blanked for anyone who isn't an officer.
+      const officer = userHas(req.user, 'loot.awards');
+      (shardData || []).forEach((r) => {
+        const s = shardWishlist.read(r.shards);
+        counts[r.discord_id] = officer ? s : shardWishlist.hidePriorities(s);
+      });
       (roleData || []).forEach((r) => { roles[r.discord_id] = r.pvp_role || ''; });
     }
     // The guild's identity name, not the Discord nickname, wherever one is
@@ -358,7 +363,8 @@ app.put('/api/shards/:discordId', async (req, res) => {
   let shards = shardWishlist.normalize(req.body?.shards);
   // Priority is an officer's call; a member saving their own row keeps
   // whatever priorities are already stored, whatever the request says.
-  if (!userHas(req.user, 'loot.awards')) {
+  const officer = userHas(req.user, 'loot.awards');
+  if (!officer) {
     const { data: existing, error: readError } = await supabase.from('shard_counts')
       .select('shards').eq('discord_id', target).maybeSingle();
     if (readError) { console.error('Shard read error:', readError.message); return res.status(500).json({ error: 'Failed to save shards.' }); }
@@ -368,7 +374,7 @@ app.put('/api/shards/:discordId', async (req, res) => {
   const { error } = await supabase.from('shard_counts')
     .upsert({ discord_id: target, display_name, shards, updated_at: new Date().toISOString() });
   if (error) { console.error('Shard save error:', error.message); return res.status(500).json({ error: 'Failed to save shards.' }); }
-  res.json({ shards });
+  res.json({ shards: officer ? shards : shardWishlist.hidePriorities(shards) });
 });
 
 // ── MEMBERS AREA: Loot wishlist ──────────────────────────────────────────────
