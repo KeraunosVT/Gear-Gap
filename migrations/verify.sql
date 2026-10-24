@@ -222,6 +222,15 @@ select '032 · guild_config.calendar_channel_id',
        (select count(*) from information_schema.columns
         where table_schema = 'public' and table_name = 'guild_config' and column_name = 'calendar_channel_id') = 1
 union all
+-- Predates the numbered migrations, so no number of its own. The whole shard
+-- wishlist (weapons, need, priority, Last Updated) lives in this one column;
+-- anything but json/jsonb would refuse or flatten it on save.
+select 'base · shard_counts.shards is json',
+       coalesce((select data_type in ('json', 'jsonb')
+        from information_schema.columns
+        where table_schema = 'public' and table_name = 'shard_counts'
+          and column_name = 'shards'), false)
+union all
 select '019 · normalise_guild_name(text)',
        (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
         where n.nspname = 'public' and p.proname = 'normalise_guild_name') = 1
