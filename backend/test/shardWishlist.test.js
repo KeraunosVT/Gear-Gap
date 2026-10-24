@@ -3,7 +3,7 @@
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
-const { read, normalize, keepPriorities, hidePriorities, shardFor, costFor } = require('../shardWishlist');
+const { read, normalize, keepPriorities, stampChanges, hidePriorities, shardFor, costFor } = require('../shardWishlist');
 
 const W = (boss, weapon, extra = {}) => ({ boss, weapon, build: '', ...extra });
 const needOf = (s, weapon) => s.weapons.find((w) => w.weapon === weapon)?.need;
@@ -45,6 +45,28 @@ describe('normalize', () => {
       W('Heroic', 'Heroic Staff', { priority: 'urgent' }),
     ] });
     assert.deepEqual(s.weapons.map((w) => w.priority), ['high', 'low', '']);
+  });
+});
+
+describe('stampChanges', () => {
+  const OLD = '2026-10-01T00:00:00.000Z';
+  const NOW = '2026-10-23T12:00:00.000Z';
+  const stored = { v: 2, unlinked: {}, weapons: [
+    W('Tevent', 'Inferno Fangs', { need: 90, updated: OLD }),
+    W('Heroic', 'Heroic Orb', { need: 60, updated: OLD }),
+  ] };
+
+  test('a changed need is stamped now; an unchanged one keeps its date', () => {
+    const sent = normalize({ weapons: [
+      W('Tevent', 'Inferno Fangs', { need: 45, updated: OLD }),
+      W('Heroic', 'Heroic Orb', { need: 60, priority: 'high', updated: NOW }),
+    ] });
+    assert.deepEqual(stampChanges(sent, stored, NOW).weapons.map((w) => w.updated), [NOW, OLD]);
+  });
+
+  test('a newly linked weapon is stamped; the client\'s date is never trusted', () => {
+    const sent = normalize({ weapons: [W('Tevent', 'Grasp of Cremation', { need: 90, updated: OLD })] });
+    assert.equal(stampChanges(sent, stored, NOW).weapons[0].updated, NOW);
   });
 });
 

@@ -361,18 +361,19 @@ app.put('/api/shards/:discordId', async (req, res) => {
   // Each weapon's need is capped at its own cost (90 archboss, 60 Heroic). The
   // page clamps as you type, but this is the one that decides.
   let shards = shardWishlist.normalize(req.body?.shards);
+  const { data: existing, error: readError } = await supabase.from('shard_counts')
+    .select('shards').eq('discord_id', target).maybeSingle();
+  if (readError) { console.error('Shard read error:', readError.message); return res.status(500).json({ error: 'Failed to save shards.' }); }
   // Priority is an officer's call; a member saving their own row keeps
   // whatever priorities are already stored, whatever the request says.
   const officer = userHas(req.user, 'loot.awards');
-  if (!officer) {
-    const { data: existing, error: readError } = await supabase.from('shard_counts')
-      .select('shards').eq('discord_id', target).maybeSingle();
-    if (readError) { console.error('Shard read error:', readError.message); return res.status(500).json({ error: 'Failed to save shards.' }); }
-    shards = shardWishlist.keepPriorities(shards, existing?.shards);
-  }
+  if (!officer) shards = shardWishlist.keepPriorities(shards, existing?.shards);
+  // Each weapon's Last Updated moves only when its need actually changed.
+  const now = new Date().toISOString();
+  shards = shardWishlist.stampChanges(shards, existing?.shards, now);
   const display_name = (req.body?.display_name || req.user.username || '').slice(0, 120);
   const { error } = await supabase.from('shard_counts')
-    .upsert({ discord_id: target, display_name, shards, updated_at: new Date().toISOString() });
+    .upsert({ discord_id: target, display_name, shards, updated_at: now });
   if (error) { console.error('Shard save error:', error.message); return res.status(500).json({ error: 'Failed to save shards.' }); }
   res.json({ shards: officer ? shards : shardWishlist.hidePriorities(shards) });
 });

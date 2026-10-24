@@ -147,7 +147,14 @@ export default function Shards() {
     setDirty((d) => ({ ...d, [member.id]: false }));
     setStatus((s) => ({ ...s, [member.id]: 'saving' }));
     axios.put(`/api/shards/${member.id}`, { shards: member.shards, display_name: member.name })
-      .then(() => {
+      .then((res) => {
+        // The server stamps Last Updated. Take only those dates back — the
+        // rest of the row may have been typed into since this save went out.
+        const stamps = new Map((res.data.shards?.weapons || []).map((w) => [keyOf(w), w.updated]));
+        setMembers((prev) => prev.map((m) => (m.id !== member.id ? m : {
+          ...m,
+          shards: { ...m.shards, weapons: m.shards.weapons.map((w) => (stamps.has(keyOf(w)) ? { ...w, updated: stamps.get(keyOf(w)) } : w)) },
+        })));
         setStatus((s) => ({ ...s, [member.id]: 'saved' }));
         setTimeout(() => setStatus((s) => ({ ...s, [member.id]: undefined })), 1800);
       })
@@ -368,6 +375,7 @@ function MemberCard({ m, mine, editable, canPrioritize, onPriority, isOpen, stat
                     {canPrioritize && <th className="px-3 py-2.5 font-normal">Priority</th>}
                     <th className="px-3 py-2.5 font-normal">Shard</th>
                     <th className="px-3 py-2.5 font-normal">Still needed</th>
+                    <th className="px-3 py-2.5 font-normal">Last Updated</th>
                     <th className="px-3 py-2.5 w-10"></th>
                   </tr>
                 </thead>
@@ -405,6 +413,10 @@ function MemberCard({ m, mine, editable, canPrioritize, onPriority, isOpen, stat
                             </div>
                           </div>
                         </td>
+                        {/* Null for weapons untouched since dates were tracked. */}
+                        <td className="px-3 py-2.5 text-xs text-ash whitespace-nowrap" title={w.updated ? new Date(w.updated).toLocaleString() : undefined}>
+                          {w.updated ? new Date(w.updated).toLocaleDateString() : '—'}
+                        </td>
                         <td className="px-3 py-2.5 text-right">
                           {editable && (
                             <button onClick={() => onUnlink(key)} className="text-ash hover:text-oxblood p-1" aria-label={`Unlink ${w.weapon}`} title="Unlink">
@@ -419,7 +431,7 @@ function MemberCard({ m, mine, editable, canPrioritize, onPriority, isOpen, stat
                     <tr className="border-t border-dashed border-amber-400/30 bg-amber-400/5">
                       <td className="px-5 py-2.5 text-amber-400">Not linked to a weapon</td>
                       <td className="px-3 py-2.5 text-xs text-ash" colSpan={canPrioritize ? 3 : 2}>From before weapons carried shards</td>
-                      <td className="px-3 py-2.5" colSpan={2}>
+                      <td className="px-3 py-2.5" colSpan={3}>
                         <div className="flex flex-wrap gap-1.5">
                           {Object.entries(s.unlinked).map(([k, n]) => (
                             <span key={k} className="inline-flex items-center gap-2 border border-dashed border-amber-400/40 rounded-md pl-2.5 pr-1 py-0.5 text-xs text-ash">

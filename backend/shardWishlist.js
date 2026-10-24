@@ -5,7 +5,11 @@
 // they still need (0 up to the weapon's cost). Per-shard totals are never
 // stored: they are the sum over the weapons, plus `unlinked`.
 //
-//   { v: 2, weapons: [{ boss, weapon, build, need, priority }], unlinked: { <shard key>: n } }
+//   { v: 2, weapons: [{ boss, weapon, build, need, priority, updated }], unlinked: { <shard key>: n } }
+//
+// `updated` is when that weapon's need last changed (ISO string), or null for
+// weapons that haven't changed since before it was tracked. The server sets
+// it (stampChanges); whatever a client sends is ignored.
 //
 // `priority` is 'high', 'low' or '' (normal) — an officer's call on who gets
 // that weapon's shards first, seen only by officers. Members save their own
@@ -82,6 +86,7 @@ function normalize(raw) {
         build: BUILDS.includes(w.build) ? w.build : '',
         need: n === null ? null : Math.max(0, Math.min(costFor(w.boss), n)),
         priority: PRIORITIES.includes(w.priority) ? w.priority : '',
+        updated: typeof w.updated === 'string' && !Number.isNaN(Date.parse(w.updated)) ? w.updated : null,
       };
     });
   const unlinked = {};
@@ -142,10 +147,24 @@ function keepPriorities(incoming, stored) {
   };
 }
 
+// Every save: a weapon whose need differs from what's stored (or that wasn't
+// linked before) is stamped `now`; the rest keep their stored date. So a
+// priority change or a re-save of the same numbers doesn't move it.
+function stampChanges(incoming, stored, now) {
+  const had = new Map(read(stored).weapons.map((w) => [`${w.boss}|${w.weapon}`, w]));
+  return {
+    ...incoming,
+    weapons: incoming.weapons.map((w) => {
+      const prev = had.get(`${w.boss}|${w.weapon}`);
+      return { ...w, updated: prev && prev.need === w.need ? prev.updated : now };
+    }),
+  };
+}
+
 // Priority is officers-only to see, not just to set: anyone else gets every
 // weapon back as normal.
 function hidePriorities(s) {
   return { ...s, weapons: s.weapons.map((w) => ({ ...w, priority: '' })) };
 }
 
-module.exports = { read, normalize, fromLegacy, keepPriorities, hidePriorities, shardFor, costFor };
+module.exports = { read, normalize, fromLegacy, keepPriorities, stampChanges, hidePriorities, shardFor, costFor };
