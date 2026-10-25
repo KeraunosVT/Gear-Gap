@@ -15,11 +15,11 @@ const daysAgo = (iso) => (iso ? Math.floor((Date.now() - new Date(iso).getTime()
 const fmtDate = (iso) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
 function Updated({ iso }) {
-  if (!iso) return <span className="text-ash/40 text-xs">Not uploaded</span>;
+  if (!iso) return <span className="text-ash/40 text-xs whitespace-nowrap">Not uploaded</span>;
   const d = daysAgo(iso);
   const stale = d >= STALE_DAYS;
   return (
-    <span className={`text-xs ${stale ? 'text-oxblood' : 'text-ash'}`} title={stale ? `Not updated for ${d} days` : undefined}>
+    <span className={`text-xs whitespace-nowrap ${stale ? 'text-oxblood' : 'text-ash'}`} title={stale ? `Not updated for ${d} days` : undefined}>
       {fmtDate(iso)} · {d === 0 ? 'today' : `${d}d ago`}
     </span>
   );
@@ -54,11 +54,11 @@ export default function Builds() {
     total: (members || []).length,
   }), [members]);
 
-  if (error) return <PageShell maxWidth="max-w-4xl"><EmptyState>{error}</EmptyState></PageShell>;
-  if (!members) return <PageShell maxWidth="max-w-4xl"><EmptyState>Loading…</EmptyState></PageShell>;
+  if (error) return <PageShell maxWidth="max-w-5xl"><EmptyState>{error}</EmptyState></PageShell>;
+  if (!members) return <PageShell maxWidth="max-w-5xl"><EmptyState>Loading…</EmptyState></PageShell>;
 
   return (
-    <PageShell maxWidth="max-w-4xl">
+    <PageShell maxWidth="max-w-5xl">
       <div className="flex items-start justify-between gap-4 flex-wrap mb-6">
         <p className="text-sm text-ash max-w-xl">
           Every member&apos;s PvE and PvP stats, read from their character stats screenshots.
@@ -94,7 +94,7 @@ export default function Builds() {
         <div className="panel rounded-lg p-10 text-center text-ash">Nobody matches that.</div>
       ) : (
         <div className="panel rounded-lg divide-y divide-line">
-          <div className="hidden sm:grid grid-cols-[1fr_180px_180px_20px] gap-4 px-5 py-2 eyebrow text-[10px] text-ash">
+          <div className="hidden sm:grid grid-cols-[1fr_220px_220px_20px] gap-4 px-5 py-2 eyebrow text-[10px] text-ash">
             <span>Member</span>
             {KINDS.map((k) => <span key={k}>{KIND_LABEL[k]} build</span>)}
             <span />
@@ -102,7 +102,7 @@ export default function Builds() {
           {rows.map((m) => (
             <Link
               key={m.discord_id} to={`/builds/${m.discord_id}`}
-              className="grid grid-cols-[1fr_20px] sm:grid-cols-[1fr_180px_180px_20px] gap-x-4 gap-y-1 items-center px-5 py-3 hover:bg-panelup transition-colors"
+              className="grid grid-cols-[1fr_20px] sm:grid-cols-[1fr_220px_220px_20px] gap-x-4 gap-y-1 items-center px-5 py-3 hover:bg-panelup transition-colors"
             >
               <span className="text-bone text-sm font-medium truncate">
                 {m.display_name || 'Member'}
@@ -114,7 +114,11 @@ export default function Builds() {
                   <Updated iso={m[k]} />
                 </span>
               ))}
-              <ChevronRight className="w-4 h-4 text-ash row-start-1 col-start-2 sm:col-start-auto" />
+              {/* Pinned beside the name on phones, where the dates stack below
+                  it. Both overrides matter on wider screens: leaving row-start-1
+                  in place makes the grid place the chevron first, in column 1,
+                  and every other cell shifts one column right. */}
+              <ChevronRight className="w-4 h-4 text-ash row-start-1 col-start-2 sm:row-start-auto sm:col-start-auto justify-self-end" />
             </Link>
           ))}
         </div>
