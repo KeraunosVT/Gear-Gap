@@ -167,4 +167,14 @@ function hidePriorities(s) {
   return { ...s, weapons: s.weapons.map((w) => ({ ...w, priority: '' })) };
 }
 
-module.exports = { read, normalize, fromLegacy, keepPriorities, stampChanges, hidePriorities, shardFor, costFor };
+// The guild's weapon ranking: an ordered list of "boss|weapon" keys, first is
+// the weapon whose shards go out first. Separate from each member's priority,
+// which ranks people within one weapon; this ranks the weapons themselves.
+// Kept exactly in the order given, minus anything that isn't a real weapon
+// and any repeat.
+function cleanRanking(raw) {
+  if (!Array.isArray(raw)) return [];
+  return [...new Set(raw.filter((k) => typeof k === 'string' && VALID.has(k)))].slice(0, VALID.size);
+}
+
+module.exports = { read, normalize, fromLegacy, keepPriorities, stampChanges, hidePriorities, cleanRanking, shardFor, costFor };

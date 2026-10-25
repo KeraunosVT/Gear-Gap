@@ -3,7 +3,7 @@
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
-const { read, normalize, keepPriorities, stampChanges, hidePriorities, shardFor, costFor } = require('../shardWishlist');
+const { read, normalize, keepPriorities, stampChanges, hidePriorities, cleanRanking, shardFor, costFor } = require('../shardWishlist');
 
 const W = (boss, weapon, extra = {}) => ({ boss, weapon, build: '', ...extra });
 const needOf = (s, weapon) => s.weapons.find((w) => w.weapon === weapon)?.need;
@@ -135,5 +135,24 @@ describe('read — old rows', () => {
     const stored = { v: 2, weapons: [W('Heroic', 'Heroic Staff', { need: 25 })], unlinked: { tevent_ashen: 5 } };
     assert.deepEqual(read(stored), normalize(stored));
     assert.equal(needOf(read(stored), 'Heroic Staff'), 25);
+  });
+});
+
+describe('cleanRanking', () => {
+  test('keeps real weapons in the order given, across bosses', () => {
+    const ranking = ['Cordy|' + require('../../shared/archbossWeapons.json').Cordy[0], 'Tevent|Warblade of Incineration'];
+    assert.deepEqual(cleanRanking(ranking), ranking);
+  });
+
+  test('drops unknown weapons, repeats and non-strings', () => {
+    assert.deepEqual(
+      cleanRanking(['Tevent|Warblade of Incineration', 'Tevent|Not A Weapon', 'Tevent|Warblade of Incineration', 7, null]),
+      ['Tevent|Warblade of Incineration'],
+    );
+  });
+
+  test('anything that isn\'t a list is an empty ranking', () => {
+    assert.deepEqual(cleanRanking(undefined), []);
+    assert.deepEqual(cleanRanking('Tevent|Warblade of Incineration'), []);
   });
 });

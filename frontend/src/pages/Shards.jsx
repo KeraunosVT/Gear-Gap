@@ -5,8 +5,15 @@ import SHARDS from '../../../shared/shards.json';
 import BOSS_WEAPONS from '../../../shared/archbossWeapons.json';
 import SHARD_WEAPONS from '../../../shared/shardWeapons.json';
 import {
-  Check, Loader2, AlertCircle, RefreshCw, Plus, X, ChevronDown, ChevronUp,
+  Check, Loader2, AlertCircle, RefreshCw, Plus, X, ChevronDown, ChevronUp, GripVertical, ListOrdered,
 } from 'lucide-react';
+import {
+  DndContext, PointerSensor, KeyboardSensor, useSensor, useSensors, closestCenter,
+} from '@dnd-kit/core';
+import {
+  SortableContext, useSortable, arrayMove, verticalListSortingStrategy, sortableKeyboardCoordinates,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import Modal from '../components/ui/Modal';
 import Button from '../components/ui/Button';
 import Tabs from '../components/ui/Tabs';
@@ -131,6 +138,9 @@ export default function Shards() {
 
   const canEdit = (id) => user && (can('loot.awards') || user.id === id);
   const canPrioritize = !!user && can('loot.awards');
+  // The guild's weapon order, "boss|weapon" keys, first served first.
+  // Officers-only, like the per-member priorities, so nobody else loads it.
+  const [ranking, setRanking] = useState([]);
 
   const load = () => {
     setLoading(true); setError('');
@@ -138,8 +148,27 @@ export default function Shards() {
       .then((res) => setMembers((res.data.members || []).map((m) => ({ ...m, shards: m.shards?.v === 2 ? m.shards : emptyWishlist() }))))
       .catch((err) => setError(err.response?.data?.error || 'Could not load members.'))
       .finally(() => setLoading(false));
+    if (canPrioritize) {
+      axios.get('/api/shards/weapon-ranking')
+        .then((res) => setRanking(res.data.weapons || []))
+        .catch((err) => setError(err.response?.data?.error || 'Could not load the weapon ranking.'));
+    }
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [canPrioritize]);
+
+  // Optimistic: the list moves as soon as it's dropped, and goes back if the
+  // save fails.
+  const saveRanking = (next) => {
+    const before = ranking;
+    setRanking(next);
+    axios.put('/api/shards/weapon-ranking', { weapons: next })
+      .then((res) => setRanking(res.data.weapons || next))
+      .catch((err) => {
+        setRanking(before);
+        setError(err.response?.data?.error || 'Could not save the weapon ranking.');
+      });
+  };
+  const toggleRank = (key) => saveRanking(ranking.includes(key) ? ranking.filter((k) => k !== key) : [...ranking, key]);
   // Your own card starts open: it's the one most people came here to change.
   useEffect(() => { if (user) setOpen((prev) => new Set(prev).add(user.id)); }, [user]);
 
@@ -285,7 +314,10 @@ export default function Shards() {
       {loading ? (
         <EmptyState>Reading the vault…</EmptyState>
       ) : view === 'weapon' ? (
-        <ByWeapon members={members} canPrioritize={canPrioritize} onPriority={setPriority} />
+        <ByWeapon
+          members={members} canPrioritize={canPrioritize} onPriority={setPriority}
+          ranking={ranking} onToggleRank={toggleRank} onReorder={saveRanking}
+        />
       ) : ordered.length === 0 ? (
         <EmptyState>No members found.</EmptyState>
       ) : (
@@ -464,12 +496,96 @@ function MemberCard({ m, mine, editable, canPrioritize, onPriority, isOpen, stat
   );
 }
 
+// One row of the weapon ranking. The whole row is the drag target on a
+// pointer; the grip is also the keyboard handle (space, arrows, space).
+function RankRow({ id, rank, info, onRemove }) {
+  const {
+    attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging,
+  } = useSortable({ id });
+  const [boss, weapon] = id.split('|');
+  return (
+    <li
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={`flex items-center gap-3 px-3 py-2 bg-panel ${isDragging ? 'relative z-10 shadow-xl ring-1 ring-brass rounded-md' : ''}`}
+    >
+      <button
+        ref={setActivatorNodeRef} {...attributes} {...listeners} type="button"
+        aria-label={`Move ${weapon}, ranked ${rank}. Press space, then the arrow keys.`}
+        className="p-1 rounded text-ash hover:text-bone hover:bg-panelup cursor-grab active:cursor-grabbing touch-none"
+      >
+        <GripVertical className="w-4 h-4" />
+      </button>
+      <span className="font-mono text-brassbright w-7 text-right">#{rank}</span>
+      <span className="min-w-0 flex-1">
+        <span className="text-bone">{weapon}</span>
+        <span className="block text-xs text-ash truncate">
+          <SourceLabel source={boss} /> · {SHARD_LABEL.get(shardFor(boss, weapon))}
+        </span>
+      </span>
+      <span className="text-xs text-ash whitespace-nowrap text-right">
+        {info
+          ? <>{info.wanters} want{info.wanters === 1 ? 's' : ''} · <span className="font-mono text-bone">{info.need}</span> needed</>
+          : <span className="text-ash/60">nobody wants it now</span>}
+      </span>
+      <button type="button" onClick={() => onRemove(id)} aria-label={`Remove ${weapon} from the ranking`}
+        className="p-1 rounded text-ash hover:text-oxblood hover:bg-panelup">
+        <X className="w-4 h-4" />
+      </button>
+    </li>
+  );
+}
+
+// The guild's weapon order, across every boss: whose shards go out first.
+// Officers only. A weapon stays ranked when nobody wants it any more, so a
+// ranking survives a quiet week; it says so rather than vanishing.
+function WeaponRanking({ ranking, wanted, onReorder, onRemove }) {
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+  const onDragEnd = ({ active, over }) => {
+    if (!over || active.id === over.id) return;
+    onReorder(arrayMove(ranking, ranking.indexOf(active.id), ranking.indexOf(over.id)));
+  };
+
+  return (
+    <section className="mb-8">
+      <div className="flex flex-wrap items-baseline justify-between gap-3 mb-3">
+        <h2 className="font-display text-lg text-brassbright tracking-[0.06em] flex items-center gap-2">
+          <ListOrdered className="w-4 h-4" /> Weapon priority
+        </h2>
+        <span className="text-xs text-ash">
+          Officers only. Drag to reorder; #1 gets shards first. Add weapons with <span className="text-bone">Rank</span> in the tables below.
+        </span>
+      </div>
+      {ranking.length === 0 ? (
+        <div className="border border-dashed border-line rounded-lg p-5 text-sm text-ash">
+          No weapons ranked yet. Press <span className="text-bone">Rank</span> on a weapon below to start the order.
+        </div>
+      ) : (
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+          <SortableContext items={ranking} strategy={verticalListSortingStrategy}>
+            <ol className="panel rounded-lg divide-y divide-line/60">
+              {ranking.map((id, i) => (
+                <RankRow key={id} id={id} rank={i + 1} info={wanted.get(id)} onRemove={onRemove} />
+              ))}
+            </ol>
+          </SortableContext>
+        </DndContext>
+      )}
+    </section>
+  );
+}
+
 // Every linked weapon in the guild, grouped by where it drops, with who wants
 // it — high priority first, then whoever still needs the most. Non-officers
 // get every priority as normal, so for them it's need alone and the order
-// gives nothing away.
-function ByWeapon({ members, canPrioritize, onPriority }) {
+// gives nothing away. For officers, weapons in the guild's ranking come first
+// within their boss, in ranked order, and carry their number.
+function ByWeapon({ members, canPrioritize, onPriority, ranking, onToggleRank, onReorder }) {
   const [source, setSource] = useState('all');
+  const rankOf = useMemo(() => new Map(ranking.map((k, i) => [k, i + 1])), [ranking]);
 
   const groups = useMemo(() => SOURCES.map((src) => {
     const byWeapon = new Map();
@@ -486,14 +602,24 @@ function ByWeapon({ members, canPrioritize, onPriority }) {
         need: wanters.reduce((a, x) => a + (x.need || 0), 0),
         cost: cost * wanters.length,
       }))
-      .sort((a, b) => b.wanters.length - a.wanters.length || a.weapon.localeCompare(b.weapon));
+      .sort((a, b) => (rankOf.get(`${src.key}|${a.weapon}`) ?? Infinity) - (rankOf.get(`${src.key}|${b.weapon}`) ?? Infinity)
+        || b.wanters.length - a.wanters.length || a.weapon.localeCompare(b.weapon));
     return { key: src.key, cost, weapons, need: weapons.reduce((a, w) => a + w.need, 0) };
-  }), [members]);
+  }), [members, rankOf]);
+
+  // What the ranking panel shows beside each ranked weapon.
+  const wanted = useMemo(() => new Map(groups.flatMap((g) => g.weapons.map((w) => [
+    `${g.key}|${w.weapon}`, { wanters: w.wanters.length, need: w.need },
+  ]))), [groups]);
 
   const shown = groups.filter((g) => g.weapons.length && (source === 'all' || g.key === source));
 
   return (
     <div>
+      {canPrioritize && (
+        <WeaponRanking ranking={ranking} wanted={wanted} onReorder={onReorder} onRemove={onToggleRank} />
+      )}
+
       <div className="flex flex-wrap gap-2 mb-6">
         {[{ key: 'all', label: 'All' }, ...SOURCES.map((s) => ({ key: s.key, label: s.key }))].map((s) => (
           <button
@@ -528,11 +654,26 @@ function ByWeapon({ members, canPrioritize, onPriority }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {g.weapons.map((w) => (
+                    {g.weapons.map((w) => {
+                      const rank = rankOf.get(`${g.key}|${w.weapon}`);
+                      return (
                       <tr key={w.weapon} className="border-t border-line/60 align-top">
                         <td className="px-5 py-3 text-bone">
-                          {w.weapon}
+                          <span className="flex items-center gap-2 flex-wrap">
+                            {canPrioritize && rank && (
+                              <span className="font-mono text-[10px] font-bold rounded-full px-1.5 py-0.5 bg-brass text-ink" title={`Ranked #${rank} in weapon priority`}>#{rank}</span>
+                            )}
+                            {w.weapon}
+                          </span>
                           <div className="text-xs text-ash mt-0.5">{SHARD_LABEL.get(shardFor(g.key, w.weapon))}</div>
+                          {canPrioritize && (
+                            <button
+                              type="button" onClick={() => onToggleRank(`${g.key}|${w.weapon}`)}
+                              className="mt-1.5 inline-flex items-center gap-1 text-xs text-ash hover:text-brassbright"
+                            >
+                              <ListOrdered className="w-3 h-3" /> {rank ? 'Unrank' : 'Rank'}
+                            </button>
+                          )}
                         </td>
                         <td className="px-3 py-3 text-right font-mono text-bone">{w.wanters.length}</td>
                         <td className="px-3 py-3">
@@ -564,7 +705,8 @@ function ByWeapon({ members, canPrioritize, onPriority }) {
                           {w.need}<span className="text-ash/50">/{w.cost}</span>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

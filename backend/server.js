@@ -475,6 +475,29 @@ app.get('/api/members', async (req, res) => {
   }
 });
 
+// The guild's weapon ranking. Officers-only both ways, like the per-member
+// priorities — and declared BEFORE /api/shards/:discordId, which would
+// otherwise take "weapon-ranking" for a Discord id.
+app.get('/api/shards/weapon-ranking', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+  if (!userHas(req.user, 'loot.awards')) return res.status(403).json({ error: 'The weapon ranking is visible to loot officers only.' });
+  const { data, error } = await supabase.from('shard_weapon_ranking').select('weapons').eq('id', 1).maybeSingle();
+  if (error) { console.error('Weapon ranking read error:', error.message); return res.status(500).json({ error: 'Failed to load the weapon ranking.' }); }
+  res.json({ weapons: shardWishlist.cleanRanking(data?.weapons) });
+});
+
+// The whole list each time — adding, removing and dragging all send it, so
+// what's stored is always the order the officer last saw.
+app.put('/api/shards/weapon-ranking', async (req, res) => {
+  if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+  if (!userHas(req.user, 'loot.awards')) return res.status(403).json({ error: 'Only loot officers can rank weapons.' });
+  const weapons = shardWishlist.cleanRanking(req.body?.weapons);
+  const { error } = await supabase.from('shard_weapon_ranking')
+    .upsert({ id: 1, weapons, updated_at: new Date().toISOString(), updated_by: req.user.id });
+  if (error) { console.error('Weapon ranking save error:', error.message); return res.status(500).json({ error: 'Failed to save the weapon ranking.' }); }
+  res.json({ weapons });
+});
+
 app.put('/api/shards/:discordId', async (req, res) => {
   const target = req.params.discordId;
   if (req.user.id !== target && !userHas(req.user, 'loot.awards')) {

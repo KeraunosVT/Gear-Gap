@@ -227,6 +227,9 @@ select '033 · builds, build_history, build_key_stats tables',
        and to_regclass('public.build_history') is not null
        and to_regclass('public.build_key_stats') is not null
 union all
+select '034 · shard_weapon_ranking table',
+       to_regclass('public.shard_weapon_ranking') is not null
+union all
 -- Predates the numbered migrations, so no number of its own. The whole shard
 -- wishlist (weapons, need, priority, Last Updated) lives in this one column;
 -- anything but json/jsonb would refuse or flatten it on save.
