@@ -150,10 +150,22 @@ function invalidate() {
 // existed carry no permissions array; an old admin token counts as full access
 // until its next re-verify, so deploying this doesn't sign everyone out or strip
 // a working session mid-request.
+//
+// An officer-role session (fullAccess) holds every capability in the CURRENT
+// list, not the list stored in its token. The token's copy is a snapshot from
+// login or the last re-verify, so a capability added in a release — 'builds',
+// say — was missing from every officer's session for up to an hour, and from
+// the page until a reload, despite the promise that officer roles get "ones
+// added in later releases" too.
+function heldBy(user) {
+  if (!user) return [];
+  if (user.fullAccess) return ALL_PERMISSIONS.map((p) => p.key);
+  if (Array.isArray(user.permissions)) return user.permissions;
+  return user.isAdmin ? ALL_PERMISSIONS.map((p) => p.key) : [];
+}
+
 function userHas(user, permission) {
-  if (!user) return false;
-  if (Array.isArray(user.permissions)) return user.permissions.includes(permission);
-  return !!user.isAdmin;
+  return heldBy(user).includes(permission);
 }
 
 // Everything granted to any of this member's Discord roles, plus anything
@@ -180,6 +192,7 @@ module.exports = {
   resolveFor,
   loadGrants,
   invalidate,
+  heldBy,
   userHas,
   supabase,
 };

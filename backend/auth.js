@@ -150,10 +150,11 @@ router.get('/me', (req, res) => {
         username: user.username,
         avatar: user.avatar,
         isAdmin: !!user.isAdmin,
-        // Sessions issued before capabilities existed have no permissions array;
-        // treat an old admin token as full access until it re-verifies, rather
-        // than stripping a working session's access mid-flight.
-        permissions: user.permissions || (user.isAdmin ? perms.ALL_PERMISSIONS.map((p) => p.key) : []),
+        // Same rule the routes apply (perms.heldBy): an officer role gets the
+        // current full list, so a capability added since login shows up on the
+        // next page load; an old token with no permissions array counts as full
+        // access until it re-verifies.
+        permissions: perms.heldBy(user),
         fullAccess: user.fullAccess ?? !!user.isAdmin,
       },
     });
@@ -285,9 +286,7 @@ const { userHas } = perms;
 // in — the alternative is a route that silently defaults to public.
 function requireAdminArea(req, res, next) {
   requireAuth(req, res, () => {
-    const held = Array.isArray(req.user?.permissions)
-      ? req.user.permissions
-      : (req.user?.isAdmin ? perms.ALL_PERMISSIONS.map((p) => p.key) : []);
+    const held = perms.heldBy(req.user);
     if (held.length === 0) return res.status(403).json({ error: 'Admin access required' });
 
     const needed = perms.permissionForPath(req.path);
