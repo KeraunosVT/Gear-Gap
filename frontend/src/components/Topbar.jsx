@@ -29,6 +29,11 @@ function trailFor(pathname, house, t) {
   if (pathname.startsWith('/roster/')) {
     return [{ label: L('Roster'), to: '/roster' }, { label: decodeURIComponent(pathname.slice('/roster/'.length)) }];
   }
+  // One member's builds. The page shows their name in its heading; the trail
+  // only needs to say where "back" goes.
+  if (pathname.startsWith('/builds/')) {
+    return [{ label: L('Builds'), to: '/builds' }, { label: t('nav.memberBuild') }];
+  }
   // One night's roll. Without this it falls through to the house name, which
   // reads as "you're nowhere" on a page reached by clicking a link.
   if (pathname.startsWith('/attendance/')) {

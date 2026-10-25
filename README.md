@@ -50,7 +50,7 @@ A guild-management web app for a *Throne & Liberty* guild, built around Discord:
 - **Frontend**: React + Vite, React Router, Tailwind CSS
 - **Backend**: Node.js + Express, `discord.js` (bot/gateway), Discord OAuth2 (login)
 - **Database**: Supabase (Postgres)
-- **AI**: OpenAI `gpt-5.6-terra` — parses screenshot uploads (match scoreboards, gear level windows), behind the single seam in [`backend/vision.js`](backend/vision.js)
+- **AI**: Google `gemini-3.5-flash-lite` — parses screenshot uploads (match scoreboards, gear level windows, character stat builds), behind the single seam in [`backend/vision.js`](backend/vision.js)
 
 Backend and frontend deploy as a single process: `server.js` serves the built frontend (`frontend/dist`) statically alongside the `/api` routes, so there's one server to run.
 
@@ -144,11 +144,11 @@ Configuration is split in two. **Secrets and identity** are environment variable
 | `DISCORD_GUILD_ID` | The one Discord server this deployment is bound to |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_KEY` | Database connection |
 | `JWT_SECRET` | Signs the session cookie |
-| `OPENAI_API_KEY` | Screenshot parsing (match stats, gear level) |
-| `VISION_MODEL` | Optional, defaults to `gpt-5.6-terra` |
+| `GEMINI_API_KEY` | Screenshot parsing (match stats, gear level, builds) |
+| `VISION_MODEL` | Optional, defaults to `gemini-3.5-flash-lite` |
 | `PORT` | Optional, defaults to `3000` |
 | `CORS_ORIGINS` | Optional, comma-separated trusted origins (local dev only — production is same-origin) |
-| `APP_URL`, `NODE_ENV`, `SESSION_REVERIFY_MINUTES`, `GEAR_SUBMIT_LIMIT_PER_HOUR`, `IDENTITY_CACHE_SECONDS`, `MEMBER_CACHE_SECONDS`, `GUILD_CONFIG_CACHE_SECONDS`, `WEAPON_LEGEND_PATH`, `VISION_REASONING_EFFORT`, `VISION_IMAGE_DETAIL` | Secondary tuning, all have sensible defaults |
+| `APP_URL`, `NODE_ENV`, `SESSION_REVERIFY_MINUTES`, `GEAR_SUBMIT_LIMIT_PER_HOUR`, `BUILD_SCAN_LIMIT_PER_HOUR`, `IDENTITY_CACHE_SECONDS`, `MEMBER_CACHE_SECONDS`, `GUILD_CONFIG_CACHE_SECONDS`, `WEAPON_LEGEND_PATH`, `VISION_REASONING_EFFORT`, `VISION_IMAGE_DETAIL` | Secondary tuning, all have sensible defaults |
 
 ### Guild Settings (`/admin/settings`)
 

@@ -222,6 +222,11 @@ select '032 · guild_config.calendar_channel_id',
        (select count(*) from information_schema.columns
         where table_schema = 'public' and table_name = 'guild_config' and column_name = 'calendar_channel_id') = 1
 union all
+select '033 · builds, build_history, build_key_stats tables',
+       to_regclass('public.builds') is not null
+       and to_regclass('public.build_history') is not null
+       and to_regclass('public.build_key_stats') is not null
+union all
 -- Predates the numbered migrations, so no number of its own. The whole shard
 -- wishlist (weapons, need, priority, Last Updated) lives in this one column;
 -- anything but json/jsonb would refuse or flatten it on save.

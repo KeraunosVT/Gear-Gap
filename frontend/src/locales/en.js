@@ -19,6 +19,8 @@ export default {
   'nav.LOA': 'LOA',
   'nav.Classes': 'Classes',
   'nav.Gear Level': 'Gear Level',
+  'nav.Builds': 'Builds',
+  'nav.memberBuild': 'Member builds',
   'nav.Upload Match': 'Upload Match',
   'nav.Parties': 'Parties',
   'nav.Names': 'Names',

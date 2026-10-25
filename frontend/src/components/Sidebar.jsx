@@ -3,6 +3,7 @@ import { NavLink, Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Swords, Users, Gem, Package, CalendarOff, CalendarRange, Layers, Gauge,
   Upload, LayoutGrid, Tag, Gavel, ClipboardCheck, ClipboardList, ScrollText, ShieldCheck, LogOut, Settings, ChevronDown,
+  BarChart3,
 } from 'lucide-react';
 import Sigil from './Sigil';
 import { useGuild } from '../guild';
@@ -35,6 +36,9 @@ export const memberLinks = [
   { to: '/loa', label: 'LOA', icon: CalendarOff },
   { to: '/classes', label: 'Classes', icon: Layers },
   { to: '/gear', label: 'Gear Level', icon: Gauge },
+  // No `perm`: every member uploads their own. The officer controls on the
+  // page (key stats, fixing values) gate themselves inline on 'builds'.
+  { to: '/builds', label: 'Builds', icon: BarChart3 },
 ];
 
 // `perm` is the capability each destination needs — the same one its page gate

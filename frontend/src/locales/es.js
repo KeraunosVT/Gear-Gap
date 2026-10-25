@@ -15,6 +15,8 @@ export default {
   'nav.LOA': 'Ausencias',
   'nav.Classes': 'Clases',
   'nav.Gear Level': 'Nivel de equipo',
+  'nav.Builds': 'Builds',
+  'nav.memberBuild': 'Builds del miembro',
   'nav.Upload Match': 'Subir partida',
   'nav.Parties': 'Grupos',
   'nav.Names': 'Nombres',

@@ -33,6 +33,10 @@ const ALL_PERMISSIONS = [
   // on this key being granted carefully.
   { key: 'settings', label: 'Guild Settings', hint: 'House identity, Discord channels and role wiring' },
   { key: 'loa.admin', label: 'LOA Officer', hint: "See LOA reasons, cancel others', file on behalf" },
+  // Checked inline by the /api/builds routes, which are member routes like
+  // /api/shards — there is no admin page, only officer controls on the
+  // members' Builds page.
+  { key: 'builds', label: 'Builds', hint: "Pick and order key stats, fix values on members' builds" },
   { key: 'loot.awards', label: 'Loot — Awards', hint: 'Award and revoke items, tag builds' },
   { key: 'loot.catalog', label: 'Loot — Catalog', hint: 'Manage loot items and categories' },
   { key: 'loot.currency', label: 'Loot — Lucent & Shards', hint: 'Grant and edit currency' },

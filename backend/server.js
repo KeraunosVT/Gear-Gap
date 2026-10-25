@@ -31,10 +31,20 @@ const createEventDetail = require('./eventDetail');
 const createDepartedRequests = require('./departedRequests');
 const createMemberTenure = require('./memberTenure');
 const { countsFor } = createMemberTenure;
+const createBuilds = require('./builds');
 
 const gearUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 15 * 1024 * 1024 }, // 15 MB
+});
+
+// A build is seven screenshots in one request. Ten leaves room for an extra
+// scroll position; 8 MB each is far beyond a PNG of one stats panel, and keeps
+// a single request's memory bounded.
+const BUILD_MAX_IMAGES = 10;
+const buildUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 8 * 1024 * 1024, files: BUILD_MAX_IMAGES },
 });
 
 const gateway = require('./discordGateway');
@@ -56,6 +66,18 @@ const gearSubmitLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: `Too many gear submissions — the limit is ${GEAR_LIMIT_PER_HOUR} per hour. Try again later.` },
+});
+
+// Same idea for build scans. Separate so a member updating both builds and
+// retrying a blurry screenshot doesn't eat their gear-level allowance.
+const BUILD_SCAN_LIMIT_PER_HOUR = parseInt(process.env.BUILD_SCAN_LIMIT_PER_HOUR, 10) || 6;
+const buildScanLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: BUILD_SCAN_LIMIT_PER_HOUR,
+  keyGenerator: (req) => req.user?.id || ipKeyGenerator(req.ip),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: `Too many build scans — the limit is ${BUILD_SCAN_LIMIT_PER_HOUR} per hour. Try again later.` },
 });
 
 // CORS allowlist. The frontend is served same-origin by this server, so no
@@ -89,6 +111,7 @@ const eliteTimers = supabase ? createEliteTimers(supabase) : null;
 const gearIlvl = supabase ? createGearIlvl(supabase) : null;
 const identities = supabase ? createIdentities(supabase) : null;
 const loa = supabase ? createLoa(supabase, identities) : null;
+const builds = supabase ? createBuilds(supabase, identities) : null;
 // Takes loa so "is this person out?" has one answer across signups, the party
 // builder and the attendance breakdown.
 const signups = supabase ? createEventSignups(supabase, identities, loa) : null;
@@ -307,6 +330,106 @@ app.get('/api/gear-screenshot/:discordId', async (req, res) => {
   const screenshot = await gearIlvl.screenshotFor(target);
   if (!screenshot) return res.status(404).json({ error: 'No gear screenshot on file for that member.' });
   res.json({ screenshot });
+});
+
+// ── MEMBERS AREA: PvE and PvP builds ─────────────────────────────────────────
+// Every member can see every build, like the shard tracker. Saving a build is
+// its owner's job, or an officer's with 'builds' — checked inline here, since
+// these are member routes and the admin router's gate doesn't cover them.
+
+// Everyone in the guild, with when each build was last updated (null for one
+// they haven't uploaded). Members with no builds are included so officers can
+// see who still needs to; if Discord can't be reached, it's builds-only.
+app.get('/api/builds', async (req, res) => {
+  if (!builds) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    const list = await builds.list();
+    let members = [];
+    try {
+      members = await listMembers();
+    } catch (err) {
+      console.error('Builds member list error:', err.message);
+    }
+    const ids = identities ? await identities.load() : null;
+    const byId = new Map(list.map((b) => [b.discord_id, b]));
+    for (const m of members) {
+      if (!byId.has(m.id)) {
+        byId.set(m.id, { discord_id: m.id, display_name: ids ? ids.displayNameFor(m.id, m.name) : m.name, pve: null, pvp: null });
+      }
+    }
+    res.json({ members: [...byId.values()] });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+app.get('/api/builds/key-stats', async (req, res) => {
+  if (!builds) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    res.json({ key_stats: await builds.keyStats() });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+// The whole ordered list for one build type — adding, removing and dragging
+// all send the full list, so the stored order is always exactly what the
+// officer last saw.
+app.put('/api/builds/key-stats/:kind', async (req, res) => {
+  if (!builds) return res.status(503).json({ error: 'Database not configured.' });
+  if (!userHas(req.user, 'builds')) return res.status(403).json({ error: 'Only officers with the Builds permission can change key stats.' });
+  try {
+    res.json({ stat_ids: await builds.setKeyStats(req.params.kind, req.body?.stat_ids, req.user.id) });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+// Reads screenshots and returns the numbers for review. Saves nothing — the
+// page shows what was read, the member fixes anything wrong, then PUTs it.
+app.post('/api/builds/scan', buildScanLimiter, buildUpload.array('images', BUILD_MAX_IMAGES), async (req, res) => {
+  if (!builds) return res.status(503).json({ error: 'Database not configured.' });
+  const files = req.files || [];
+  if (files.some((f) => !f.mimetype?.startsWith('image/'))) {
+    return res.status(415).json({ error: 'Please upload image files (PNG or JPG screenshots).' });
+  }
+  try {
+    res.json(await builds.scan(files.map((f) => ({ buffer: f.buffer, mimeType: f.mimetype }))));
+  } catch (err) {
+    console.error('Build scan error:', err.message);
+    res.status(err.status || 500).json({ error: err.message || 'Could not read those screenshots.' });
+  }
+});
+
+app.get('/api/builds/:discordId', async (req, res) => {
+  if (!builds) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    res.json(await builds.forMember(String(req.params.discordId)));
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+app.put('/api/builds/:discordId/:kind', async (req, res) => {
+  if (!builds) return res.status(503).json({ error: 'Database not configured.' });
+  const target = String(req.params.discordId);
+  if (target !== String(req.user.id) && !userHas(req.user, 'builds')) {
+    return res.status(403).json({ error: 'You can only change your own builds.' });
+  }
+  try {
+    const out = await builds.save({
+      discordId: target,
+      displayName: target === String(req.user.id) ? req.user.username : null,
+      kind: req.params.kind,
+      stats: req.body?.stats,
+      flags: req.body?.flags,
+      how: req.body?.how,
+      actor: { id: req.user.id, name: req.user.username },
+    });
+    res.json(out);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
 });
 
 // ── MEMBERS AREA: Archboss shard tracker ─────────────────────────────────────
