@@ -585,14 +585,18 @@ function RankRow({ id, rank, info, isOpen, onToggle, onRemove, onPriority }) {
 // The guild's weapon order, across every boss: whose shards go out first.
 // Officers only. A weapon stays ranked when nobody wants it any more, so a
 // ranking survives a quiet week; it says so rather than vanishing.
-function WeaponRanking({ ranking, wanted, onReorder, onRemove, onPriority }) {
+// `visible` is the ranking narrowed by the page's boss and shard filters. Rank
+// numbers stay the guild-wide ones, and a drag moves the weapon to the slot of
+// the one it was dropped on in the FULL ranking — so reordering while
+// filtered only ever swaps weapons the officer can see.
+function WeaponRanking({ ranking, visible, filtering, wanted, onReorder, onRemove, onPriority }) {
   const [open, setOpen] = useState(() => new Set());
   const toggle = (id) => setOpen((prev) => {
     const next = new Set(prev);
     next.has(id) ? next.delete(id) : next.add(id);
     return next;
   });
-  const expandable = ranking.filter((id) => wanted.get(id)?.wanters.length);
+  const expandable = visible.filter((id) => wanted.get(id)?.wanters.length);
   const allOpen = expandable.length > 0 && expandable.every((id) => open.has(id));
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -620,17 +624,19 @@ function WeaponRanking({ ranking, wanted, onReorder, onRemove, onPriority }) {
           )}
         </span>
       </div>
-      {ranking.length === 0 ? (
+      {visible.length === 0 ? (
         <div className="border border-dashed border-line rounded-lg p-5 text-sm text-ash">
-          No weapons ranked yet. Press <span className="text-bone">Rank</span> on a weapon below to start the order.
+          {ranking.length && filtering
+            ? 'No ranked weapons match these filters.'
+            : <>No weapons ranked yet. Press <span className="text-bone">Rank</span> on a weapon below to start the order.</>}
         </div>
       ) : (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
-          <SortableContext items={ranking} strategy={verticalListSortingStrategy}>
+          <SortableContext items={visible} strategy={verticalListSortingStrategy}>
             <ol className="panel rounded-lg divide-y divide-line/60">
-              {ranking.map((id, i) => (
+              {visible.map((id) => (
                 <RankRow
-                  key={id} id={id} rank={i + 1} info={wanted.get(id)}
+                  key={id} id={id} rank={ranking.indexOf(id) + 1} info={wanted.get(id)}
                   isOpen={open.has(id)} onToggle={() => toggle(id)} onRemove={onRemove} onPriority={onPriority}
                 />
               ))}
@@ -639,7 +645,10 @@ function WeaponRanking({ ranking, wanted, onReorder, onRemove, onPriority }) {
         </DndContext>
       )}
       {ranking.length > 0 && (
-        <p className="text-xs text-ash/70 mt-2">Add more with <span className="text-ash">Rank</span> on a weapon in the tables below.</p>
+        <p className="text-xs text-ash/70 mt-2">
+          {filtering && visible.length < ranking.length && `Showing ${visible.length} of ${ranking.length} ranked weapons. `}
+          Add more with <span className="text-ash">Rank</span> on a weapon in the tables below.
+        </p>
       )}
     </section>
   );
@@ -652,7 +661,22 @@ function WeaponRanking({ ranking, wanted, onReorder, onRemove, onPriority }) {
 // within their boss, in ranked order, and carry their number.
 function ByWeapon({ members, canPrioritize, onPriority, ranking, onToggleRank, onReorder }) {
   const [source, setSource] = useState('all');
+  const [shard, setShard] = useState('all');
   const rankOf = useMemo(() => new Map(ranking.map((k, i) => [k, i + 1])), [ranking]);
+
+  // The shards a boss filter leaves to choose from: one per source, two for
+  // Cordy and Deluzhnoa, whose Snowsoul weapons take a different shard.
+  const shardChoices = useMemo(() => {
+    const keys = new Set(SOURCES.filter((s) => source === 'all' || s.key === source)
+      .flatMap((s) => [s.shard, s.snowsoul].filter(Boolean)));
+    return [...keys].sort((a, b) => (SHARD_ORDER.get(a) ?? 99) - (SHARD_ORDER.get(b) ?? 99));
+  }, [source]);
+  // Picking a boss that doesn't drop the chosen shard would show nothing, so
+  // the shard filter falls back to All rather than leaving an empty page.
+  useEffect(() => { if (shard !== 'all' && !shardChoices.includes(shard)) setShard('all'); }, [shardChoices, shard]);
+
+  const matches = (boss, weapon) => (source === 'all' || boss === source)
+    && (shard === 'all' || shardFor(boss, weapon) === shard);
 
   const groups = useMemo(() => SOURCES.map((src) => {
     const byWeapon = new Map();
@@ -680,27 +704,52 @@ function ByWeapon({ members, canPrioritize, onPriority, ranking, onToggleRank, o
     `${g.key}|${w.weapon}`, { wanters: w.wanters, need: w.need, cost: g.cost },
   ]))), [groups]);
 
-  const shown = groups.filter((g) => g.weapons.length && (source === 'all' || g.key === source));
+  // Each boss group cut down to the weapons both filters allow, with its
+  // totals recounted so the header matches the rows under it.
+  const shown = groups
+    .map((g) => {
+      const weapons = g.weapons.filter((w) => matches(g.key, w.weapon));
+      return { ...g, weapons, need: weapons.reduce((a, w) => a + w.need, 0) };
+    })
+    .filter((g) => g.weapons.length);
+  const filtering = source !== 'all' || shard !== 'all';
+  const shownRanking = ranking.filter((k) => { const [boss, weapon] = k.split('|'); return matches(boss, weapon); });
+
+  const chip = (active) => `px-3 py-1.5 rounded-full text-xs border transition-colors ${active ? 'border-brass text-brassbright bg-brass/10' : 'border-line text-ash hover:text-bone'}`;
 
   return (
     <div>
-      {canPrioritize && (
-        <WeaponRanking ranking={ranking} wanted={wanted} onReorder={onReorder} onRemove={onToggleRank} onPriority={onPriority} />
-      )}
-
-      <div className="flex flex-wrap gap-2 mb-6">
-        {[{ key: 'all', label: 'All' }, ...SOURCES.map((s) => ({ key: s.key, label: s.key }))].map((s) => (
-          <button
-            key={s.key} onClick={() => setSource(s.key)}
-            className={`px-3 py-1.5 rounded-full text-xs border transition-colors ${source === s.key ? 'border-brass text-brassbright bg-brass/10' : 'border-line text-ash hover:text-bone'}`}
-          >
-            {s.label}
-          </button>
-        ))}
+      <div className="space-y-2 mb-6">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="eyebrow text-[10px] text-ash w-12">Boss</span>
+          {[{ key: 'all', label: 'All' }, ...SOURCES.map((s) => ({ key: s.key, label: s.key }))].map((s) => (
+            <button key={s.key} type="button" onClick={() => setSource(s.key)} aria-pressed={source === s.key} className={chip(source === s.key)}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="eyebrow text-[10px] text-ash w-12">Shard</span>
+          {['all', ...shardChoices].map((k) => (
+            <button key={k} type="button" onClick={() => setShard(k)} aria-pressed={shard === k} className={chip(shard === k)}>
+              {k === 'all' ? 'All' : SHARD_LABEL.get(k) || k}
+            </button>
+          ))}
+        </div>
       </div>
 
+      {canPrioritize && (
+        <WeaponRanking
+          ranking={ranking} visible={shownRanking} filtering={filtering} wanted={wanted}
+          onReorder={onReorder} onRemove={onToggleRank} onPriority={onPriority}
+        />
+      )}
+
       {shown.length === 0 ? (
-        <EmptyState>Nobody has linked a weapon{source === 'all' ? '' : ` from ${source}`} yet.</EmptyState>
+        <EmptyState>
+          Nobody has linked a weapon
+          {shard !== 'all' ? ` that takes ${SHARD_LABEL.get(shard) || shard}` : source !== 'all' ? ` from ${source}` : ''} yet.
+        </EmptyState>
       ) : (
         <div className="space-y-8">
           {shown.map((g) => (
