@@ -496,42 +496,88 @@ function MemberCard({ m, mine, editable, canPrioritize, onPriority, isOpen, stat
   );
 }
 
-// One row of the weapon ranking. The whole row is the drag target on a
-// pointer; the grip is also the keyboard handle (space, arrows, space).
-function RankRow({ id, rank, info, onRemove }) {
+// One member wanting one weapon: who, which build, their priority (officers
+// only), how many they still need and when they last changed it. Shared by
+// the boss tables and the expanded rows of the weapon ranking, so the two
+// can't drift into showing different things about the same person.
+function Wanter({ x, weaponKey, cost, canPrioritize, onPriority }) {
+  const weapon = weaponKey.split('|')[1];
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      {x.avatar
+        ? <img src={x.avatar} alt="" className="w-5 h-5 rounded-full border border-line" />
+        : <span className="w-5 h-5 rounded-full bg-panelup border border-line flex items-center justify-center text-[9px] text-brass">{(x.name || '?')[0].toUpperCase()}</span>}
+      <span className="text-bone min-w-[90px]">{x.name}</span>
+      <BuildPill build={x.build} />
+      {canPrioritize && (
+        <PriorityControl
+          priority={x.priority} label={`${x.name}'s ${weapon}`}
+          onChange={(p) => onPriority(x.id, weaponKey, p)}
+        />
+      )}
+      <span className="text-xs text-ash">
+        {x.need === null ? <span className="text-amber-400">not set</span> : <>needs <span className="font-mono text-bone">{x.need}</span> of {cost}</>}
+      </span>
+      <span className="text-xs text-ash/70 whitespace-nowrap" title={x.updated ? new Date(x.updated).toLocaleString() : undefined}>
+        · {x.updated ? `updated ${new Date(x.updated).toLocaleDateString()}` : 'not updated yet'}
+      </span>
+    </div>
+  );
+}
+
+// One row of the weapon ranking. The grip is the drag handle (and the keyboard
+// handle: space, arrows, space); the rest of the row opens to show who needs
+// it, so expanding and dragging never fight over the same click.
+function RankRow({ id, rank, info, isOpen, onToggle, onRemove, onPriority }) {
   const {
     attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging,
   } = useSortable({ id });
   const [boss, weapon] = id.split('|');
+  const count = info?.wanters.length || 0;
   return (
     <li
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={`flex items-center gap-3 px-3 py-2 bg-panel ${isDragging ? 'relative z-10 shadow-xl ring-1 ring-brass rounded-md' : ''}`}
+      className={`bg-panel ${isDragging ? 'relative z-10 shadow-xl ring-1 ring-brass rounded-md' : ''}`}
     >
-      <button
-        ref={setActivatorNodeRef} {...attributes} {...listeners} type="button"
-        aria-label={`Move ${weapon}, ranked ${rank}. Press space, then the arrow keys.`}
-        className="p-1 rounded text-ash hover:text-bone hover:bg-panelup cursor-grab active:cursor-grabbing touch-none"
-      >
-        <GripVertical className="w-4 h-4" />
-      </button>
-      <span className="font-mono text-brassbright w-7 text-right">#{rank}</span>
-      <span className="min-w-0 flex-1">
-        <span className="text-bone">{weapon}</span>
-        <span className="block text-xs text-ash truncate">
-          <SourceLabel source={boss} /> · {SHARD_LABEL.get(shardFor(boss, weapon))}
-        </span>
-      </span>
-      <span className="text-xs text-ash whitespace-nowrap text-right">
-        {info
-          ? <>{info.wanters} want{info.wanters === 1 ? 's' : ''} · <span className="font-mono text-bone">{info.need}</span> needed</>
-          : <span className="text-ash/60">nobody wants it now</span>}
-      </span>
-      <button type="button" onClick={() => onRemove(id)} aria-label={`Remove ${weapon} from the ranking`}
-        className="p-1 rounded text-ash hover:text-oxblood hover:bg-panelup">
-        <X className="w-4 h-4" />
-      </button>
+      <div className="flex items-center gap-3 px-3 py-2">
+        <button
+          ref={setActivatorNodeRef} {...attributes} {...listeners} type="button"
+          aria-label={`Move ${weapon}, ranked ${rank}. Press space, then the arrow keys.`}
+          className="p-1 rounded text-ash hover:text-bone hover:bg-panelup cursor-grab active:cursor-grabbing touch-none"
+        >
+          <GripVertical className="w-4 h-4" />
+        </button>
+        <button
+          type="button" onClick={onToggle} disabled={!count} aria-expanded={count ? isOpen : undefined}
+          className={`flex items-center gap-3 min-w-0 flex-1 text-left rounded ${count ? 'group' : 'cursor-default'}`}
+        >
+          <span className="font-mono text-brassbright w-7 text-right shrink-0">#{rank}</span>
+          <span className="min-w-0 flex-1">
+            <span className="text-bone group-hover:text-brassbright transition-colors">{weapon}</span>
+            <span className="block text-xs text-ash truncate">
+              <SourceLabel source={boss} /> · {SHARD_LABEL.get(shardFor(boss, weapon))}
+            </span>
+          </span>
+          <span className="text-xs text-ash whitespace-nowrap text-right">
+            {count
+              ? <>{count} want{count === 1 ? 's' : ''} · <span className="font-mono text-bone">{info.need}</span> needed</>
+              : <span className="text-ash/60">nobody wants it now</span>}
+          </span>
+          {count > 0 && <ChevronDown className={`w-4 h-4 text-ash shrink-0 transition-transform group-hover:text-brass ${isOpen ? 'rotate-180' : ''}`} />}
+        </button>
+        <button type="button" onClick={() => onRemove(id)} aria-label={`Remove ${weapon} from the ranking`}
+          className="p-1 rounded text-ash hover:text-oxblood hover:bg-panelup">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+      {isOpen && count > 0 && (
+        <div className="pl-[4.75rem] pr-4 pb-3 space-y-1.5 text-sm">
+          {info.wanters.map((x) => (
+            <Wanter key={x.id} x={x} weaponKey={id} cost={info.cost} canPrioritize onPriority={onPriority} />
+          ))}
+        </div>
+      )}
     </li>
   );
 }
@@ -539,7 +585,15 @@ function RankRow({ id, rank, info, onRemove }) {
 // The guild's weapon order, across every boss: whose shards go out first.
 // Officers only. A weapon stays ranked when nobody wants it any more, so a
 // ranking survives a quiet week; it says so rather than vanishing.
-function WeaponRanking({ ranking, wanted, onReorder, onRemove }) {
+function WeaponRanking({ ranking, wanted, onReorder, onRemove, onPriority }) {
+  const [open, setOpen] = useState(() => new Set());
+  const toggle = (id) => setOpen((prev) => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+  const expandable = ranking.filter((id) => wanted.get(id)?.wanters.length);
+  const allOpen = expandable.length > 0 && expandable.every((id) => open.has(id));
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -555,8 +609,15 @@ function WeaponRanking({ ranking, wanted, onReorder, onRemove }) {
         <h2 className="font-display text-lg text-brassbright tracking-[0.06em] flex items-center gap-2">
           <ListOrdered className="w-4 h-4" /> Weapon priority
         </h2>
-        <span className="text-xs text-ash">
-          Officers only. Drag to reorder; #1 gets shards first. Add weapons with <span className="text-bone">Rank</span> in the tables below.
+        <span className="flex items-baseline gap-4 flex-wrap">
+          <span className="text-xs text-ash">
+            Officers only. Drag to reorder; #1 gets shards first. Click a weapon to see who needs it.
+          </span>
+          {expandable.length > 0 && (
+            <button type="button" onClick={() => setOpen(allOpen ? new Set() : new Set(expandable))} className="text-sm text-ash hover:text-brass">
+              {allOpen ? 'Collapse all' : 'Expand all'}
+            </button>
+          )}
         </span>
       </div>
       {ranking.length === 0 ? (
@@ -568,11 +629,17 @@ function WeaponRanking({ ranking, wanted, onReorder, onRemove }) {
           <SortableContext items={ranking} strategy={verticalListSortingStrategy}>
             <ol className="panel rounded-lg divide-y divide-line/60">
               {ranking.map((id, i) => (
-                <RankRow key={id} id={id} rank={i + 1} info={wanted.get(id)} onRemove={onRemove} />
+                <RankRow
+                  key={id} id={id} rank={i + 1} info={wanted.get(id)}
+                  isOpen={open.has(id)} onToggle={() => toggle(id)} onRemove={onRemove} onPriority={onPriority}
+                />
               ))}
             </ol>
           </SortableContext>
         </DndContext>
+      )}
+      {ranking.length > 0 && (
+        <p className="text-xs text-ash/70 mt-2">Add more with <span className="text-ash">Rank</span> on a weapon in the tables below.</p>
       )}
     </section>
   );
@@ -607,9 +674,10 @@ function ByWeapon({ members, canPrioritize, onPriority, ranking, onToggleRank, o
     return { key: src.key, cost, weapons, need: weapons.reduce((a, w) => a + w.need, 0) };
   }), [members, rankOf]);
 
-  // What the ranking panel shows beside each ranked weapon.
+  // Each ranked weapon's wanters, for the ranking panel — the same list, in
+  // the same priority-then-need order, as its row in the boss tables.
   const wanted = useMemo(() => new Map(groups.flatMap((g) => g.weapons.map((w) => [
-    `${g.key}|${w.weapon}`, { wanters: w.wanters.length, need: w.need },
+    `${g.key}|${w.weapon}`, { wanters: w.wanters, need: w.need, cost: g.cost },
   ]))), [groups]);
 
   const shown = groups.filter((g) => g.weapons.length && (source === 'all' || g.key === source));
@@ -617,7 +685,7 @@ function ByWeapon({ members, canPrioritize, onPriority, ranking, onToggleRank, o
   return (
     <div>
       {canPrioritize && (
-        <WeaponRanking ranking={ranking} wanted={wanted} onReorder={onReorder} onRemove={onToggleRank} />
+        <WeaponRanking ranking={ranking} wanted={wanted} onReorder={onReorder} onRemove={onToggleRank} onPriority={onPriority} />
       )}
 
       <div className="flex flex-wrap gap-2 mb-6">
@@ -679,25 +747,10 @@ function ByWeapon({ members, canPrioritize, onPriority, ranking, onToggleRank, o
                         <td className="px-3 py-3">
                           <div className="space-y-1.5">
                             {w.wanters.map((x) => (
-                              <div key={x.id} className="flex items-center gap-2">
-                                {x.avatar
-                                  ? <img src={x.avatar} alt="" className="w-5 h-5 rounded-full border border-line" />
-                                  : <span className="w-5 h-5 rounded-full bg-panelup border border-line flex items-center justify-center text-[9px] text-brass">{(x.name || '?')[0].toUpperCase()}</span>}
-                                <span className="text-bone min-w-[90px]">{x.name}</span>
-                                <BuildPill build={x.build} />
-                                {canPrioritize && (
-                                  <PriorityControl
-                                    priority={x.priority} label={`${x.name}'s ${w.weapon}`}
-                                    onChange={(p) => onPriority(x.id, `${g.key}|${w.weapon}`, p)}
-                                  />
-                                )}
-                                <span className="text-xs text-ash">
-                                  {x.need === null ? <span className="text-amber-400">not set</span> : <>needs <span className="font-mono text-bone">{x.need}</span> of {g.cost}</>}
-                                </span>
-                                <span className="text-xs text-ash/70 whitespace-nowrap" title={x.updated ? new Date(x.updated).toLocaleString() : undefined}>
-                                  · {x.updated ? `updated ${new Date(x.updated).toLocaleDateString()}` : 'not updated yet'}
-                                </span>
-                              </div>
+                              <Wanter
+                                key={x.id} x={x} weaponKey={`${g.key}|${w.weapon}`} cost={g.cost}
+                                canPrioritize={canPrioritize} onPriority={onPriority}
+                              />
                             ))}
                           </div>
                         </td>
