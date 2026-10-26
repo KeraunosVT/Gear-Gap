@@ -6,22 +6,22 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { Star, GripVertical, X } from 'lucide-react';
-import { KIND_LABEL, KIND_CHIP, PVP_BASE, IN_YOUR_FAVOUR, fmtStat, shownValue, fullLabel, STAT } from '../../buildStats';
+import { KIND_LABEL, KIND_CHIP, PVP_BASE, IN_YOUR_FAVOUR, baseOf, fmtStat, shownValue, fullLabel, STAT } from '../../buildStats';
 
 // Where a pinned stat comes from, under its number on the card.
-function contextFor(id, stats) {
-  const base = PVP_BASE[id];
-  if (base) return `PvP total · ${fmtStat(base, stats?.[base])} + ${fmtStat(id, stats?.[id])}`;
+function contextFor(id, stats, kind) {
+  const base = baseOf(id, kind);
+  if (base) return `${PVP_BASE[id] ? 'PvP' : 'Boss'} total · ${fmtStat(base, stats?.[base])} + ${fmtStat(id, stats?.[id])}`;
   const panel = STAT[id]?.panel;
   return { boss: 'Boss bonus', pvp: 'PvP', status: 'Crowd control', basic: 'Basic', weapon: 'Weapon', combat: 'Combat' }[panel] || '';
 }
 
-function Card({ id, build, editable, onRemove }) {
+function Card({ id, kind, build, editable, onRemove }) {
   const {
     attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging,
   } = useSortable({ id, disabled: !editable });
   const stats = build?.stats || {};
-  const value = shownValue(stats, id);
+  const value = shownValue(stats, id, kind);
   const flag = build?.flags?.[id];
   const tone = flag ? 'text-oxblood' : IN_YOUR_FAVOUR.has(id) && value < 0 ? 'text-emerald-400' : 'text-bone';
 
@@ -42,7 +42,7 @@ function Card({ id, build, editable, onRemove }) {
       )}
       <div className="text-sm text-bone font-medium pr-5 truncate" title={fullLabel(id)}>{fullLabel(id)}</div>
       <div className={`font-display text-xl tabular-nums ${tone}`}>{fmtStat(id, value)}</div>
-      <div className="text-xs text-ash truncate">{contextFor(id, stats)}{flag ? ' · check in game' : ''}</div>
+      <div className="text-xs text-ash truncate">{contextFor(id, stats, kind)}{flag ? ' · check in game' : ''}</div>
       {editable && (
         <button type="button" onClick={() => onRemove(id)} aria-label={`Remove ${fullLabel(id)} from key stats`}
           className="absolute top-1.5 right-1.5 p-1 rounded text-ash hover:text-bone hover:bg-panelup">
@@ -93,7 +93,7 @@ export default function KeyStats({ kind, ids, build, editable, onChange }) {
           <SortableContext items={ids} strategy={rectSortingStrategy}>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
               {ids.map((id) => (
-                <Card key={id} id={id} build={build} editable={editable} onRemove={(x) => onChange(ids.filter((i) => i !== x))} />
+                <Card key={id} id={id} kind={kind} build={build} editable={editable} onRemove={(x) => onChange(ids.filter((i) => i !== x))} />
               ))}
             </div>
           </SortableContext>

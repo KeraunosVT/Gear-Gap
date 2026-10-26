@@ -17,8 +17,9 @@ export const KIND_CHIP = {
 export const DMG = ['Melee', 'Ranged', 'Magic'];
 const PFX = ['melee', 'range', 'magic'];
 
-// The melee/ranged/magic matrix. Boss columns are the bonus the Boss tab shows;
-// PvP columns are shown as base + PvP bonus, the total against players.
+// The melee/ranged/magic matrix. Boss columns are shown as base + Boss bonus on
+// a PvE build and as just the bonus on a PvP one; PvP columns are always shown
+// as base + PvP bonus, the total against players.
 export const COMBAT = [
   ['Defense', 'armor', false],
   ['Hit Chance', 'accuracy', true],
@@ -36,8 +37,13 @@ export const COMBAT = [
 
 // pvp_melee_critical_defense → melee_critical_defense. Only the matrix stats
 // have a base to add to; PvP Damage and PvP Damage Received don't.
-export const PVP_BASE = Object.fromEntries(COMBAT.filter((r) => r.pvp)
-  .flatMap((r) => r.pvp.map((id, i) => [id, r.base[i]])));
+const baseMap = (g) => Object.fromEntries(COMBAT.filter((r) => r[g])
+  .flatMap((r) => r[g].map((id, i) => [id, r.base[i]])));
+export const PVP_BASE = baseMap('pvp');
+export const BOSS_BASE = baseMap('boss');
+
+// The base stat this one is totalled with in a build of this kind, if any.
+export const baseOf = (id, kind) => PVP_BASE[id] || (kind === 'pve' ? BOSS_BASE[id] : undefined);
 
 export const DAMAGE = [
   ['Skill Damage', 'skill_power_amplification', 'skill_power_resistance'],
@@ -89,11 +95,12 @@ export function fmtStat(id, n) {
   return fmtNumber(n).replace('-', '−');
 }
 
-// What a cell shows: PvP matrix stats as base + bonus, everything else as is.
-export function shownValue(stats, id) {
+// What a cell shows: PvP matrix stats (and Boss ones on a PvE build) as
+// base + bonus, everything else as is. Without a kind, Boss stats stay bonuses.
+export function shownValue(stats, id, kind) {
   const v = stats?.[id];
   if (v === undefined) return undefined;
-  const base = PVP_BASE[id];
+  const base = baseOf(id, kind);
   if (base && Number.isFinite(stats?.[base])) return stats[base] + v;
   return v;
 }

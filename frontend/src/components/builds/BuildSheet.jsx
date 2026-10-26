@@ -1,18 +1,19 @@
 import { Star } from 'lucide-react';
 import {
-  COMBAT, DAMAGE, CC, RESOURCES, HEALING, DMG, PVP_BASE, IN_YOUR_FAVOUR, fmtStat, shownValue, fullLabel,
+  COMBAT, DAMAGE, CC, RESOURCES, HEALING, DMG, PVP_BASE, IN_YOUR_FAVOUR, baseOf, fmtStat, shownValue, fullLabel,
 } from '../../buildStats';
 
 // One stat. For an officer with 'builds' it is a toggle that pins it to the
-// key stats; for everyone else it is just the number. PvP matrix stats show
-// the total against players, with the PvP bonus underneath.
-function Value({ id, build, picked, onToggle }) {
+// key stats; for everyone else it is just the number. PvP matrix stats (and
+// Boss ones on a PvE build) show the total, with the bonus underneath.
+function Value({ id, kind, build, picked, onToggle }) {
   if (!id) return <span className="text-ash/30 px-1.5">—</span>;
   const stats = build?.stats || {};
   const flag = build?.flags?.[id];
-  const value = shownValue(stats, id);
+  const value = shownValue(stats, id, kind);
   const on = picked?.includes(id);
-  const base = PVP_BASE[id];
+  const base = baseOf(id, kind);
+  const bonus = PVP_BASE[id] ? 'PvP' : 'Boss';
   const tone = flag ? 'text-oxblood' : IN_YOUR_FAVOUR.has(id) && value < 0 ? 'text-emerald-400' : 'text-bone';
 
   const inner = (
@@ -21,7 +22,7 @@ function Value({ id, build, picked, onToggle }) {
       <span className={`inline-grid justify-items-end leading-tight ${tone}`}>
         <span>{fmtStat(id, value)}</span>
         {base && stats[id] !== undefined && (
-          <span className="text-[10px] text-ash" title={`${fmtStat(base, stats[base])} base + ${fmtStat(id, stats[id])} PvP`}>+{fmtStat(id, stats[id])}</span>
+          <span className="text-[10px] text-ash" title={`${fmtStat(base, stats[base])} base + ${fmtStat(id, stats[id])} ${bonus}`}>+{fmtStat(id, stats[id])}</span>
         )}
       </span>
       <Star className={`w-3 h-3 shrink-0 ${on ? 'text-brass fill-brass' : onToggle ? 'text-transparent group-hover:text-ash/60' : 'text-transparent'}`} />
@@ -55,7 +56,7 @@ function Card({ title, note, children }) {
 const th = 'px-3 py-2 text-[10px] eyebrow text-ash font-semibold text-right whitespace-nowrap';
 
 export default function BuildSheet({ kind, build, picked, onToggle }) {
-  const v = (id) => <Value id={id} build={build} picked={picked} onToggle={onToggle} />;
+  const v = (id) => <Value id={id} kind={kind} build={build} picked={picked} onToggle={onToggle} />;
   // The group that matters most for this build gets the build's colour.
   const focus = (g) => (kind === 'pve' && g === 'boss' ? 'text-emerald-400' : kind === 'pvp' && g === 'pvp' ? 'text-oxblood' : 'text-bone');
 
@@ -73,13 +74,15 @@ export default function BuildSheet({ kind, build, picked, onToggle }) {
 
   return (
     <div className="space-y-6">
-      <Card title="Combat" note="Boss columns are the bonus on top of base. PvP columns are the total against players: base + PvP bonus.">
+      <Card title="Combat" note={kind === 'pve'
+        ? 'Boss columns are the total against bosses: base + Boss bonus. PvP columns are the total against players: base + PvP bonus.'
+        : 'Boss columns are the bonus on top of base. PvP columns are the total against players: base + PvP bonus.'}>
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr>
                 <th />
-                {[['base', 'Base'], ['boss', 'Boss'], ['pvp', 'PvP total']].map(([g, label], gi) => (
+                {[['base', 'Base'], ['boss', kind === 'pve' ? 'Boss total' : 'Boss'], ['pvp', 'PvP total']].map(([g, label], gi) => (
                   <th key={g} colSpan={3} className={`px-3 pt-2 text-[10px] eyebrow text-center ${gi ? 'border-l border-line' : ''} ${focus(g)}`}>{label}</th>
                 ))}
               </tr>
