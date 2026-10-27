@@ -27,6 +27,9 @@ const WINDOWS = [
   { key: 'all', label: 'All' },
 ];
 const WINDOW_LABEL = { 7: 'last 7 days', 14: 'last 14 days', 30: 'last 30 days', all: 'all time' };
+// The missed-events panel has its own filter: "who has been absent lately" is
+// a short-range question, so it has no All tab and starts at one week.
+const MISSED_WINDOWS = WINDOWS.filter((w) => w.key !== 'all');
 
 export default function Attendance() {
   const { can } = useAuth();
@@ -64,6 +67,11 @@ export default function Attendance() {
   const [statDir, setStatDir] = useState('desc');
   const [backfilling, setBackfilling] = useState(false);
   const [viewing, setViewing] = useState(null); // the member whose nights are open
+  const [viewingWindow, setViewingWindow] = useState(null); // which window that breakdown uses
+
+  const [missedWindow, setMissedWindow] = useState('7');
+  const [missed, setMissed] = useState({ totalEvents: 0, members: [] });
+  const [loadingMissed, setLoadingMissed] = useState(true);
 
   // A TLGM import is previewed before anything is written: the file and the
   // server's dry-run result are held here until the officer confirms.
@@ -107,6 +115,14 @@ export default function Attendance() {
       .finally(() => setLoadingStats(false));
   }, [window_]);
 
+  const loadMissed = useCallback(() => {
+    setLoadingMissed(true);
+    axios.get('/api/admin/attendance-stats/missed', { params: { window: missedWindow } })
+      .then((res) => setMissed(res.data || { totalEvents: 0, members: [] }))
+      .catch(() => setMissed({ totalEvents: 0, members: [] }))
+      .finally(() => setLoadingMissed(false));
+  }, [missedWindow]);
+
   const loadLate = useCallback(() => {
     axios.get('/api/admin/attendance/late-requests', { params: { status: 'pending' } })
       .then((res) => setLateRequests(res.data.requests || []))
@@ -121,6 +137,7 @@ export default function Attendance() {
   }, [loadChannels, loadLate]);
 
   useEffect(() => { loadEvents(); loadStats(); }, [loadEvents, loadStats]);
+  useEffect(() => { loadMissed(); }, [loadMissed]);
 
   const channel = useMemo(
     () => channels.find((c) => c.id === configuredId) || null,
@@ -161,7 +178,7 @@ export default function Attendance() {
     try {
       const res = await axios.post('/api/admin/attendance/backfill-names');
       flash(`Checked ${res.data.checked} record${res.data.checked === 1 ? '' : 's'} — updated ${res.data.updated}.`);
-      loadEvents(); loadStats();
+      loadEvents(); loadStats(); loadMissed();
     } catch (err) {
       flash(err.response?.data?.error || 'Backfill failed.', false);
     } finally {
@@ -327,7 +344,7 @@ export default function Attendance() {
       // blank, and logging two events on one night is the common case.
       setSnapped([]); setRemoved(new Set()); setPicking(false);
       setTitle(''); setEventDate(todayInGuildTz()); setEventScheduleId(''); setRosterId('auto');
-      loadEvents(); loadStats();
+      loadEvents(); loadStats(); loadMissed();
     } catch (err) {
       flash(err.response?.data?.error || 'Could not save event.', false);
     } finally {
@@ -341,7 +358,7 @@ export default function Attendance() {
       await axios.delete(`/api/admin/events/${id}`);
       setEvents((prev) => prev.filter((e) => e.id !== id));
       flash('Event deleted.');
-      loadStats();
+      loadStats(); loadMissed();
     } catch (err) {
       flash(err.response?.data?.error || 'Delete failed.', false);
     }
@@ -356,7 +373,7 @@ export default function Attendance() {
         : `Declined ${req.display_name}'s request.`);
       setLateRequests((prev) => prev.filter((r) => r.id !== req.id));
       // An approval writes an attendance row, so the counts on screen are stale.
-      if (status === 'approved') { loadEvents(); loadStats(); }
+      if (status === 'approved') { loadEvents(); loadStats(); loadMissed(); }
     } catch (err) {
       flash(err.response?.data?.error || 'Could not record that decision.', false);
       // A 409 means someone else decided it — refetch rather than leave a
@@ -691,7 +708,7 @@ export default function Attendance() {
           disagree with the list explaining it. */}
       <div className="flex items-center justify-between gap-4 mb-2">
         <h2 className="font-display text-2xl text-bone tracking-[0.08em]">Roster Attendance</h2>
-        <button onClick={() => { loadEvents(); loadStats(); }} className="inline-flex items-center gap-2 text-sm text-ash hover:text-brass" title="Refresh">
+        <button onClick={() => { loadEvents(); loadStats(); loadMissed(); }} className="inline-flex items-center gap-2 text-sm text-ash hover:text-brass" title="Refresh">
           <RefreshCw className="w-4 h-4" />
         </button>
       </div>
@@ -745,7 +762,7 @@ export default function Attendance() {
                   <Tr key={m.discord_id}>
                     <td className="p-4 text-right font-mono text-xs text-ash/60">{i + 1}</td>
                     <td className="p-4">
-                      <button onClick={() => setViewing(m)} className="text-bone hover:text-brass transition-colors text-left">
+                      <button onClick={() => { setViewing(m); setViewingWindow(window_); }} className="text-bone hover:text-brass transition-colors text-left">
                         {m.display_name}
                       </button>
                     </td>
@@ -842,7 +859,67 @@ export default function Attendance() {
         </aside>
       </div>
 
-      {viewing && <MemberNights member={viewing} window_={window_} onClose={() => setViewing(null)} />}
+      {/* ── Missed events ─────────────────────────────────────────────
+          Every current member, most absences first — including people with
+          no attendance at all, who the rate table above can't show. */}
+      <div className="flex items-center justify-between gap-4 mt-12 mb-2">
+        <h2 className="font-display text-2xl text-bone tracking-[0.08em] flex items-center gap-3">
+          <AlertTriangle className="w-5 h-5 text-oxblood" /> Missed Events
+        </h2>
+        <button onClick={loadMissed} className="inline-flex items-center gap-2 text-sm text-ash hover:text-brass" title="Refresh">
+          <RefreshCw className="w-4 h-4" />
+        </button>
+      </div>
+      <div className="rule-fade mb-4" />
+
+      <Tabs
+        variant="flat" active={missedWindow} onChange={setMissedWindow}
+        items={MISSED_WINDOWS.map((w) => ({
+          key: w.key,
+          label: w.key === missedWindow && !loadingMissed ? `${w.label} (${missed.totalEvents})` : w.label,
+        }))}
+      />
+
+      <div className="flex items-center gap-2 text-xs text-ash mb-3">
+        <X className="w-3.5 h-3.5 text-oxblood" />
+        {missed.totalEvents} event{missed.totalEvents === 1 ? '' : 's'} · {WINDOW_LABEL[missedWindow]}
+        <span className="text-ash/60">· nights before someone joined don't count as missed</span>
+      </div>
+
+      {loadingMissed ? (
+        <div className="py-16 text-center text-ash"><Loader2 className="w-5 h-5 animate-spin inline" /></div>
+      ) : missed.totalEvents === 0 ? (
+        <div className="py-16 text-center text-ash">Nothing logged in the {WINDOW_LABEL[missedWindow]}.</div>
+      ) : (
+        <Table maxHeight="max-h-[720px]" minWidth="min-w-[360px]">
+          <Thead sticky>
+            <th className="p-4 font-normal w-10 text-right">#</th>
+            <th className="p-4 font-normal">Member</th>
+            <th className="p-4 font-normal text-right">Missed</th>
+            <th className="p-4 font-normal text-right">Attended</th>
+          </Thead>
+          <tbody>
+            {missed.members.map((m, i) => (
+              <Tr key={m.discord_id}>
+                <td className="p-4 text-right font-mono text-xs text-ash/60">{i + 1}</td>
+                <td className="p-4">
+                  <button onClick={() => { setViewing(m); setViewingWindow(missedWindow); }} className="text-bone hover:text-brass transition-colors text-left">
+                    {m.display_name}
+                  </button>
+                </td>
+                <td className={`p-4 text-right font-mono text-xs ${m.missed === 0 ? 'text-emerald-400' : m.missed >= 3 ? 'text-oxblood' : 'text-brassbright'}`}>
+                  {m.eligible === 0 ? <span className="text-ash/40">—</span> : m.missed}
+                </td>
+                <td className="p-4 text-right font-mono text-xs text-ash whitespace-nowrap">
+                  {m.attended}<span className="text-ash/40">/{m.eligible}</span>
+                </td>
+              </Tr>
+            ))}
+          </tbody>
+        </Table>
+      )}
+
+      {viewing && <MemberNights member={viewing} window_={viewingWindow || window_} onClose={() => setViewing(null)} />}
     </div>
   );
 }

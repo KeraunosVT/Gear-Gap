@@ -125,3 +125,37 @@ describe('GET /attendance-stats/member/:id', () => {
     }
   });
 });
+
+describe('GET /attendance-stats/missed', () => {
+  const missed = async () => Object.fromEntries(
+    (await call('30', '/attendance-stats/missed')).members.map((m) => [m.discord_id, m.missed]),
+  );
+
+  test('counts missed nights for every current member', async () => {
+    assert.deepEqual(await missed(), { ana: 0, bo: 1 });
+  });
+
+  test('lists members with no attendance at all', async () => {
+    const saved = roster;
+    roster = async () => [...await saved(), { id: 'cy', name: 'Cy' }];
+    try {
+      assert.deepEqual(await missed(), { ana: 0, bo: 1, cy: 2 });
+    } finally {
+      roster = saved;
+    }
+  });
+
+  test('nights before they joined are not missed', async () => {
+    TABLES.member_tenure.push({ discord_id: 'bo', since: `${ago(1)}T18:00:00Z`, left_at: null });
+    try {
+      assert.equal((await missed()).bo, 0);
+    } finally {
+      TABLES.member_tenure.pop();
+    }
+  });
+
+  test('sorts the most missed first', async () => {
+    const body = await call('30', '/attendance-stats/missed');
+    assert.deepEqual(body.members.map((m) => m.discord_id), ['bo', 'ana']);
+  });
+});

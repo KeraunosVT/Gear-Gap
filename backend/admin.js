@@ -2257,6 +2257,62 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     }
   });
 
+  // Missed nights per member in the window — the officer "who's been absent"
+  // list. Unlike the rate table this starts from the Discord roster, not from
+  // attendance rows: the member who has missed every night has no rows, and is
+  // exactly who this list is for. Missed is eligible − attended, the same
+  // split the per-member breakdown below uses, so the two always agree. If
+  // Discord can't be reached it falls back to everyone seen in the window.
+  router.get('/attendance-stats/missed', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    try {
+      const { days, since } = attendanceWindow(req);
+
+      let eq = supabase.from('events').select('id, event_date');
+      if (since) eq = eq.gte('event_date', since);
+      const { data: evts, error: eErr } = await eq;
+      if (eErr) throw eErr;
+
+      const eventIds = (evts || []).map((e) => e.id);
+      const att = eventIds.length === 0 ? [] : await fetchAll(
+        () => supabase.from('event_attendance').select('discord_id, display_name, event_id')
+          .in('event_id', eventIds).order('id'),
+        { label: 'event_attendance' },
+      );
+
+      const [roster, ids, tenures] = await Promise.all([
+        listMembers().catch((err) => { console.error('missed listMembers failed:', err.message); return null; }),
+        identities.load(),
+        loadTenure(),
+      ]);
+
+      const seenName = new Map();
+      att.forEach((a) => { if (a.display_name) seenName.set(String(a.discord_id), a.display_name); });
+      const people = roster
+        ? roster.map((m) => ({ id: String(m.id), name: m.name }))
+        : [...seenName].map(([id, name]) => ({ id, name }));
+
+      const attendedBy = attendedSets(att);
+      const members = people.map(({ id, name }) => {
+        const attendedIds = attendedBy.get(id);
+        const attended = attendedIds ? attendedIds.size : 0;
+        const eligible = eligibleCount(evts || [], tenures.get(id), attendedIds);
+        return {
+          discord_id: id,
+          display_name: ids.displayNameFor(id, seenName.get(id) || name || id),
+          attended,
+          eligible,
+          missed: eligible - attended,
+        };
+      }).sort((a, b) => b.missed - a.missed || a.display_name.localeCompare(b.display_name));
+
+      res.json({ window: days, totalEvents: (evts || []).length, members });
+    } catch (err) {
+      console.error('Missed attendance error:', err.message);
+      res.status(500).json({ error: 'Failed to compute missed events.' });
+    }
+  });
+
   // One member's nights in the window, each marked attended, missed, or
   // before_join. The split follows eligibleCount exactly — attended always
   // counts, otherwise the night counts only once they held the role — so the
