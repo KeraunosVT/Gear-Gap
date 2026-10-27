@@ -155,6 +155,52 @@ function guildDateOf(ms) {
   return shifted.toLocaleDateString('en-CA', { timeZone: guildTz() });
 }
 
+// The matching half of unavailableOn(), split out so a caller checking many
+// nights (the officer Missed Events list) can read loa_entries once and apply
+// exactly the same rules to each. Returns discord_id -> the entry that
+// constrains them most.
+function matchUnavailable(data, { date, dow, eventScheduleId, eventTime, oneOff }) {
+  const inScope = oneOff
+    ? (e) => !e.event_schedule_id
+    : (e) => !e.event_schedule_id || !eventScheduleId || e.event_schedule_id === eventScheduleId;
+
+  const out = new Map();
+  (data || []).forEach((e) => {
+    let matches = false;
+    // Event: a one-off on this date, scoped to one event, a time window, or
+    // both. Recurring is the same two knobs, applied every week on its
+    // day-of-week instead of to a single date. A range covers whole days
+    // and has no time scoping to check.
+    if (e.type === 'event' && e.event_date === date) matches = inScope(e) && withinLoaWindow(e, eventTime);
+    if (e.type === 'range' && e.start_date <= date && e.end_date >= date) matches = true;
+    // A recurring entry that has this date excepted doesn't apply at all —
+    // checked before the scope and window tests, since a lifted occurrence
+    // is absent from the series regardless of which event is being asked
+    // about. This is the authoritative reading: everything that decides
+    // whether someone is available tonight comes through here.
+    if (e.type === 'recurring' && e.day_of_week === dow && !loaSkipsDate(e, date)) {
+      matches = inScope(e) && withinLoaWindow(e, eventTime);
+    }
+    if (!matches) return;
+
+    const entry = {
+      discord_id: e.discord_id,
+      display_name: e.display_name,
+      type: e.type,
+      start_time: e.start_time || null,
+      end_time: e.end_time || null,
+      reason: e.reason || null,
+      partial: Boolean(e.start_time) && !eventTime,
+    };
+    // One member can match several entries (a vacation range plus a
+    // standing night off, say). Keep whichever constrains them most, so a
+    // whole-day absence isn't masked by a time-boxed one read after it.
+    const prev = out.get(e.discord_id);
+    if (!prev || (prev.partial && !entry.partial)) out.set(e.discord_id, entry);
+  });
+  return out;
+}
+
 // `identities` is optional so a caller without one still works — names just
 // pass through untouched. Everywhere it is supplied, the alias set on the site
 // wins over whatever Discord happens to call the member, so an LOA reads the
@@ -338,45 +384,36 @@ module.exports = function createLoa(supabase, identities = null) {
         throw httpError(500, 'Failed to load LOAs.');
       }
       const eventTime = eventRow?.event_time || oneOffTime || null;
-      const inScope = oneOff
-        ? (e) => !e.event_schedule_id
-        : (e) => !e.event_schedule_id || !eventScheduleId || e.event_schedule_id === eventScheduleId;
-
-      const out = new Map();
-      (data || []).forEach((e) => {
-        let matches = false;
-        // Event: a one-off on this date, scoped to one event, a time window, or
-        // both. Recurring is the same two knobs, applied every week on its
-        // day-of-week instead of to a single date. A range covers whole days
-        // and has no time scoping to check.
-        if (e.type === 'event' && e.event_date === date) matches = inScope(e) && withinLoaWindow(e, eventTime);
-        if (e.type === 'range' && e.start_date <= date && e.end_date >= date) matches = true;
-        // A recurring entry that has this date excepted doesn't apply at all —
-        // checked before the scope and window tests, since a lifted occurrence
-        // is absent from the series regardless of which event is being asked
-        // about. This is the authoritative reading: everything that decides
-        // whether someone is available tonight comes through here.
-        if (e.type === 'recurring' && e.day_of_week === dow && !loaSkipsDate(e, date)) {
-          matches = inScope(e) && withinLoaWindow(e, eventTime);
-        }
-        if (!matches) return;
-
-        const entry = {
-          discord_id: e.discord_id,
-          display_name: e.display_name,
-          type: e.type,
-          start_time: e.start_time || null,
-          end_time: e.end_time || null,
-          reason: e.reason || null,
-          partial: Boolean(e.start_time) && !eventTime,
-        };
-        // One member can match several entries (a vacation range plus a
-        // standing night off, say). Keep whichever constrains them most, so a
-        // whole-day absence isn't masked by a time-boxed one read after it.
-        const prev = out.get(e.discord_id);
-        if (!prev || (prev.partial && !entry.partial)) out.set(e.discord_id, entry);
-      });
+      const out = matchUnavailable(data, { date, dow, eventScheduleId, eventTime, oneOff });
       return withNames([...out.values()]);
+    },
+
+    // Who was out on each of many nights, with one read of loa_entries and one
+    // of event_schedule instead of one of each per night. `occasions` is
+    // [{ key, date, eventScheduleId }]; returns key -> Set of discord ids, by
+    // the same rules as unavailableOn(). Dateless or malformed nights map to an
+    // empty set — there is no night to be excused from.
+    async unavailableAcross(occasions) {
+      const out = new Map();
+      if (!occasions.length) return out;
+      const [data, schedule] = await Promise.all([
+        fetchAll(
+          () => supabase.from('loa_entries').select(
+            'discord_id, display_name, type, event_date, event_schedule_id, start_date, end_date, day_of_week, start_time, end_time, reason, skip_dates',
+          ).order('id'),
+          { label: 'loa_entries' },
+        ),
+        supabase.from('event_schedule').select('id, event_time').then((r) => r.data || []),
+      ]);
+      const timeOf = new Map(schedule.map((r) => [r.id, r.event_time || null]));
+      occasions.forEach(({ key, date, eventScheduleId = null }) => {
+        if (!isValidDate(date)) { out.set(key, new Set()); return; }
+        const matched = matchUnavailable(data, {
+          date, dow: dayOfWeek(date), eventScheduleId, eventTime: (eventScheduleId && timeOf.get(eventScheduleId)) || null, oneOff: false,
+        });
+        out.set(key, new Set([...matched.keys()].map(String)));
+      });
+      return out;
     },
 
     // `eventScheduleId` and `startTime` are each optional, but at least one is

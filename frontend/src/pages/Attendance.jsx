@@ -30,6 +30,13 @@ const WINDOW_LABEL = { 7: 'last 7 days', 14: 'last 14 days', 30: 'last 30 days',
 // The missed-events panel has its own filter: "who has been absent lately" is
 // a short-range question, so it has no All tab and starts at one week.
 const MISSED_WINDOWS = WINDOWS.filter((w) => w.key !== 'all');
+// Which absences to count: every missed night, only the ones an LOA covered,
+// or only the ones it didn't. `field` is the count on each member row.
+const LOA_FILTERS = [
+  { key: 'all', label: 'All', field: 'missed' },
+  { key: 'loa', label: 'With LOA', field: 'missed_loa' },
+  { key: 'no_loa', label: 'Without LOA', field: 'missed_no_loa' },
+];
 
 export default function Attendance() {
   const { can } = useAuth();
@@ -72,6 +79,7 @@ export default function Attendance() {
   const [missedWindow, setMissedWindow] = useState('7');
   const [missed, setMissed] = useState({ totalEvents: 0, members: [] });
   const [loadingMissed, setLoadingMissed] = useState(true);
+  const [loaFilter, setLoaFilter] = useState('all');
 
   // A TLGM import is previewed before anything is written: the file and the
   // server's dry-run result are held here until the officer confirms.
@@ -167,6 +175,14 @@ export default function Attendance() {
       return ((a[statSort] ?? -1) - (b[statSort] ?? -1)) * dir;
     });
   }, [stats.members, statSort, statDir]);
+
+  // All shows everyone, so a clean record is visible too. The LOA filters only
+  // list members who have at least one absence of that kind.
+  const missedField = LOA_FILTERS.find((f) => f.key === loaFilter).field;
+  const missedRows = useMemo(() => {
+    const rows = loaFilter === 'all' ? missed.members : missed.members.filter((m) => m[missedField] > 0);
+    return [...rows].sort((a, b) => b[missedField] - a[missedField] || a.display_name.localeCompare(b.display_name));
+  }, [missed.members, loaFilter, missedField]);
 
   // Every hook is above this line on purpose. It used to sit higher up, which
   // made the hook count depend on a capability check — legal only for as long
@@ -880,26 +896,51 @@ export default function Attendance() {
         }))}
       />
 
-      <div className="flex items-center gap-2 text-xs text-ash mb-3">
-        <X className="w-3.5 h-3.5 text-oxblood" />
-        {missed.totalEvents} event{missed.totalEvents === 1 ? '' : 's'} · {WINDOW_LABEL[missedWindow]}
-        <span className="text-ash/60">· nights before someone joined don't count as missed</span>
+      <div className="flex items-center gap-3 flex-wrap mb-3">
+        <div className="flex items-center gap-2 text-xs text-ash">
+          <X className="w-3.5 h-3.5 text-oxblood" />
+          {missed.totalEvents} event{missed.totalEvents === 1 ? '' : 's'} · {WINDOW_LABEL[missedWindow]}
+          <span className="text-ash/60">· nights before someone joined don't count as missed</span>
+        </div>
+        <div className="ml-auto inline-flex rounded-lg border border-line overflow-hidden text-xs">
+          {LOA_FILTERS.map((f) => (
+            <button
+              key={f.key} onClick={() => setLoaFilter(f.key)}
+              className={`px-3 py-1.5 transition-colors ${loaFilter === f.key ? 'bg-panelup text-brass' : 'text-ash hover:text-bone'}`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
       </div>
+      {/* Without this, a failed LOA read would show every absence as
+          unexcused and look like a guild that never files leave. */}
+      {!loadingMissed && missed.loa_checked === false && (
+        <div className="mb-3 text-xs text-brassbright inline-flex items-center gap-1.5">
+          <AlertTriangle className="w-3.5 h-3.5" /> LOAs couldn’t be loaded, so every absence is counted as without LOA.
+        </div>
+      )}
 
       {loadingMissed ? (
         <div className="py-16 text-center text-ash"><Loader2 className="w-5 h-5 animate-spin inline" /></div>
       ) : missed.totalEvents === 0 ? (
         <div className="py-16 text-center text-ash">Nothing logged in the {WINDOW_LABEL[missedWindow]}.</div>
+      ) : missedRows.length === 0 ? (
+        <div className="py-16 text-center text-ash">
+          {loaFilter === 'loa' ? 'No absences covered by an LOA' : 'No absences without an LOA'} in the {WINDOW_LABEL[missedWindow]}.
+        </div>
       ) : (
         <Table maxHeight="max-h-[720px]" minWidth="min-w-[360px]">
           <Thead sticky>
             <th className="p-4 font-normal w-10 text-right">#</th>
             <th className="p-4 font-normal">Member</th>
             <th className="p-4 font-normal text-right">Missed</th>
+            <th className="p-4 font-normal text-right">With LOA</th>
+            <th className="p-4 font-normal text-right">Without LOA</th>
             <th className="p-4 font-normal text-right">Attended</th>
           </Thead>
           <tbody>
-            {missed.members.map((m, i) => (
+            {missedRows.map((m, i) => (
               <Tr key={m.discord_id}>
                 <td className="p-4 text-right font-mono text-xs text-ash/60">{i + 1}</td>
                 <td className="p-4">
@@ -907,8 +948,16 @@ export default function Attendance() {
                     {m.display_name}
                   </button>
                 </td>
-                <td className={`p-4 text-right font-mono text-xs ${m.missed === 0 ? 'text-emerald-400' : m.missed >= 3 ? 'text-oxblood' : 'text-brassbright'}`}>
+                <td className={`p-4 text-right font-mono text-xs ${missedField === 'missed' ? 'font-semibold' : ''} ${m.missed === 0 ? 'text-emerald-400' : m.missed >= 3 ? 'text-oxblood' : 'text-brassbright'}`}>
                   {m.eligible === 0 ? <span className="text-ash/40">—</span> : m.missed}
+                </td>
+                {/* Covered absences stay neutral: an LOA is the process
+                    working, not a problem to flag. */}
+                <td className={`p-4 text-right font-mono text-xs text-ash ${missedField === 'missed_loa' ? 'font-semibold text-bone' : ''}`}>
+                  {m.eligible === 0 ? <span className="text-ash/40">—</span> : m.missed_loa}
+                </td>
+                <td className={`p-4 text-right font-mono text-xs ${missedField === 'missed_no_loa' ? 'font-semibold' : ''} ${m.missed_no_loa === 0 ? 'text-ash' : m.missed_no_loa >= 3 ? 'text-oxblood' : 'text-brassbright'}`}>
+                  {m.eligible === 0 ? <span className="text-ash/40">—</span> : m.missed_no_loa}
                 </td>
                 <td className="p-4 text-right font-mono text-xs text-ash whitespace-nowrap">
                   {m.attended}<span className="text-ash/40">/{m.eligible}</span>
@@ -977,6 +1026,7 @@ function MemberNights({ member, window_, onClose }) {
                   >
                     {Icon ? <Icon className={`w-3.5 h-3.5 shrink-0 ${tone}`} /> : <span className="w-3.5 shrink-0" />}
                     <span className="text-sm text-bone truncate flex-1">{ev.title}</span>
+                    {ev.loa && <span className="text-[10px] uppercase tracking-wider text-brass border border-brass/40 rounded px-1.5 shrink-0">LOA</span>}
                     <span className="text-xs text-ash shrink-0">
                       {ev.event_date ? new Date(ev.event_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'No date'}
                     </span>

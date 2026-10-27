@@ -2257,18 +2257,39 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     }
   });
 
+  // Who was on LOA for each event in `evts`: event id -> Set of discord ids.
+  // Best-effort — if loa_entries can't be read, every night maps to nobody and
+  // `ok` is false, so the page can say the LOA split is unavailable rather than
+  // quietly counting every absence as unexcused.
+  async function loaByEvent(evts) {
+    if (!loa) return { ok: false, byEvent: new Map() };
+    try {
+      const byEvent = await loa.unavailableAcross((evts || []).map((e) => ({
+        key: String(e.id), date: e.event_date, eventScheduleId: e.event_schedule_id || null,
+      })));
+      return { ok: true, byEvent };
+    } catch (err) {
+      console.error('missed-events LOA lookup failed:', err.message);
+      return { ok: false, byEvent: new Map() };
+    }
+  }
+
   // Missed nights per member in the window — the officer "who's been absent"
   // list. Unlike the rate table this starts from the Discord roster, not from
   // attendance rows: the member who has missed every night has no rows, and is
   // exactly who this list is for. Missed is eligible − attended, the same
   // split the per-member breakdown below uses, so the two always agree. If
   // Discord can't be reached it falls back to everyone seen in the window.
+  //
+  // Each missed night is also split by whether an LOA covered it (`missed_loa`)
+  // or not (`missed_no_loa`), by the same rules the event page uses to put
+  // someone in its LOA bucket.
   router.get('/attendance-stats/missed', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
     try {
       const { days, since } = attendanceWindow(req);
 
-      let eq = supabase.from('events').select('id, event_date');
+      let eq = supabase.from('events').select('id, event_date, event_schedule_id');
       if (since) eq = eq.gte('event_date', since);
       const { data: evts, error: eErr } = await eq;
       if (eErr) throw eErr;
@@ -2280,10 +2301,11 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
         { label: 'event_attendance' },
       );
 
-      const [roster, ids, tenures] = await Promise.all([
+      const [roster, ids, tenures, onLoa] = await Promise.all([
         listMembers().catch((err) => { console.error('missed listMembers failed:', err.message); return null; }),
         identities.load(),
         loadTenure(),
+        loaByEvent(evts),
       ]);
 
       const seenName = new Map();
@@ -2296,17 +2318,27 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
       const members = people.map(({ id, name }) => {
         const attendedIds = attendedBy.get(id);
         const attended = attendedIds ? attendedIds.size : 0;
-        const eligible = eligibleCount(evts || [], tenures.get(id), attendedIds);
+        const t = tenures.get(id);
+        const eligible = eligibleCount(evts || [], t, attendedIds);
+        // The nights eligibleCount counted that they didn't attend.
+        let missedLoa = 0;
+        (evts || []).forEach((e) => {
+          if (attendedIds && attendedIds.has(String(e.id))) return;
+          if (t && !countsFor(t, e.event_date)) return;
+          if (onLoa.byEvent.get(String(e.id))?.has(id)) missedLoa++;
+        });
         return {
           discord_id: id,
           display_name: ids.displayNameFor(id, seenName.get(id) || name || id),
           attended,
           eligible,
           missed: eligible - attended,
+          missed_loa: missedLoa,
+          missed_no_loa: eligible - attended - missedLoa,
         };
       }).sort((a, b) => b.missed - a.missed || a.display_name.localeCompare(b.display_name));
 
-      res.json({ window: days, totalEvents: (evts || []).length, members });
+      res.json({ window: days, totalEvents: (evts || []).length, loa_checked: onLoa.ok, members });
     } catch (err) {
       console.error('Missed attendance error:', err.message);
       res.status(500).json({ error: 'Failed to compute missed events.' });
@@ -2323,7 +2355,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
       const id = String(req.params.id);
       const { days, since } = attendanceWindow(req);
 
-      let eq = supabase.from('events').select('id, title, event_date')
+      let eq = supabase.from('events').select('id, title, event_date, event_schedule_id')
         .order('event_date', { ascending: false });
       if (since) eq = eq.gte('event_date', since);
       const { data: evts, error: eErr } = await eq;
@@ -2336,16 +2368,17 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
         { label: 'event_attendance' },
       );
       const attended = new Set(att.filter((a) => String(a.discord_id) === id).map((a) => String(a.event_id)));
-      const t = (await loadTenure()).get(id);
+      const [tenures, onLoa] = await Promise.all([loadTenure(), loaByEvent(evts)]);
+      const t = tenures.get(id);
 
-      const events = (evts || []).map((e) => ({
-        id: e.id,
-        title: e.title,
-        event_date: e.event_date,
-        status: attended.has(String(e.id)) ? 'attended'
+      const events = (evts || []).map((e) => {
+        const status = attended.has(String(e.id)) ? 'attended'
           : !t || countsFor(t, e.event_date) ? 'missed'
-          : 'before_join',
-      }));
+          : 'before_join';
+        // Only a missed night needs the LOA question answered.
+        const loaCovered = status === 'missed' && Boolean(onLoa.byEvent.get(String(e.id))?.has(id));
+        return { id: e.id, title: e.title, event_date: e.event_date, status, loa: loaCovered };
+      });
       res.json({ window: days, discord_id: id, events });
     } catch (err) {
       console.error('Member attendance error:', err.message);
