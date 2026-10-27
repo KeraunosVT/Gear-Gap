@@ -80,6 +80,8 @@ export default function Attendance() {
   const [missed, setMissed] = useState({ totalEvents: 0, members: [] });
   const [loadingMissed, setLoadingMissed] = useState(true);
   const [loaFilter, setLoaFilter] = useState('all');
+  const [missedSort, setMissedSort] = useState('missed'); // 'name' or any count column's field
+  const [missedDir, setMissedDir] = useState('desc');
 
   // A TLGM import is previewed before anything is written: the file and the
   // server's dry-run result are held here until the officer confirms.
@@ -181,8 +183,13 @@ export default function Attendance() {
   const missedField = LOA_FILTERS.find((f) => f.key === loaFilter).field;
   const missedRows = useMemo(() => {
     const rows = loaFilter === 'all' ? missed.members : missed.members.filter((m) => m[missedField] > 0);
-    return [...rows].sort((a, b) => b[missedField] - a[missedField] || a.display_name.localeCompare(b.display_name));
-  }, [missed.members, loaFilter, missedField]);
+    const dir = missedDir === 'asc' ? 1 : -1;
+    const byName = (a, b) => a.display_name.localeCompare(b.display_name);
+    return [...rows].sort((a, b) => (missedSort === 'name'
+      ? byName(a, b) * dir
+      // Ties fall back to A–Z whichever way the column is turned.
+      : (a[missedSort] - b[missedSort]) * dir || byName(a, b)));
+  }, [missed.members, loaFilter, missedField, missedSort, missedDir]);
 
   // Every hook is above this line on purpose. It used to sit higher up, which
   // made the hook count depend on a capability check — legal only for as long
@@ -403,6 +410,11 @@ export default function Attendance() {
   const toggleStatSort = (key) => {
     if (statSort === key) setStatDir((d) => (d === 'desc' ? 'asc' : 'desc'));
     else { setStatSort(key); setStatDir(key === 'name' ? 'asc' : 'desc'); }
+  };
+
+  const toggleMissedSort = (key) => {
+    if (missedSort === key) setMissedDir((d) => (d === 'desc' ? 'asc' : 'desc'));
+    else { setMissedSort(key); setMissedDir(key === 'name' ? 'asc' : 'desc'); }
   };
 
   return (
@@ -905,7 +917,7 @@ export default function Attendance() {
         <div className="ml-auto inline-flex rounded-lg border border-line overflow-hidden text-xs">
           {LOA_FILTERS.map((f) => (
             <button
-              key={f.key} onClick={() => setLoaFilter(f.key)}
+              key={f.key} onClick={() => { setLoaFilter(f.key); setMissedSort(f.field); setMissedDir('desc'); }}
               className={`px-3 py-1.5 transition-colors ${loaFilter === f.key ? 'bg-panelup text-brass' : 'text-ash hover:text-bone'}`}
             >
               {f.label}
@@ -933,11 +945,11 @@ export default function Attendance() {
         <Table maxHeight="max-h-[720px]" minWidth="min-w-[360px]">
           <Thead sticky>
             <th className="p-4 font-normal w-10 text-right">#</th>
-            <th className="p-4 font-normal">Member</th>
-            <th className="p-4 font-normal text-right">Missed</th>
-            <th className="p-4 font-normal text-right">With LOA</th>
-            <th className="p-4 font-normal text-right">Without LOA</th>
-            <th className="p-4 font-normal text-right">Attended</th>
+            <SortableTh label="Member" sortKey="name" activeKey={missedSort} dir={missedDir} onSort={toggleMissedSort} />
+            <SortableTh label="Missed" sortKey="missed" activeKey={missedSort} dir={missedDir} onSort={toggleMissedSort} align="right" />
+            <SortableTh label="With LOA" sortKey="missed_loa" activeKey={missedSort} dir={missedDir} onSort={toggleMissedSort} align="right" />
+            <SortableTh label="Without LOA" sortKey="missed_no_loa" activeKey={missedSort} dir={missedDir} onSort={toggleMissedSort} align="right" />
+            <SortableTh label="Attended" sortKey="attended" activeKey={missedSort} dir={missedDir} onSort={toggleMissedSort} align="right" />
           </Thead>
           <tbody>
             {missedRows.map((m, i) => (
