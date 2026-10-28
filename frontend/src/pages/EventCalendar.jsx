@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import axios from 'axios';
 import {
   CalendarRange, Check, ChevronLeft, ChevronRight, Clock, Loader2, Users, CalendarOff, AlertTriangle, Plus,
-  LayoutGrid, List, Settings, Trash2, X, Send,
+  LayoutGrid, List, Settings, Trash2, X, Send, Sun,
 } from 'lucide-react';
 import ScheduleManager from '../components/ScheduleManager';
 import WeekTimeGrid from '../components/WeekTimeGrid';
@@ -138,6 +138,8 @@ export default function EventCalendar() {
   const [selected, setSelected] = useState(null);
   const [occurrences, setOccurrences] = useState([]);
   const [schedule, setSchedule] = useState([]);
+  // Which way the weekly schedule currently reads — guild-wide, not per viewer.
+  const [dstActive, setDstActive] = useState(true);
   const [loaEntries, setLoaEntries] = useState([]);
   const [myAttendance, setMyAttendance] = useState([]);
   // Late-attendance request state, owned here and handed to NightCard.
@@ -167,6 +169,7 @@ export default function EventCalendar() {
       .then(([sig, sched, loa, att, pastSig]) => {
         setOccurrences([...(pastSig.data.signups || []), ...(sig.data.signups || [])]);
         setSchedule(sched.data.schedule || []);
+        setDstActive(sched.data.dst_active !== false);
         setLoaEntries(loa.data.entries || []);
         setMyAttendance(att.data.events || []);
       })
@@ -370,6 +373,19 @@ export default function EventCalendar() {
     && (!row.signupId || canOneOff);
   const onSkip = canWeekly ? skipNight : null;
 
+  // Daylight saving: the server moves every weekly event, and the signups
+  // already opened for nights still to come, an hour in one go. If another
+  // officer got there first nothing moves, and the reload shows their switch.
+  const toggleDst = () => {
+    const next = !dstActive;
+    if (!window.confirm(t(next ? 'cal.confirmDstOn' : 'cal.confirmDstOff'))) return;
+    run('dst', async () => {
+      const res = await axios.post('/api/admin/event-schedule/dst', { active: next });
+      load();
+      flash(res.data.changed ? t(next ? 'cal.dstOnDone' : 'cal.dstOffDone') : t('cal.dstAlready'));
+    });
+  };
+
   // ── Late attendance ──
   const fileLateRequest = async (ev) => {
     setLateBusy(ev.id);
@@ -492,6 +508,15 @@ export default function EventCalendar() {
               </button>
             ))}
           </div>
+          {canWeekly && (
+            <button
+              onClick={toggleDst} aria-pressed={dstActive} disabled={busy === 'dst'}
+              title={t(dstActive ? 'cal.dstTitleOn' : 'cal.dstTitleOff')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border transition-colors disabled:opacity-40 ${dstActive ? 'border-brass/60 text-brass bg-panelup' : 'border-line text-ash hover:text-bone'}`}
+            >
+              {busy === 'dst' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sun className="w-4 h-4" />} {t('cal.dst')}
+            </button>
+          )}
           {canWeekly && (
             <Button variant="secondary" size="none" className="px-3 py-1.5 text-sm" onClick={() => setPosting(true)}>
               <Send className="w-4 h-4" /> {t('cal.postToDiscord')}

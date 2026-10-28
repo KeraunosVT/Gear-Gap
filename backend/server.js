@@ -612,7 +612,10 @@ app.get('/api/event-schedule', async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
   const { data, error } = await supabase.from('event_schedule').select('*').order('day_of_week').order('name');
   if (error) return res.status(500).json({ error: 'Failed to load schedule.' });
-  res.json({ schedule: data || [] });
+  // ensure(), not get(): the DST toggle invalidates the cache, and get() on an
+  // empty cache answers with DEFAULTS — the toggle would snap back on reload.
+  const config = await guildConfig.ensure();
+  res.json({ schedule: data || [], dst_active: config.dst_active !== false });
 });
 
 // ── Wargame maps (read-only for members; admin manages via admin router) ────

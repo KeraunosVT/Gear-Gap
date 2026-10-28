@@ -32,7 +32,7 @@ const COLUMNS = [
   'id', 'house', 'tag', 'aliases', 'motto', 'creed', 'timezone', 'day_start',
   'admin_role_ids', 'allowed_role_ids', 'member_role_ids',
   'roster_channel_id', 'loa_channel_id', 'announce_channel_id', 'signup_channel_id', 'calendar_channel_id',
-  'attendance_voice_channel_id', 'loa_notify_discord_id', 'updated_at',
+  'attendance_voice_channel_id', 'loa_notify_discord_id', 'dst_active', 'updated_at',
 ].join(', ');
 
 // What get() returns before the first load completes, or if the table is
@@ -65,6 +65,9 @@ const DEFAULTS = Object.freeze({
   // Null means nobody is DMed about LOA cancellations, which is what every
   // deployment did before migration 018.
   loa_notify_discord_id: null,
+  // Which way the event schedule currently reads (migration 035). Only ever
+  // changed by set_schedule_dst, never by the settings form.
+  dst_active: true,
   updated_at: null,
 });
 

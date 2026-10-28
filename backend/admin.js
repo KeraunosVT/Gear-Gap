@@ -2519,6 +2519,25 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     }
   });
 
+  // The calendar's daylight-saving toggle: moves every weekly event, and the
+  // signups already opened for nights still to come, an hour earlier (off) or
+  // later (on). All of it happens in set_schedule_dst (migration 035), in one
+  // transaction; this only re-renders the Discord posts whose times moved.
+  router.post('/event-schedule/dst', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const { active } = req.body || {};
+    if (typeof active !== 'boolean') return res.status(400).json({ error: 'Say whether daylight saving is on or off.' });
+    const { data, error } = await supabase.rpc('set_schedule_dst', { p_active: active });
+    if (error) {
+      console.error('set_schedule_dst error:', error.message);
+      return res.status(500).json({ error: 'Failed to shift the schedule.' });
+    }
+    guildConfig.invalidate();
+    const ids = Array.isArray(data?.signup_ids) ? data.signup_ids : [];
+    ids.forEach((id) => gateway.refreshSignupMessage(id));
+    res.json({ ok: true, dst_active: active, changed: Boolean(data?.changed), signups_moved: ids.length });
+  });
+
   // Cancel (skip: true) or restore (skip: false) one night of a weekly event
   // without touching the rest of the series. `date` is the guild night.
   router.post('/event-schedule/:id/skip', async (req, res) => {
