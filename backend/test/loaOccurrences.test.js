@@ -299,3 +299,46 @@ describe('loa.unavailableOn for a one-off event', () => {
     assert.equal((await loa.unavailableOn(oneOff)).length, 1);
   });
 });
+
+// An LOA filed for one opened occurrence (migration 07) — the calendar's LOA
+// button on a one-off. It must cover that occurrence, with or without a time,
+// and no other event that night.
+describe('loa.unavailableOn for an LOA tied to one signup', () => {
+  const FOR_SIGNUP = {
+    ...RECURRING, type: 'event', day_of_week: null, event_date: TUE, signup_event_id: 'sig-1', skip_dates: [],
+  };
+
+  test('covers the occurrence it was filed for', async () => {
+    const loa = createLoa(listSupabase([FOR_SIGNUP]));
+    assert.equal((await loa.unavailableOn({ date: TUE, oneOff: true, signupEventId: 'sig-1' })).length, 1);
+  });
+
+  test('covers it when the one-off has no time at all', async () => {
+    const loa = createLoa(listSupabase([FOR_SIGNUP]));
+    const out = await loa.unavailableOn({ date: TUE, eventTime: null, oneOff: true, signupEventId: 'sig-1' });
+    assert.equal(out.length, 1);
+    assert.equal(out[0].partial, false);
+  });
+
+  test('does not cover another one-off the same night', async () => {
+    const loa = createLoa(listSupabase([FOR_SIGNUP]));
+    assert.deepEqual(await loa.unavailableOn({ date: TUE, oneOff: true, signupEventId: 'sig-2' }), []);
+  });
+
+  test('does not cover a weekly event the same night', async () => {
+    const loa = createLoa(listSupabase([FOR_SIGNUP]));
+    assert.deepEqual(await loa.unavailableOn({ date: TUE, eventScheduleId: 'ev-1' }), []);
+  });
+
+  test('still counts when the whole night is asked about', async () => {
+    // The same as an LOA scoped to one weekly event: with no event picked, the
+    // party builder flags anyone out for any part of the night.
+    const loa = createLoa(listSupabase([FOR_SIGNUP]));
+    assert.equal((await loa.unavailableOn({ date: TUE })).length, 1);
+  });
+
+  test('does not count on another night', async () => {
+    const loa = createLoa(listSupabase([FOR_SIGNUP]));
+    assert.deepEqual(await loa.unavailableOn({ date: NEXT_TUE, signupEventId: 'sig-1' }), []);
+  });
+});

@@ -103,7 +103,7 @@ function describeLoa(e) {
     : null;
   if (e.type === 'range') return { when: t('cal.allNight'), what: `${shortDate(e.start_date)} – ${shortDate(e.end_date)}` };
   if (e.type === 'recurring') return { when: hours || t('cal.allNight'), what: t('cal.everyDay', { day: DAY_NAME(e.day_of_week) }) };
-  return { when: hours || t('cal.allNight'), what: e.event_schedule_id ? t('cal.thisEventOnly') : t('cal.oneNight') };
+  return { when: hours || t('cal.allNight'), what: e.event_schedule_id || e.signup_event_id ? t('cal.thisEventOnly') : t('cal.oneNight') };
 }
 
 // One entry per member, for one event. A member can match several (a range
@@ -258,7 +258,7 @@ export default function EventCalendar() {
 
     const rows = [...scheduled, ...extra, ...loggedOnly]
       .map((r) => {
-        const awayList = awayFor(loaEntries, { date, dow, scheduleId: r.scheduleId, eventTime: r.eventTime });
+        const awayList = awayFor(loaEntries, { date, dow, scheduleId: r.scheduleId, eventTime: r.eventTime, signupId: r.signupId });
         return {
           ...r,
           myStatus: r.occ?.my_status || null,
@@ -269,9 +269,13 @@ export default function EventCalendar() {
           away: awayList.some((e) => e.discord_id === user?.id),
           // An LOA I filed for exactly this event, which the row can cancel.
           // Anything broader (a range, a standing night) is the LOA page's.
+          // A one-off's is tied to its signup; older ones were a one-minute
+          // window at its start time, and still cancel from here.
           myLoaId: loaEntries.find((e) => e.discord_id === user?.id && e.type === 'event' && e.event_date === date
-            && (r.scheduleId ? e.event_schedule_id === r.scheduleId : !e.event_schedule_id && Boolean(r.eventTime)
-              && String(e.start_time || '').slice(0, 5) === String(r.eventTime).slice(0, 5)))?.id || null,
+            && (e.signup_event_id ? Boolean(r.signupId) && String(e.signup_event_id) === String(r.signupId)
+              : r.scheduleId ? e.event_schedule_id === r.scheduleId
+                : !e.event_schedule_id && Boolean(r.eventTime)
+                  && String(e.start_time || '').slice(0, 5) === String(r.eventTime).slice(0, 5)))?.id || null,
           awayList,
           // A week starts on Monday now, so earlier nights of this week are on
           // screen too — everything on them is over. Tonight's events are over
@@ -1192,14 +1196,8 @@ function EditOneOffModal({ row, onClose, onSaved }) {
 // ── LOA FOR ONE EVENT ───────────────────────────────────────────────────────
 // The same per-event LOA the LOA page files, pre-scoped to the clicked row. A
 // scheduled event is scoped by its schedule id; a one-off has none, so it is
-// scoped by a one-minute window at its start time — which covers that event
-// and nothing else that night. A one-off with no time can't be scoped at all,
-// so the row doesn't offer this (see canLoa in EventRow).
-const plusOneMinute = (hhmm) => {
-  const [h, m] = hhmm.split(':').map(Number);
-  const t = (h * 60 + m + 1) % 1440;
-  return `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`;
-};
+// scoped by its signup (migration 07) — which covers that event and nothing
+// else that night, with or without a time, and survives the time being edited.
 
 function LoaModal({ row, onClose, onFiled }) {
   const { t, rich } = useT();
@@ -1213,10 +1211,9 @@ function LoaModal({ row, onClose, onFiled }) {
     if (!reason.trim()) { setError(t('cal.loaNeedReason')); return; }
     setSaving(true); setError('');
     try {
-      const time = row.eventTime ? String(row.eventTime).slice(0, 5) : null;
       await axios.post('/api/loa', row.scheduleId
         ? { type: 'event', event_date: row.date, event_schedule_id: row.scheduleId, reason: reason.trim() }
-        : { type: 'event', event_date: row.date, start_time: time, end_time: plusOneMinute(time), reason: reason.trim() });
+        : { type: 'event', event_date: row.date, signup_event_id: row.signupId, reason: reason.trim() });
       // After the LOA is saved, so a failed withdraw never leaves you neither
       // signed up nor on LOA.
       if (withdraw && row.signupId) await axios.delete(`/api/signups/${row.signupId}/join`).catch(() => {});
@@ -1461,7 +1458,7 @@ function EventRow({ row, busy, onJoin, onLeave, loa = null, showAway = false, on
 
       {/* LOA for just this event. Hidden once it's started, and when a broader
           LOA (a range, a standing night) already covers it — that one is
-          managed on the LOA page. A one-off with no time can't be scoped. */}
+          managed on the LOA page. */}
       <div className="ml-auto flex items-center gap-2 shrink-0">
         {loa && !row.started && (row.myLoaId ? (
           <Button
@@ -1471,7 +1468,7 @@ function EventRow({ row, busy, onJoin, onLeave, loa = null, showAway = false, on
           >
             <CalendarOff className="w-4 h-4" /> {t('cal.cancelLoa')}
           </Button>
-        ) : !row.away && (row.scheduleId || row.eventTime) ? (
+        ) : !row.away && (row.scheduleId || row.signupId) ? (
           <Button
             variant="secondary" size="none" className="px-2 py-1.5 text-sm shrink-0"
             onClick={() => loa.onFile(row)} title={t('cal.fileLoaTitle')}

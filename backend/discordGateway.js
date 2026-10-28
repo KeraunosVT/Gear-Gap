@@ -1383,7 +1383,7 @@ async function handleSignupButton(interaction) {
       let note = '';
       if (loa) {
         const { event } = await signups.detail(id);
-        const out = await loa.unavailableOn({ date: event.event_date, eventScheduleId: event.event_schedule_id })
+        const out = await loa.unavailableOn({ date: event.event_date, eventScheduleId: event.event_schedule_id, signupEventId: event.id })
           .catch(() => []);
         if (out.some((e) => e.discord_id === interaction.user.id)) {
           note = "\n\n⚠️ Heads up — you still have an LOA on file for that night. Cancel it with `/loa cancel` if you're coming after all.";

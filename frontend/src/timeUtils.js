@@ -102,8 +102,15 @@ export function loaSkipsDate(entry, dateStr) {
 // out of a recurring series is checked before scope and window, same order as
 // unavailableOn: a removed occurrence isn't in the series for any event.
 //
+// An LOA filed for one opened occurrence (signup_event_id, migration 07) covers
+// that occurrence and nothing else — `signupId` is the one being asked about.
+//
 // Lived in EventCalendar.jsx until the LOA page's week grid needed it too.
-export function loaCovers(entry, { date, dow, scheduleId, eventTime }) {
+export function loaCovers(entry, { date, dow, scheduleId, eventTime, signupId = null }) {
+  if (entry.signup_event_id) {
+    return entry.type === 'event' && entry.event_date === date
+      && Boolean(signupId) && String(entry.signup_event_id) === String(signupId);
+  }
   const inScope = !entry.event_schedule_id || !scheduleId || entry.event_schedule_id === scheduleId;
   if (entry.type === 'range') return entry.start_date <= date && entry.end_date >= date;
   if (entry.type === 'event') return entry.event_date === date && inScope && withinLoaWindow(entry, eventTime);

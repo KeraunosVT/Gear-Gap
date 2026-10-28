@@ -359,7 +359,7 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
       let noResponse = [];
       let conflicts = [];
       if (loa) {
-        const out = await loa.unavailableOn({ date: event.event_date, eventScheduleId: event.event_schedule_id })
+        const out = await loa.unavailableOn({ date: event.event_date, eventScheduleId: event.event_schedule_id, signupEventId: event.id })
           .catch((err) => { console.error('signups.detail LOA lookup failed:', err.message); return []; });
         const outById = new Map(out.map((e) => [e.discord_id, e]));
         const signedUp = new Set([...going, ...waitlist].map((e) => e.discord_id));
@@ -603,7 +603,7 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
 
       let out = new Set();
       if (loa) {
-        const absent = await loa.unavailableOn({ date: event.event_date, eventScheduleId: event.event_schedule_id })
+        const absent = await loa.unavailableOn({ date: event.event_date, eventScheduleId: event.event_schedule_id, signupEventId: event.id })
           .catch((err) => { console.error('signups.nonResponders LOA lookup failed:', err.message); return []; });
         out = new Set(absent.map((e) => e.discord_id));
       }

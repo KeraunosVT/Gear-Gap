@@ -794,7 +794,7 @@ app.get('/api/loa/all', async (req, res) => {
 // Submit an LOA (per-event or range)
 app.post('/api/loa', async (req, res) => {
   if (!loa) return res.status(503).json({ error: 'Database not configured.' });
-  const { type, event_date, event_schedule_id, start_date, end_date, day_of_week, start_time, end_time, reason, discord_id, display_name } = req.body || {};
+  const { type, event_date, event_schedule_id, signup_event_id, start_date, end_date, day_of_week, start_time, end_time, reason, discord_id, display_name } = req.body || {};
   // Admins can submit on a member's behalf by passing discord_id/display_name;
   // anyone else's request is always attributed to themselves regardless of
   // what the body says.
@@ -807,7 +807,7 @@ app.post('/api/loa', async (req, res) => {
     let saved;
     let announce;
     if (type === 'event') {
-      saved = await loa.submitEvent({ discordId: targetId, displayName: targetName, eventDate: event_date, eventScheduleId: event_schedule_id, startTime: start_time, endTime: end_time, reason });
+      saved = await loa.submitEvent({ discordId: targetId, displayName: targetName, eventDate: event_date, eventScheduleId: event_schedule_id, signupEventId: signup_event_id || null, startTime: start_time, endTime: end_time, reason });
       announce = { type: 'event', displayName: saved.displayName, eventName: saved.eventName, eventDate: event_date, startTime: saved.startTime, endTime: saved.endTime };
     } else if (type === 'range') {
       saved = await loa.submitRange({ discordId: targetId, displayName: targetName, startDate: start_date, endDate: end_date, reason });

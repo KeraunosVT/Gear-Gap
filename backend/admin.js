@@ -2799,6 +2799,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
           eventScheduleId: ev.event_schedule_id || null,
           eventTime: ev.event_time || null,
           oneOff: !ev.event_schedule_id,
+          signupEventId: ev.id,
         });
         return res.json({ date: ev.event_date, unavailable });
       }

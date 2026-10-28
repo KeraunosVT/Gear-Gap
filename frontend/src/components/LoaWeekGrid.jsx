@@ -35,8 +35,11 @@ const hoursOf = (e) => {
 function barFor(e, date, scheduleById) {
   const ev = e.event_schedule_id ? scheduleById[e.event_schedule_id] : null;
   const hours = hoursOf(e);
-  const kind = e.event_schedule_id ? 'single' : hours ? 'partial' : 'full';
-  const what = ev ? `${ev.name}${hours ? ` · ${hours}` : ''}` : (hours || translate('cal.allNight'));
+  // A one-off's LOA (signup_event_id) is for that one event, like a weekly one's.
+  const kind = e.event_schedule_id || e.signup_event_id ? 'single' : hours ? 'partial' : 'full';
+  const what = ev ? `${ev.name}${hours ? ` · ${hours}` : ''}`
+    : e.signup_event_id ? (e.signup_title || translate('loapage.event'))
+      : (hours || translate('cal.allNight'));
   if (e.type === 'recurring') {
     const lifted = loaSkipsDate(e, date);
     return { kind: lifted ? 'lifted' : kind, label: lifted ? translate('cal.everyDay', { day: DAY_SHORT(e.day_of_week) }) : what, repeat: true };

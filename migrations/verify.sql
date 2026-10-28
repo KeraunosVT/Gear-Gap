@@ -238,6 +238,12 @@ select '06 · get_player_stats folds case when resolving names',
                  limit 1), false)
 union all
 
+-- ── 07_loa_one_offs ─────────────────────────────────────────────────────────
+select '07 · loa_entries.signup_event_id',
+       (select count(*) from information_schema.columns
+        where table_schema = 'public' and table_name = 'loa_entries' and column_name = 'signup_event_id') = 1
+union all
+
 -- ── BASE SCHEMA ─────────────────────────────────────────────────────────────
 -- Predates tracked migrations, so no file of its own. The whole shard wishlist
 -- (weapons, need, priority, Last Updated) lives in this one column; anything

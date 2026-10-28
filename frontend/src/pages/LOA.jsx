@@ -344,6 +344,8 @@ export default function LOA() {
       const time = ev.event_time ? ` ${t('common.at')} ${fmtTimeEst(ev.event_time)}` : '';
       return `${ev.name}${time}${window ? ` (${window})` : ''}`;
     }
+    // An LOA for one one-off event, named by the server from its signup.
+    if (entry.signup_event_id) return entry.signup_title || t('loapage.event');
     if (!entry.start_time) return t('loapage.event');
     return entry.end_time ? window : t('cal.loaFrom', { time: fmtTimeEst(entry.start_time) });
   };

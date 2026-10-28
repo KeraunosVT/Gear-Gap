@@ -159,10 +159,18 @@ function guildDateOf(ms) {
 // nights (the officer Missed Events list) can read loa_entries once and apply
 // exactly the same rules to each. Returns discord_id -> the entry that
 // constrains them most.
-function matchUnavailable(data, { date, dow, eventScheduleId, eventTime, oneOff }) {
-  const inScope = oneOff
+function matchUnavailable(data, { date, dow, eventScheduleId, eventTime, oneOff, signupEventId = null }) {
+  const scoped = oneOff
     ? (e) => !e.event_schedule_id
     : (e) => !e.event_schedule_id || !eventScheduleId || e.event_schedule_id === eventScheduleId;
+  // An LOA filed for one opened occurrence (migration 07) covers that
+  // occurrence alone. Asked about the whole night with nothing picked, it
+  // counts like any other event-scoped LOA does there.
+  const inScope = (e) => {
+    if (!e.signup_event_id) return scoped(e);
+    if (signupEventId) return String(e.signup_event_id) === String(signupEventId);
+    return !eventScheduleId && !oneOff;
+  };
 
   const out = new Map();
   (data || []).forEach((e) => {
@@ -230,6 +238,18 @@ module.exports = function createLoa(supabase, identities = null) {
     return rows.map((e) => ({ ...e, display_name: ids.displayNameFor(e.discord_id, e.display_name) }));
   };
 
+  // The LOA board names a weekly event from the schedule it already holds; a
+  // one-off's name lives on its signup, so it rides along as signup_title.
+  // Best-effort — without it the entry still shows, just unnamed.
+  const withSignupTitles = async (rows) => {
+    const ids = [...new Set(rows.map((e) => e.signup_event_id).filter(Boolean))];
+    if (!ids.length) return rows;
+    const { data, error } = await supabase.from('signup_events').select('id, title').in('id', ids);
+    if (error) { console.error('loa.withSignupTitles error:', error.message); return rows; }
+    const titleOf = new Map((data || []).map((r) => [String(r.id), r.title]));
+    return rows.map((e) => (e.signup_event_id ? { ...e, signup_title: titleOf.get(String(e.signup_event_id)) || null } : e));
+  };
+
   // An optional scheduled event, checked against the night it's being tied to.
   // Against the night it belongs to, not the calendar day it's stored on —
   // otherwise picking Saturday + the 12:30am event is rejected as a mismatch,
@@ -247,17 +267,32 @@ module.exports = function createLoa(supabase, identities = null) {
   // is held to exactly the rules a fresh submission is. Each returns the
   // columns to store plus what the announcement needs — cleaned times rather
   // than the raw input, since "9pm" is accepted but isn't displayable.
-  const eventFields = async ({ eventDate, eventScheduleId, startTime, endTime, reason }) => {
+  // A one-off is named by its signup instead (migration 07), checked against
+  // the night it's being filed for — the same check scheduledEventName makes.
+  const signupEventName = async (signupEventId, eventDate) => {
+    if (!signupEventId) return null;
+    const { data: ev, error: evErr } = await supabase.from('signup_events')
+      .select('id, title, event_date').eq('id', signupEventId).maybeSingle();
+    if (evErr || !ev) throw httpError(400, 'Unknown event.');
+    if (ev.event_date !== eventDate) throw httpError(400, "That event isn't on that date.");
+    return ev.title;
+  };
+
+  const eventFields = async ({ eventDate, eventScheduleId, signupEventId, startTime, endTime, reason }) => {
     if (!isValidDate(eventDate)) throw httpError(400, 'Date must be in YYYY-MM-DD format.');
     const { cleanStart, cleanEnd } = parseTimeWindow(startTime, endTime);
-    if (!eventScheduleId && !cleanStart) throw httpError(400, 'Pick an event or a start time.');
+    if (!eventScheduleId && !signupEventId && !cleanStart) throw httpError(400, 'Pick an event or a start time.');
     const cleanReason = requireReason(reason);
-    const eventName = await scheduledEventName(eventScheduleId, dayOfWeek(eventDate), "That event isn't scheduled on that date.");
+    const eventName = signupEventId
+      ? await signupEventName(signupEventId, eventDate)
+      : await scheduledEventName(eventScheduleId, dayOfWeek(eventDate), "That event isn't scheduled on that date.");
     return {
       cols: {
         type: 'event',
         event_date: eventDate,
-        event_schedule_id: eventScheduleId || null,
+        // One or the other: the signup already says which event it is.
+        event_schedule_id: signupEventId ? null : eventScheduleId || null,
+        signup_event_id: signupEventId || null,
         start_date: null,
         end_date: null,
         start_time: cleanStart,
@@ -307,6 +342,23 @@ module.exports = function createLoa(supabase, identities = null) {
 
   const FIELDS_FOR = { event: eventFields, range: rangeFields, recurring: recurringFields };
 
+  // The name of the event an entry is scoped to, for the Discord notices —
+  // a weekly event's from the schedule, a one-off's from its signup. Never
+  // throws: not knowing it costs a notice a few words, not the notice.
+  const eventNameOf = async (entry) => {
+    if (entry.signup_event_id) {
+      const { data: ev } = await supabase.from('signup_events')
+        .select('title').eq('id', entry.signup_event_id).maybeSingle();
+      return ev?.title || null;
+    }
+    if (entry.event_schedule_id) {
+      const { data: ev } = await supabase.from('event_schedule')
+        .select('name').eq('id', entry.event_schedule_id).single();
+      return ev?.name || null;
+    }
+    return null;
+  };
+
   return {
     isValidDate,
     parseTimeOfDay,
@@ -352,7 +404,11 @@ module.exports = function createLoa(supabase, identities = null) {
     // id to look a time up by, so the caller passes its `eventTime` and
     // `oneOff: true`: then only unscoped LOAs apply — one scoped to a weekly
     // event isn't about this one — and the time window is checked against it.
-    async unavailableOn({ date, eventScheduleId = null, eventTime: oneOffTime = null, oneOff = false }) {
+    //
+    // `signupEventId` is the opened occurrence being asked about, when there is
+    // one. Passing it is what lets an LOA filed for that one occurrence count,
+    // and keeps one filed for a different one-off that night from counting.
+    async unavailableOn({ date, eventScheduleId = null, eventTime: oneOffTime = null, oneOff = false, signupEventId = null }) {
       if (!isValidDate(date)) throw httpError(400, 'Date must be in YYYY-MM-DD format.');
       const dow = dayOfWeek(date);
       // Paged, because this reads EVERY entry and matches in JS — recurring
@@ -371,7 +427,7 @@ module.exports = function createLoa(supabase, identities = null) {
         [data, eventRow] = await Promise.all([
           fetchAll(
             () => supabase.from('loa_entries').select(
-              'discord_id, display_name, type, event_date, event_schedule_id, start_date, end_date, day_of_week, start_time, end_time, reason, skip_dates',
+              'discord_id, display_name, type, event_date, event_schedule_id, signup_event_id, start_date, end_date, day_of_week, start_time, end_time, reason, skip_dates',
             ).order('id'),
             { label: 'loa_entries' },
           ),
@@ -384,7 +440,7 @@ module.exports = function createLoa(supabase, identities = null) {
         throw httpError(500, 'Failed to load LOAs.');
       }
       const eventTime = eventRow?.event_time || oneOffTime || null;
-      const out = matchUnavailable(data, { date, dow, eventScheduleId, eventTime, oneOff });
+      const out = matchUnavailable(data, { date, dow, eventScheduleId, eventTime, oneOff, signupEventId });
       return withNames([...out.values()]);
     },
 
@@ -399,7 +455,7 @@ module.exports = function createLoa(supabase, identities = null) {
       const [data, schedule] = await Promise.all([
         fetchAll(
           () => supabase.from('loa_entries').select(
-            'discord_id, display_name, type, event_date, event_schedule_id, start_date, end_date, day_of_week, start_time, end_time, reason, skip_dates',
+            'discord_id, display_name, type, event_date, event_schedule_id, signup_event_id, start_date, end_date, day_of_week, start_time, end_time, reason, skip_dates',
           ).order('id'),
           { label: 'loa_entries' },
         ),
@@ -423,8 +479,8 @@ module.exports = function createLoa(supabase, identities = null) {
     // it's at/after a given time. `endTime` is optional on top of `startTime`
     // and turns the open-ended cutoff into a window ("out from 7 to 8, back
     // after") — mirrors submitRecurring's same three knobs.
-    async submitEvent({ discordId, displayName, eventDate, eventScheduleId, startTime, endTime, reason }) {
-      const v = await eventFields({ eventDate, eventScheduleId, startTime, endTime, reason });
+    async submitEvent({ discordId, displayName, eventDate, eventScheduleId, signupEventId = null, startTime, endTime, reason }) {
+      const v = await eventFields({ eventDate, eventScheduleId, signupEventId, startTime, endTime, reason });
       const name = await resolveName(discordId, displayName);
       const { data: row, error } = await supabase.from('loa_entries').insert({
         discord_id: discordId,
@@ -484,7 +540,11 @@ module.exports = function createLoa(supabase, identities = null) {
       const toFields = FIELDS_FOR[before.type];
       if (!toFields) throw httpError(400, 'This LOA can\'t be edited.');
 
-      const v = await toFields(fields || {});
+      // An LOA for one one-off stays on it unless the edit says otherwise —
+      // the LOA page's edit form doesn't know about signups and sends none.
+      const given = { ...(fields || {}) };
+      if (before.type === 'event' && given.signupEventId === undefined) given.signupEventId = before.signup_event_id || null;
+      const v = await toFields(given);
       const patch = { ...v.cols };
       // Skipped dates name nights the old weekday landed on. Moved to another
       // day, none of them is one this rule covers any more, and leaving them
@@ -496,12 +556,7 @@ module.exports = function createLoa(supabase, identities = null) {
 
       // Best-effort, as in cancel(): the old event's name only feeds the
       // "was:" line of the notice.
-      let beforeEventName = null;
-      if (before.event_schedule_id) {
-        const { data: ev } = await supabase.from('event_schedule')
-          .select('name').eq('id', before.event_schedule_id).single();
-        beforeEventName = ev?.name || null;
-      }
+      const beforeEventName = await eventNameOf(before);
 
       const [named] = await withNames([before]);
       return {
@@ -525,7 +580,7 @@ module.exports = function createLoa(supabase, identities = null) {
       const { data, error } = await supabase.from('loa_entries').select('*')
         .eq('discord_id', discordId).order('created_at', { ascending: false });
       if (error) throw httpError(500, 'Failed to load LOAs.');
-      return withNames(data || []);
+      return withSignupTitles(await withNames(data || []));
     },
 
     // The LOA board — everyone's entries. Paged for the same reason as
@@ -544,11 +599,11 @@ module.exports = function createLoa(supabase, identities = null) {
         console.error('loa.all error:', err.message);
         throw httpError(500, 'Failed to load LOAs.');
       }
-      return withNames((data || []).map((e) => {
+      return withSignupTitles(await withNames((data || []).map((e) => {
         const out = { ...e };
         if (!isAdmin) delete out.reason;
         return out;
-      }));
+      })));
     },
 
     // Returns the whole entry alongside the message id. The row is about to
@@ -564,12 +619,7 @@ module.exports = function createLoa(supabase, identities = null) {
 
       // Best-effort, and never fatal: the LOA is already gone, and a missing
       // event name costs the notice a few words rather than the whole notice.
-      let eventName = null;
-      if (entry.event_schedule_id) {
-        const { data: ev } = await supabase.from('event_schedule')
-          .select('name').eq('id', entry.event_schedule_id).single();
-        eventName = ev?.name || null;
-      }
+      const eventName = await eventNameOf(entry);
 
       return { messageId: entry.discord_message_id || null, entry: { ...entry, event_name: eventName } };
     },
@@ -621,12 +671,7 @@ module.exports = function createLoa(supabase, identities = null) {
       // Same best-effort lookup cancel() does, and for the same reason: the
       // notice reads better naming the event, and not knowing it costs a few
       // words rather than the notice.
-      let eventName = null;
-      if (entry.event_schedule_id) {
-        const { data: ev } = await supabase.from('event_schedule')
-          .select('name').eq('id', entry.event_schedule_id).single();
-        eventName = ev?.name || null;
-      }
+      const eventName = await eventNameOf(entry);
 
       return { entry: { ...entry, event_name: eventName }, changed: true, skipDates: next };
     },
