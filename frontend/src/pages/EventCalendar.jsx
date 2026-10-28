@@ -157,7 +157,8 @@ export default function EventCalendar() {
   const load = useCallback(() => {
     setError('');
     Promise.all([
-      axios.get('/api/signups'),
+      // Closed ones too, so a one-off stays on its night after it starts.
+      axios.get('/api/signups', { params: { include_closed: 1 } }),
       axios.get('/api/event-schedule'),
       axios.get('/api/loa/all'),
       // Soft-failed, both: the week ahead is still worth showing without them.
@@ -1480,6 +1481,8 @@ function EventRow({ row, busy, onJoin, onLeave, loa = null, showAway = false, on
         <div className="shrink-0">
           {row.started ? (
             <span className="text-ash/40 text-xs">{t('cal.started')}</span>
+          ) : row.occ?.status === 'closed' ? (
+            <span className="text-ash/40 text-xs">{t('signups.status.closed')}</span>
           ) : row.myStatus ? (
             <Button
               variant="secondary" size="none" className="px-3 py-1.5 text-sm"
