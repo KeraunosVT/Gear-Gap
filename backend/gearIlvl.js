@@ -76,7 +76,7 @@ async function parseGearScreenshot(buffer, mimeType) {
 
 const MAX_LEVEL = 80;
 
-// Private bucket — see migrations/016. Nothing here ever calls getPublicUrl();
+// Private bucket — see migrations/02_gear_and_builds.sql. Nothing here ever calls getPublicUrl();
 // reads go through a short-lived signed URL minted by a gated route.
 const BUCKET = 'gear';
 const SIGNED_URL_SECONDS = 300;
@@ -185,7 +185,7 @@ module.exports = function createGearIlvl(supabase) {
     // The stored screenshot row plus a short-lived signed URL for the image.
     //
     // Signed rather than public, and minted per request rather than stored: the
-    // bucket is private (migrations/016), so this URL is the only way to see the
+    // bucket is private (migrations/02_gear_and_builds.sql), so this URL is the only way to see the
     // file, and it expires. Callers must have already checked that the viewer is
     // the member or an officer — this function does no gating of its own, which
     // is exactly why it is never called from a route that hasn't.

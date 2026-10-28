@@ -1,6 +1,6 @@
 // backend/guildSettings.js — the writable half of guild_config.
 //
-// Until migrations/014 none of this was writable at all: it was environment
+// Until migrations/01_guild_and_access.sql none of this was writable at all: it was environment
 // variables and a JSON file in the repo, so renaming the house or moving a
 // channel meant a redeploy. This module is the one place those values can be
 // changed from the app, which makes it also the one place the two ways that

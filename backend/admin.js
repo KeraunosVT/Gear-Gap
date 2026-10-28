@@ -1724,7 +1724,7 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
   }
 
   // Notes ride on a separate UPDATE because save_match()'s body isn't in this
-  // repo to extend (see migrations/026_match_notes.sql). Runs only after the
+  // repo to extend (see migrations/06_war_record.sql). Runs only after the
   // match is saved, so a failure here must not read as a failed save — the
   // officer would upload it again and the war record would hold it twice.
   // Returns an error message for the response, or null.

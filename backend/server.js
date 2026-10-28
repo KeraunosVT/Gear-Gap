@@ -638,7 +638,7 @@ app.get('/api/elite-timers', async (req, res) => {
 // are derived from the same scoreboards, which everyone in the guild can
 // already read in full.
 //
-// Aggregated in SQL (migrations/019). Doing it here would mean paging every
+// Aggregated in SQL (migrations/06_war_record.sql). Doing it here would mean paging every
 // player row of every match on each request; see the note in that migration.
 app.get('/api/guilds/feuds', async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not configured.' });

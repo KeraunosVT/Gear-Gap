@@ -12,7 +12,7 @@ A guild-management web app for a *Throne & Liberty* guild, built around Discord:
 
   **Two windows, deliberately different.** The list narrows to the last 3 games because that answers "who are they running now"; every rate and ▲ behind it comes from that player's *full* history against you, because three games is far too few to call anyone dangerous. A single window can't do both jobs — which is why the roster window is smaller than the marking floor, and a test asserts it stays that way. Not a leaderboard: crowning the top of each column marks somebody in every guild including one where five players are indistinguishable, whereas this marks three in a guild with three carries and **nobody** in an even one — which is itself the answer. The median is taken over that guild's regulars only, borrowed players excluded, so a roster padded with one-match subs can't drag it to zero and turn every regular into an outlier. Ranking is on the stat rather than the class because only 11 of the game's 45 classes have a role mapping anywhere in this app — healing output identifies a healer whatever they're playing.
 
-  Every scoreboard already stored **both** teams; nothing read the enemy half until now. Aggregated in SQL (`migrations/019`–`020`) because answering it in JS would mean paging every player row of every match on each load. Officers holding `names` also get merge controls: a misread rival (`lron Vow` for `Iron Vow`) is *suggested* by name similarity and merged only on confirmation, into a **separate** `enemy_guild_aliases` table — see below.
+  Every scoreboard already stored **both** teams; nothing read the enemy half until now. Aggregated in SQL (`migrations/06_war_record.sql`) because answering it in JS would mean paging every player row of every match on each load. Officers holding `names` also get merge controls: a misread rival (`lron Vow` for `Iron Vow`) is *suggested* by name similarity and merged only on confirmation, into a **separate** `enemy_guild_aliases` table — see below.
 
 - **Player lookup** — click any name on an enemy roster, or search from the Feuds page, to see every guild that name has played under with dates and totals. A name under three guilds in a year is a mercenary; one that moved from a guild you beat to a guild you lose to is worth knowing about. Guild names resolve through the same alias table the Feuds page uses, so a player's history doesn't split across the misreads that page already merges. One of your own members links out to their full profile.
 - **Loot Wishlist** — pick items you want per build (PvP / PvE / Second Build); see live demand
@@ -178,7 +178,7 @@ Two saves are refused rather than confirmed, because neither is recoverable from
 Order matters. Doing step 3 before step 2 leaves the bot with no channels and — because the two role lists gate the admin area and the login itself — nobody able to sign in and fix it.
 
 ```bash
-# 1. Run migrations/014_guild_config.sql in the Supabase SQL editor.
+# 1. Run migrations/01_guild_and_access.sql in the Supabase SQL editor.
 
 # 2. In the DEPLOYMENT'S OWN environment, so it reads the same DISCORD_* values
 #    the server reads. Dry run first; it prints exactly what would change.

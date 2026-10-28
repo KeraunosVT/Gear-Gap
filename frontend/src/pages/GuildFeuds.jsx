@@ -15,7 +15,7 @@ import { useFlash } from '../components/ui/useFlash';
 
 // ── WHO WE FIGHT ────────────────────────────────────────────────────────────
 // Every scoreboard stores both teams; nothing read the enemy half until now.
-// The aggregation is a SQL function (migrations/019) — doing it here would mean
+// The aggregation is a SQL function (migrations/06_war_record.sql) — doing it here would mean
 // paging every player row of every match on each load.
 //
 // Members see the record. Officers holding 'names' additionally get the merge

@@ -1,6 +1,6 @@
 // backend/test/guildFeuds.test.js
 //
-// The aggregation itself is SQL (migrations/019) and can't run here. What can
+// The aggregation itself is SQL (migrations/06_war_record.sql) and can't run here. What can
 // is everything around it — and that is where the damage would be:
 //
 //   - the two guards that stop the enemy alias table corrupting the guild's own

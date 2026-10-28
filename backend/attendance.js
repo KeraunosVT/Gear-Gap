@@ -26,7 +26,7 @@ function httpError(status, message) {
 //   null      — no party. Explicitly recording "there wasn't one".
 //
 // The returned layout is a snapshot, never a join — see the header of
-// migrations/015 for why.
+// migrations/04_attendance.sql for why.
 async function freezeParty(supabase, { rosterId, eventDate, eventScheduleId }) {
   if (rosterId === null) return { roster_id: null, party_layout: null };
 
@@ -99,7 +99,7 @@ module.exports = function createAttendance(supabase) {
       // nothing explaining why.
       const party = await freezeParty(supabase, { rosterId, eventDate, eventScheduleId });
 
-      // One transaction via the save_event function (migrations/012), the same
+      // One transaction via the save_event function (migrations/04_attendance.sql), the same
       // pattern save_match uses. This was two inserts with a compensating delete
       // if the second failed — a hand-rolled rollback whose own failure path
       // (delete fails too) leaves an event with zero attendees and nothing
@@ -108,7 +108,7 @@ module.exports = function createAttendance(supabase) {
       // follow-up UPDATE. A second statement would be outside the function's
       // transaction, so a failure there would leave a saved event whose party
       // is missing — the exact split-write this function exists to prevent.
-      // migrations/015 adds them, defaulted, and explains why the old signature
+      // migrations/04_attendance.sql adds them, defaulted, and explains why the old signature
       // had to be dropped rather than replaced.
       const { data: inserted, error } = await supabase.rpc('save_event', {
         p_id: eventId,

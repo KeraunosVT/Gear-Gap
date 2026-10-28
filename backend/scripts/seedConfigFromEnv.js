@@ -60,11 +60,11 @@ async function main() {
     .from('guild_config').select('*').eq('id', 1).maybeSingle();
   if (readErr) {
     console.error('Could not read guild_config:', readErr.message);
-    console.error('Has migrations/014_guild_config.sql been run?');
+    console.error('Has migrations/01_guild_and_access.sql been run?');
     process.exit(1);
   }
   if (!existing) {
-    console.error('guild_config has no row 1 — run migrations/014_guild_config.sql first.');
+    console.error('guild_config has no row 1 — run migrations/01_guild_and_access.sql first.');
     process.exit(1);
   }
 

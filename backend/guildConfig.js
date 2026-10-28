@@ -1,4 +1,4 @@
-// backend/guildConfig.js — the read side of guild_config (migrations/014).
+// backend/guildConfig.js — the read side of guild_config (migrations/01_guild_and_access.sql).
 //
 // Every value that used to be a `process.env.DISCORD_*` const at module scope
 // or a field in shared/guild.json now comes from here. That change is the whole
@@ -105,7 +105,7 @@ async function fetchRow() {
     return null;
   }
   if (!data) {
-    console.error('guildConfig: no row 1 — run migrations/014_guild_config.sql.');
+    console.error('guildConfig: no row 1 — run migrations/01_guild_and_access.sql.');
     return null;
   }
   return normalise(data);
