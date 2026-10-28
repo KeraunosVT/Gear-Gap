@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import ScheduleManager from '../components/ScheduleManager';
 import WeekTimeGrid from '../components/WeekTimeGrid';
+import CategorySelect from '../components/CategorySelect';
 import {
   NightCard, placeTime, standing, timeLeft, STANDING_ICON, STANDING_LABEL,
 } from '../components/AttendanceNight';
@@ -214,6 +215,9 @@ export default function EventCalendar() {
         fromSchedule: true,
         title: occ?.title || s.name,
         eventTime: occ?.event_time || s.event_time || null,
+        // The schedule's own, live, so changing a weekly event's type recolours
+        // nights already opened too; the occurrence's copy is the fallback.
+        category: s.category || occ?.category || null,
         occ,
         attendance: claim((a) => String(a.event_schedule_id) === String(s.id)),
       };
@@ -231,6 +235,7 @@ export default function EventCalendar() {
       scheduleId: o.event_schedule_id || null,
       title: o.title,
       eventTime: o.event_time || null,
+      category: o.category || null,
       occ: o,
       // A one-off signup and the night logged for it share no id, only a
       // night and a name.
@@ -245,6 +250,7 @@ export default function EventCalendar() {
       scheduleId: a.event_schedule_id || null,
       title: a.title,
       eventTime: placeTime(a),
+      category: schedule.find((s) => a.event_schedule_id && String(s.id) === String(a.event_schedule_id))?.category || null,
       occ: null,
       attendance: a,
     }));
@@ -715,7 +721,7 @@ function Night({ night, isTonight, busy, onJoin, onLeave, loa, showAway, onDetai
 function WeekGrid({ nights, today, nowSlot, showAway, selected, onSelect }) {
   const { t } = useT();
   const isPicked = (date, key) => selected?.date === date && selected?.key === key;
-  const present = new Set(nights.flatMap((n) => n.rows.map((r) => categoryOf(r.title).key)));
+  const present = new Set(nights.flatMap((n) => n.rows.map((r) => categoryOf(r.title, r.category).key)));
 
   return (
     <WeekTimeGrid
@@ -748,7 +754,7 @@ function WeekGrid({ nights, today, nowSlot, showAway, selected, onSelect }) {
 // you were counted, outlined when you weren't (dashed while you can still ask).
 function Block({ row, fill = false, showAway = false, picked = false, onClick }) {
   const { t } = useT();
-  const cat = categoryOf(row.title);
+  const cat = categoryOf(row.title, row.category);
   const mine = row.myStatus === 'going';
   const awayCount = row.awayList?.length || 0;
   const ring = picked ? 'ring-2 ring-bone ring-offset-1 ring-offset-panel' : '';
@@ -827,7 +833,7 @@ function EventDetail({ night, row, busy, onJoin, onLeave, loa, late, onDelete = 
   return (
     <div>
       <div className="flex items-baseline gap-2 mb-3">
-        <span className="w-2.5 h-2.5 rounded-full self-center" style={{ background: categoryOf(row.title).color }} />
+        <span className="w-2.5 h-2.5 rounded-full self-center" style={{ background: categoryOf(row.title, row.category).color }} />
         <h2 className="font-display text-lg tracking-[0.08em] text-bone">{DAY_TITLE(night.dow)}</h2>
         <span className="text-ash text-sm">{shortDate(night.date)}</span>
       </div>
@@ -936,6 +942,7 @@ function NewEventModal({ canOneOff, canWeekly, defaultDate, onClose, onCreated }
   const { t } = useT();
   const [kind, setKind] = useState(canOneOff ? 'once' : 'weekly');
   const [title, setTitle] = useState('');
+  const [category, setCategory] = useState(''); // '' = work it out from the name
   const [date, setDate] = useState(defaultDate);
   const [night, setNight] = useState(String(dowOf(defaultDate)));
   const [time, setTime] = useState('');
@@ -952,7 +959,7 @@ function NewEventModal({ canOneOff, canWeekly, defaultDate, onClose, onCreated }
       if (kind === 'once') {
         const res = await axios.post('/api/admin/signups', {
           event_date: date, title: title.trim(), event_time: time || null,
-          capacity: capacity || null, announce,
+          category: category || null, capacity: capacity || null, announce,
         });
         onCreated(res.data.created
           ? t(announce ? 'cal.addedForPosted' : 'cal.addedFor', { title: title.trim(), date: shortDate(date) })
@@ -963,6 +970,7 @@ function NewEventModal({ canOneOff, canWeekly, defaultDate, onClose, onCreated }
           name: title.trim(),
           day_of_week: isAfterMidnight(time) ? (n + 1) % 7 : n,
           event_time: time || null,
+          category: category || null,
         });
         onCreated(t('cal.addedEvery', { title: title.trim(), day: DAY_NAME(n) }));
       }
@@ -993,6 +1001,11 @@ function NewEventModal({ canOneOff, canWeekly, defaultDate, onClose, onCreated }
         <div>
           <label className="eyebrow text-[10px] text-ash block mb-2">{t('cal.name')}</label>
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('cal.namePlaceholder')} className={FIELD} autoFocus />
+        </div>
+
+        <div>
+          <label className="eyebrow text-[10px] text-ash block mb-2">{t('cal.type')}</label>
+          <CategorySelect value={category} onChange={setCategory} title={title} className={FIELD} />
         </div>
 
         <div className="flex gap-3">

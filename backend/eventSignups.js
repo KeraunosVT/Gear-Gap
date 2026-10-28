@@ -43,6 +43,14 @@ const addDays = (dateStr, n) => {
 
 const dayOfWeek = (dateStr) => new Date(dateStr + 'T12:00:00').getDay();
 
+// An event type key (migration 036), or null for "work it out from the name".
+// Only the shape is checked: the list of types lives in the frontend, which
+// treats a key it doesn't know as null anyway.
+const categoryKey = (v) => {
+  const s = String(v || '').trim();
+  return /^[a-z_]{1,40}$/.test(s) ? s : null;
+};
+
 // The UTC instant an occurrence actually starts. `nightDate` is the guild night;
 // an after-midnight event occurs on the *following* calendar day, which is the
 // same shift the schedule itself stores and Home.jsx's nextOccurrences() applies.
@@ -141,7 +149,7 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
     // A second open for the same occasion returns the existing row rather than
     // erroring: an officer double-submitting wants the post they already made,
     // not a duplicate or a stack trace.
-    async open({ eventDate, eventScheduleId = null, title = '', eventTime: rawTime = null, capacity = null, reminderMinutes = null, createdBy = null }) {
+    async open({ eventDate, eventScheduleId = null, title = '', eventTime: rawTime = null, category = null, capacity = null, reminderMinutes = null, createdBy = null }) {
       if (!isValidDate(eventDate)) throw httpError(400, 'Date must be in YYYY-MM-DD format.');
 
       // A one-off event's own time. Ignored when a schedule entry is given —
@@ -153,6 +161,8 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
         if (!eventTime) throw httpError(400, 'Time must be a valid time, e.g. 9:00 PM.');
       }
       let eventName = (title || '').trim();
+      // Same rule as the time: a scheduled event's type comes from the schedule.
+      let eventCategory = eventScheduleId ? null : categoryKey(category);
       if (eventScheduleId) {
         // '*' rather than naming skip_dates, so a database without 031 still
         // opens signups instead of failing every one.
@@ -168,6 +178,7 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
           throw httpError(400, `${ev.name} doesn't run on that night.`);
         }
         eventTime = ev.event_time || null;
+        eventCategory = categoryKey(ev.category);
         if (!eventName) eventName = ev.name;
       }
       if (!eventName) throw httpError(400, 'A title is required for an event with no schedule entry.');
@@ -183,6 +194,7 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
         event_schedule_id: eventScheduleId || null,
         title: eventName.slice(0, 120),
         event_time: eventTime,
+        category: eventCategory,
         starts_at: startsAt ? startsAt.toISOString() : null,
         capacity: cap,
         reminder_minutes: remind,
@@ -562,6 +574,9 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
     // eventDetail exists. See `walk_in` and the `noshow_signed` status there.
   };
 };
+
+// For the schedule routes in admin.js, which take the same field.
+module.exports.categoryKey = categoryKey;
 
 // LOA reasons are officer-only everywhere else (loa.all strips them for
 // non-admins), so they're stripped here too unless the caller proved the

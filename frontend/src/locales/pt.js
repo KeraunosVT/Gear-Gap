@@ -307,6 +307,8 @@ export default {
   'cal.weekly': 'Semanal',
   'cal.name': 'Nome',
   'cal.namePlaceholder': 'ex.: Archboss — Morokai',
+  'cal.type': 'Tipo',
+  'cal.typeAuto': 'Automático pelo nome ({type})',
   'cal.night': 'Noite',
   'cal.every': 'Toda',
   'cal.timeOptional': 'Horário (opcional)',

@@ -3,6 +3,8 @@ import axios from 'axios';
 import { Plus, Trash2, X, Pencil, Check, RotateCcw } from 'lucide-react';
 
 import { fmtTimeEst, isAfterMidnight, guildDayOfWeek, todayInGuildTz } from '../timeUtils';
+import { categoryOf } from '../eventCategories';
+import CategorySelect from './CategorySelect';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const shortDate = (dateStr) =>
@@ -24,11 +26,13 @@ export default function ScheduleManager({ schedule, onChanged }) {
   const [newName, setNewName] = useState('');
   const [newDay, setNewDay] = useState('');
   const [newTime, setNewTime] = useState('');
+  const [newCategory, setNewCategory] = useState('');
 
   const [editingId, setEditingId] = useState(null);
   const [editName, setEditName] = useState('');
   const [editDay, setEditDay] = useState('');
   const [editTime, setEditTime] = useState('');
+  const [editCategory, setEditCategory] = useState('');
   const [saving, setSaving] = useState(false);
 
   const say = (text, ok = true) => setMsg({ text, ok });
@@ -36,8 +40,10 @@ export default function ScheduleManager({ schedule, onChanged }) {
   const add = async () => {
     if (!newName.trim() || newDay === '') return;
     try {
-      await axios.post('/api/admin/event-schedule', { name: newName.trim(), day_of_week: parseInt(newDay, 10), event_time: newTime || null });
-      setNewName(''); setNewDay(''); setNewTime('');
+      await axios.post('/api/admin/event-schedule', {
+        name: newName.trim(), day_of_week: parseInt(newDay, 10), event_time: newTime || null, category: newCategory || null,
+      });
+      setNewName(''); setNewDay(''); setNewTime(''); setNewCategory('');
       onChanged();
       say('Event added to schedule.');
     } catch (err) {
@@ -74,6 +80,7 @@ export default function ScheduleManager({ schedule, onChanged }) {
     setEditName(s.name);
     setEditDay(String(s.day_of_week));
     setEditTime(s.event_time || '');
+    setEditCategory(s.category || '');
   };
 
   const save = async (id) => {
@@ -84,6 +91,7 @@ export default function ScheduleManager({ schedule, onChanged }) {
         name: editName.trim(),
         day_of_week: parseInt(editDay, 10),
         event_time: editTime || null,
+        category: editCategory || null,
       });
       setEditingId(null);
       onChanged();
@@ -108,6 +116,7 @@ export default function ScheduleManager({ schedule, onChanged }) {
           {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
         </select>
         <input type="time" value={newTime} onChange={(e) => setNewTime(e.target.value)} className={FIELD} title="Event time, guild time (optional)" />
+        <CategorySelect value={newCategory} onChange={setNewCategory} title={newName} className={FIELD} />
         <button
           onClick={add} disabled={!newName.trim() || newDay === ''} title="Add to schedule"
           className="px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40"
@@ -132,6 +141,8 @@ export default function ScheduleManager({ schedule, onChanged }) {
               </select>
               <input type="time" value={editTime} onChange={(e) => setEditTime(e.target.value)}
                 className="bg-panel border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass" />
+              <CategorySelect value={editCategory} onChange={setEditCategory} title={editName}
+                className="bg-panel border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass" />
               <button onClick={() => save(s.id)} disabled={saving || !editName.trim()}
                 className="px-3 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40">
                 <Check className="w-4 h-4" />
@@ -143,7 +154,9 @@ export default function ScheduleManager({ schedule, onChanged }) {
           ) : (
             <div key={s.id} className="bg-hall border border-line rounded-lg px-3 py-2">
               <div className="flex items-center justify-between gap-3">
-                <span className="text-bone text-sm">{s.name} <span className="text-ash">— {DAYS[s.day_of_week]}{s.event_time ? ` at ${fmtTimeEst(s.event_time)}` : ''}</span>
+                <span className="text-bone text-sm">
+                  <span className="inline-block w-2 h-2 rounded-full mr-1.5 align-middle" style={{ background: categoryOf(s.name, s.category).color }} />
+                  {s.name} <span className="text-ash">— {DAYS[s.day_of_week]}{s.event_time ? ` at ${fmtTimeEst(s.event_time)}` : ''}</span>
                   {isAfterMidnight(s.event_time) && (
                     <span className="text-brass"> · {DAYS[guildDayOfWeek(s.day_of_week, s.event_time)]} night</span>
                   )}

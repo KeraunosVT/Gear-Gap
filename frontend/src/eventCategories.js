@@ -1,10 +1,14 @@
 // Event categories for the calendar's colours and legend.
 //
-// Read off the event's name, because neither the schedule nor a one-off signup
-// stores a type — "Arch Boss — Morokai" is an Arch Boss by its name alone.
-// First match wins, so the narrower patterns sit above the broader ones they
-// would otherwise lose to: "War Games" before "War". Anything unmatched is
-// Other.
+// An event can carry its type (migration 036), picked when it's added. Most
+// rows don't — everything made before that, and anything left on "Auto" — so
+// those are read off the name: "Arch Boss — Morokai" is an Arch Boss by its
+// name alone. First match wins, so the narrower patterns sit above the broader
+// ones they would otherwise lose to: "War Games" before "War". Anything
+// unmatched is Other.
+//
+// The keys are what gets stored. Renaming one orphans every row that has it
+// (they fall back to the name), so add new keys rather than renaming.
 //
 // Every colour sits under white 11px text on the calendar, so each is dark
 // enough to hold roughly 4.5:1 against white.
@@ -26,7 +30,13 @@ export const CATEGORIES = [
 
 export const OTHER = { key: 'other', label: 'Other', color: '#515c51' };
 
-export function categoryOf(title) {
+// The type an event was given wins; a key this list doesn't know (or none at
+// all) falls back to the name.
+export function categoryOf(title, key = null) {
+  if (key) {
+    const picked = key === OTHER.key ? OTHER : CATEGORIES.find((c) => c.key === key);
+    if (picked) return picked;
+  }
   const t = String(title || '');
   return CATEGORIES.find((c) => c.match.test(t)) || OTHER;
 }

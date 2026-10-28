@@ -311,6 +311,8 @@ export default {
   'cal.weekly': 'Weekly',
   'cal.name': 'Name',
   'cal.namePlaceholder': 'e.g. Archboss — Morokai',
+  'cal.type': 'Type',
+  'cal.typeAuto': 'Auto from name ({type})',
   'cal.night': 'Night',
   'cal.every': 'Every',
   'cal.timeOptional': 'Time (optional)',

@@ -2450,12 +2450,12 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
 
   router.post('/signups', async (req, res) => {
     if (!signups) return res.status(503).json({ error: 'Database not configured.' });
-    const { event_date, event_schedule_id, title, event_time, capacity, reminder_minutes, announce } = req.body || {};
+    const { event_date, event_schedule_id, title, event_time, category, capacity, reminder_minutes, announce } = req.body || {};
     try {
       const { row, created } = await signups.open({
         eventDate: event_date || todayInGuildTz(),
         eventScheduleId: event_schedule_id || null,
-        title, eventTime: event_time || null, capacity, reminderMinutes: reminder_minutes,
+        title, eventTime: event_time || null, category, capacity, reminderMinutes: reminder_minutes,
         createdBy: req.user?.id || null,
       });
       res.json({ signup: row, created });
@@ -2556,13 +2556,16 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
   // ── Event schedule management ────────────────────────────────────────────────
   router.post('/event-schedule', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-    const { name, day_of_week, event_time } = req.body || {};
+    const { name, day_of_week, event_time, category } = req.body || {};
     if (!name || day_of_week === undefined) return res.status(400).json({ error: 'Name and day of week required.' });
     const dow = parseInt(day_of_week, 10);
     if (!Number.isFinite(dow) || dow < 0 || dow > 6) return res.status(400).json({ error: 'Day must be 0 (Sun) – 6 (Sat).' });
     const id = crypto.randomUUID();
     const row = { id, name: String(name).slice(0, 120), day_of_week: dow };
     if (event_time) row.event_time = String(event_time).slice(0, 5);
+    // Only sent when picked, so a database without 036 can still add events
+    // the old way.
+    if (createEventSignups.categoryKey(category)) row.category = createEventSignups.categoryKey(category);
     const { error } = await supabase.from('event_schedule').insert(row);
     if (error) return res.status(500).json({ error: 'Failed to create event.' });
     res.json({ id });
@@ -2570,8 +2573,9 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
 
   router.put('/event-schedule/:id', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-    const { name, day_of_week, event_time } = req.body || {};
+    const { name, day_of_week, event_time, category } = req.body || {};
     const update = {};
+    if (category !== undefined) update.category = createEventSignups.categoryKey(category);
     if (name !== undefined) update.name = String(name).slice(0, 120);
     if (day_of_week !== undefined) {
       const dow = parseInt(day_of_week, 10);
