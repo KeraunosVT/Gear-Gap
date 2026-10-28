@@ -443,6 +443,51 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
       return data;
     },
 
+    // A one-off's own facts: name, night, time, type. A scheduled occurrence
+    // takes all four from its schedule entry, so it is refused here rather than
+    // allowed to drift from it — that edit belongs on the schedule.
+    async setDetails(id, { title, eventDate, eventTime, category } = {}) {
+      const event = await loadEvent(id);
+      if (event.event_schedule_id) throw httpError(400, 'A weekly event is edited on the schedule, not one night at a time.');
+
+      const update = {};
+      if (title !== undefined) {
+        const name = String(title || '').trim();
+        if (!name) throw httpError(400, 'A title is required.');
+        update.title = name.slice(0, 120);
+      }
+      if (eventDate !== undefined) {
+        if (!isValidDate(eventDate)) throw httpError(400, 'Date must be in YYYY-MM-DD format.');
+        update.event_date = eventDate;
+      }
+      if (eventTime !== undefined) {
+        const time = eventTime ? createLoa.parseTimeOfDay(eventTime) : null;
+        if (eventTime && !time) throw httpError(400, 'Time must be a valid time, e.g. 9:00 PM.');
+        update.event_time = time;
+      }
+      if (category !== undefined) update.category = categoryKey(category);
+      if (!Object.keys(update).length) return event;
+
+      // starts_at drives reminders and auto-close, so it follows the night and
+      // time. A move re-arms the reminder: one already sent was for the old time.
+      if ('event_date' in update || 'event_time' in update) {
+        const startsAt = resolveStartsAt(update.event_date ?? event.event_date,
+          'event_time' in update ? update.event_time : event.event_time);
+        const before = event.starts_at ? new Date(event.starts_at).getTime() : null;
+        const after = startsAt ? startsAt.getTime() : null;
+        update.starts_at = startsAt ? startsAt.toISOString() : null;
+        if (before !== after) update.reminder_sent_at = null;
+      }
+
+      const { data, error } = await supabase.from('signup_events')
+        .update({ ...update, updated_at: new Date().toISOString() }).eq('id', id).select('*').single();
+      if (error || !data) {
+        console.error('signups.setDetails error:', error?.message);
+        throw httpError(500, 'Failed to update that event.');
+      }
+      return data;
+    },
+
     async setReminderMinutes(id, minutes) {
       const remind = minutes == null || minutes === '' ? null : parseInt(minutes, 10);
       if (remind != null && (!Number.isFinite(remind) || remind < 1)) throw httpError(400, 'Reminder must be a positive number of minutes.');

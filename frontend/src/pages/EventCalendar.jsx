@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import axios from 'axios';
 import {
   CalendarRange, Check, ChevronLeft, ChevronRight, Clock, Loader2, Users, CalendarOff, AlertTriangle, Plus,
-  LayoutGrid, List, Settings, Trash2, X, Send, Sun,
+  LayoutGrid, List, Settings, Trash2, X, Send, Sun, Pencil,
 } from 'lucide-react';
 import ScheduleManager from '../components/ScheduleManager';
 import WeekTimeGrid from '../components/WeekTimeGrid';
@@ -129,6 +129,7 @@ export default function EventCalendar() {
   const canOneOff = can('attendance');
   const canWeekly = can('schedule');
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState(null); // the one-off row being edited
   const [managing, setManaging] = useState(false);
   const [posting, setPosting] = useState(false);
   const [loaRow, setLoaRow] = useState(null); // the event the LOA form is open for
@@ -358,6 +359,8 @@ export default function EventCalendar() {
     });
   };
   const onDelete = canOneOff ? removeOneOff : null;
+  // Same capability as deleting: a one-off is its signup.
+  const onEdit = canOneOff ? (row) => setEditing(row) : null;
 
   // One night of a weekly event, cancelled without touching the rest of the
   // series. If signups were already opened for it they go too — otherwise the
@@ -550,6 +553,20 @@ export default function EventCalendar() {
         />
       )}
 
+      {editing && (
+        <EditOneOffModal
+          row={editing}
+          onClose={() => setEditing(null)}
+          onSaved={(text, date) => {
+            setEditing(null);
+            // Follow it if it moved night, so the panel doesn't go blank.
+            setSelected({ date, key: editing.key });
+            flash(text);
+            load();
+          }}
+        />
+      )}
+
       {loaRow && (
         <LoaModal
           row={loaRow}
@@ -586,7 +603,7 @@ export default function EventCalendar() {
           <Modal onClose={() => setSelected(null)} scrollable>
             <EventDetail
               night={selectedNight} row={{ ...selectedRow, date: selectedNight.date }}
-              busy={busy} onJoin={signUp} onLeave={withdraw} loa={loaActions} late={late} onDelete={onDelete}
+              busy={busy} onJoin={signUp} onLeave={withdraw} loa={loaActions} late={late} onDelete={onDelete} onEdit={onEdit}
               onSkip={onSkip && canSkip({ ...selectedRow, date: selectedNight.date }) ? onSkip : null}
             />
           </Modal>
@@ -666,7 +683,7 @@ export default function EventCalendar() {
                     </button>
                     <EventDetail
                       night={selectedNight} row={{ ...selectedRow, date: selectedNight.date }}
-                      busy={busy} onJoin={signUp} onLeave={withdraw} loa={loaActions} late={late} onDelete={onDelete}
+                      busy={busy} onJoin={signUp} onLeave={withdraw} loa={loaActions} late={late} onDelete={onDelete} onEdit={onEdit}
                       onSkip={onSkip && canSkip({ ...selectedRow, date: selectedNight.date }) ? onSkip : null}
                     />
                   </div>
@@ -813,7 +830,7 @@ function Block({ row, fill = false, showAway = false, picked = false, onClick })
 // counts — so it is fetched when the event has been opened. It is used for one
 // thing: flagging anyone who is both on LOA and signed up, which the officer
 // has to resolve and which the server already works out as `conflicts`.
-function EventDetail({ night, row, busy, onJoin, onLeave, loa, late, onDelete = null, onSkip = null }) {
+function EventDetail({ night, row, busy, onJoin, onLeave, loa, late, onDelete = null, onSkip = null, onEdit = null }) {
   const { t, rich } = useT();
   const [conflictIds, setConflictIds] = useState(() => new Set());
 
@@ -904,7 +921,12 @@ function EventDetail({ night, row, busy, onJoin, onLeave, loa, late, onDelete = 
 
       {/* An opened signup with no schedule entry behind it is a one-off. */}
       {onDelete && row.signupId && !row.scheduleId && (
-        <div className="mt-5 pt-4 border-t border-line flex justify-end">
+        <div className="mt-5 pt-4 border-t border-line flex justify-end gap-2">
+          {onEdit && (
+            <Button variant="secondary" size="sm" icon={<Pencil className="w-4 h-4" />} onClick={() => onEdit(row)}>
+              {t('cal.editEvent')}
+            </Button>
+          )}
           <Button
             variant="destructive" size="sm" icon={<Trash2 className="w-4 h-4" />}
             disabled={busy === `del:${row.key}`} onClick={() => onDelete(row)}
@@ -1052,6 +1074,87 @@ function NewEventModal({ canOneOff, canWeekly, defaultDate, onClose, onCreated }
           <Button type="button" variant="neutral" size="sm" onClick={onClose}>{t('common.cancel')}</Button>
           <Button type="submit" size="sm" disabled={saving}>
             {saving && <Loader2 className="w-4 h-4 animate-spin" />} {t('cal.create')}
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+// ── EDIT A ONE-OFF ──────────────────────────────────────────────────────────
+// Name, night, time, type and cap. Weekly events aren't offered this — their
+// nights take all of it from the schedule, which is edited in Manage schedule.
+// The Discord post, if there is one, is re-rendered by the server.
+function EditOneOffModal({ row, onClose, onSaved }) {
+  const { t } = useT();
+  const occ = row.occ || {};
+  const [title, setTitle] = useState(row.title || '');
+  const [category, setCategory] = useState(occ.category || '');
+  const [date, setDate] = useState(occ.event_date || row.date);
+  const [time, setTime] = useState(occ.event_time ? String(occ.event_time).slice(0, 5) : '');
+  const [capacity, setCapacity] = useState(occ.capacity ?? '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!title.trim()) { setError(t('cal.needName')); return; }
+    setSaving(true); setError('');
+    try {
+      const body = {
+        title: title.trim(), event_date: date, event_time: time || null, category: category || null,
+      };
+      // Only when changed: setting the cap runs the waitlist promotion, which
+      // shouldn't fire because someone fixed a typo in the name.
+      if (String(capacity ?? '') !== String(occ.capacity ?? '')) body.capacity = capacity === '' ? null : capacity;
+      await axios.patch(`/api/admin/signups/${row.signupId}`, body);
+      onSaved(t('cal.updated', { title: title.trim() }), date);
+    } catch (err) {
+      setError(err.response?.data?.error || t('cal.updateFailed'));
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal onClose={onClose}>
+      <form onSubmit={submit} className="space-y-4">
+        <h2 className="font-display text-lg tracking-[0.08em] text-bone">{t('cal.editEvent')}</h2>
+
+        <div>
+          <label className="eyebrow text-[10px] text-ash block mb-2">{t('cal.name')}</label>
+          <input value={title} onChange={(e) => setTitle(e.target.value)} className={FIELD} autoFocus />
+        </div>
+
+        <div>
+          <label className="eyebrow text-[10px] text-ash block mb-2">{t('cal.type')}</label>
+          <CategorySelect value={category} onChange={setCategory} title={title} className={FIELD} />
+        </div>
+
+        <div className="flex gap-3">
+          <div className="flex-1">
+            <label className="eyebrow text-[10px] text-ash block mb-2">{t('cal.night')}</label>
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required className={FIELD} />
+          </div>
+          <div className="w-36">
+            <label className="eyebrow text-[10px] text-ash block mb-2">{t('cal.timeOptional')}</label>
+            <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className={FIELD} />
+          </div>
+        </div>
+        {isAfterMidnight(time) && (
+          <p className="text-xs text-ash/70 -mt-2">{t('cal.afterMidnightNote')}</p>
+        )}
+
+        <div className="w-36">
+          <label className="eyebrow text-[10px] text-ash block mb-2">{t('cal.capOptional')}</label>
+          <input type="number" min="1" value={capacity} onChange={(e) => setCapacity(e.target.value)} placeholder={t('cal.noLimit')} className={FIELD} />
+        </div>
+
+        {error && <div className="text-sm text-oxblood">{error}</div>}
+
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="neutral" size="sm" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button type="submit" size="sm" disabled={saving}>
+            {saving && <Loader2 className="w-4 h-4 animate-spin" />} {t('cal.save')}
           </Button>
         </div>
       </form>

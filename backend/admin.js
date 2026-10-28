@@ -2470,9 +2470,15 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
 
   router.patch('/signups/:id', async (req, res) => {
     if (!signups) return res.status(503).json({ error: 'Database not configured.' });
-    const { capacity, status, reminder_minutes } = req.body || {};
+    const { capacity, status, reminder_minutes, title, event_date, event_time, category } = req.body || {};
     try {
       let promoted = [];
+      // First, so a refused edit (a weekly night, a bad time) changes nothing.
+      if ([title, event_date, event_time, category].some((v) => v !== undefined)) {
+        await signups.setDetails(req.params.id, {
+          title, eventDate: event_date, eventTime: event_time, category,
+        });
+      }
       if (capacity !== undefined) promoted = await signups.setCapacity(req.params.id, capacity);
       if (reminder_minutes !== undefined) await signups.setReminderMinutes(req.params.id, reminder_minutes);
       if (status !== undefined) await signups.setStatus(req.params.id, status);

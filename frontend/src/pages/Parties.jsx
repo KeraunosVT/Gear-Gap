@@ -952,7 +952,7 @@ export default function Parties() {
             ))}
             {oneOffs.map((o) => (
               <option key={o.id} value={`signup:${o.id}`}>
-                {o.title}{o.event_time ? ` — ${fmtTimeEst(o.event_time)}` : ''} (one-off)
+                {o.title}{o.event_time ? ` — ${fmtTimeEst(o.event_time)}` : ''}
               </option>
             ))}
           </select>
