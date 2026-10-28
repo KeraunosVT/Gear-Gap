@@ -854,7 +854,7 @@ app.delete('/api/loa/:id', async (req, res) => {
 // type is submitted with; the type itself can't change.
 app.patch('/api/loa/:id', async (req, res) => {
   if (!loa) return res.status(503).json({ error: 'Database not configured.' });
-  const { event_date, event_schedule_id, start_date, end_date, day_of_week, start_time, end_time, reason } = req.body || {};
+  const { event_date, event_schedule_id, signup_event_id, start_date, end_date, day_of_week, start_time, end_time, reason } = req.body || {};
   try {
     const { messageId, before, after } = await loa.update({
       id: req.params.id,
@@ -863,6 +863,8 @@ app.patch('/api/loa/:id', async (req, res) => {
       fields: {
         eventDate: event_date,
         eventScheduleId: event_schedule_id,
+        // Left out, an LOA for a one-off keeps its one-off; null clears it.
+        signupEventId: signup_event_id,
         startDate: start_date,
         endDate: end_date,
         dayOfWeek: parseInt(day_of_week, 10),

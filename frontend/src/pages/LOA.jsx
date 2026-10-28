@@ -14,6 +14,10 @@ import { useT, fmtDay, weekdayName } from '../i18n';
 
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
+// Marks a one-off in the Single event picker, whose other values are schedule
+// ids — the same `signup:` prefix the party builder's event picker uses.
+const SIGNUP_PICK = 'signup:';
+
 export default function LOA() {
   const { t, lang } = useT();
   // Weekday names in the site language, Sunday first. Built per render (not at
@@ -30,7 +34,9 @@ export default function LOA() {
   const [tab, setTab] = useState('submit');
   const [loaType, setLoaType] = useState('event');
   const [eventDate, setEventDate] = useState('');
+  // The Single event pick: a schedule id, or `signup:<id>` for a one-off.
   const [eventScheduleId, setEventScheduleId] = useState('');
+  const [signupList, setSignupList] = useState([]);
   const [eventStartTime, setEventStartTime] = useState('');
   const [eventEndTime, setEventEndTime] = useState('');
   const [startDate, setStartDate] = useState('');
@@ -74,11 +80,16 @@ export default function LOA() {
       axios.get('/api/event-schedule'),
       axios.get('/api/loa'),
       axios.get('/api/loa/all'),
+      // Upcoming signups, for the one-offs the Single event picker offers.
+      // Soft-failed: the form still works for weekly events without them.
+      axios.get('/api/signups')
+        .catch((err) => { console.error('signups load failed:', err.message); return { data: { signups: [] } }; }),
     ])
-      .then(([sched, mine, all]) => {
+      .then(([sched, mine, all, sig]) => {
         setSchedule(sched.data.schedule || []);
         setMyEntries(mine.data.entries || []);
         setAllEntries(all.data.entries || []);
+        setSignupList(sig.data.signups || []);
       })
       .catch((err) => setError(err.response?.data?.error || t('loapage.loadFailed')))
       .finally(() => setLoading(false));
@@ -103,6 +114,27 @@ export default function LOA() {
     if (!eventDate) return [];
     return eventsForGuildDay(schedule, new Date(eventDate + 'T12:00:00').getDay(), eventDate);
   }, [eventDate, schedule]);
+
+  // One-off events opened for that night (signups with no schedule entry). An
+  // LOA for one is tied to its signup, so it covers that event alone, with or
+  // without a time. The one being edited is kept even once it has passed out
+  // of the upcoming list, so the picker still shows what the LOA is for.
+  const oneOffsOnDate = useMemo(() => {
+    if (!eventDate) return [];
+    const list = signupList
+      .filter((o) => o.event_date === eventDate && !o.event_schedule_id)
+      .map((o) => ({ id: o.id, title: o.title, event_time: o.event_time }));
+    const own = editing?.signup_event_id;
+    if (own && editing.event_date === eventDate && !list.some((o) => String(o.id) === String(own))) {
+      list.push({ id: own, title: editing.signup_title || t('loapage.event'), event_time: null });
+    }
+    return list;
+  }, [eventDate, signupList, editing]);
+
+  // The picker's value split back into the two fields the API takes.
+  const pickedEvent = () => (eventScheduleId.startsWith(SIGNUP_PICK)
+    ? { event_schedule_id: undefined, signup_event_id: eventScheduleId.slice(SIGNUP_PICK.length) }
+    : { event_schedule_id: eventScheduleId || undefined, signup_event_id: null });
 
   // An event is tied to one specific weekday, so it can only scope a recurring
   // LOA when exactly one day is picked — with several days selected there's no
@@ -182,7 +214,7 @@ export default function LOA() {
         await axios.post('/api/loa', {
           type: 'event',
           event_date: eventDate,
-          event_schedule_id: eventScheduleId || undefined,
+          ...pickedEvent(),
           start_time: eventStartTime || undefined,
           end_time: eventEndTime || undefined,
           reason,
@@ -244,7 +276,7 @@ export default function LOA() {
     setLoaType(e.type);
     if (e.type === 'event') {
       setEventDate(e.event_date || '');
-      setEventScheduleId(e.event_schedule_id || '');
+      setEventScheduleId(e.signup_event_id ? `${SIGNUP_PICK}${e.signup_event_id}` : e.event_schedule_id || '');
       setEventStartTime(hhmm(e.start_time));
       setEventEndTime(hhmm(e.end_time));
     } else if (e.type === 'range') {
@@ -273,7 +305,7 @@ export default function LOA() {
     setSubmitting(true);
     const body = { reason };
     if (loaType === 'event') {
-      Object.assign(body, { event_date: eventDate, event_schedule_id: eventScheduleId || undefined, start_time: eventStartTime || undefined, end_time: eventEndTime || undefined });
+      Object.assign(body, { event_date: eventDate, ...pickedEvent(), start_time: eventStartTime || undefined, end_time: eventEndTime || undefined });
     } else if (loaType === 'range') {
       Object.assign(body, { start_date: startDate, end_date: endDate });
     } else {
@@ -654,14 +686,16 @@ export default function LOA() {
                   </div>
                   <div>
                     <label className="eyebrow text-[10px] text-ash block mb-2">{t('loapage.eventLabel')} <span className="text-ash/50">{t('loapage.eventHintEvent')}</span></label>
-                    {eventsOnDate.length === 0 && eventDate ? (
+                    {eventsOnDate.length === 0 && oneOffsOnDate.length === 0 && eventDate ? (
                       <p className="text-ash text-sm py-2.5">{t('loapage.noEventsFor', { day: weekdayName(new Date(eventDate + 'T12:00:00').getDay()) })}</p>
                     ) : (
                       <select value={eventScheduleId} onChange={(e) => setEventScheduleId(e.target.value)}
                         className="w-full bg-hall border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass">
                         <option value="">{t('loapage.selectEvent')}</option>
                         {eventsOnDate.map((s) => <option key={s.id} value={s.id}>{s.name}{s.event_time ? ` (${fmtTimeEst(s.event_time)})` : ''}</option>)}
-
+                        {oneOffsOnDate.map((o) => (
+                          <option key={o.id} value={`${SIGNUP_PICK}${o.id}`}>{o.title}{o.event_time ? ` (${fmtTimeEst(o.event_time)})` : ''}</option>
+                        ))}
                       </select>
                     )}
                   </div>
