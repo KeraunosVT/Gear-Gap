@@ -2637,6 +2637,28 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     res.json({ ok: true, dst_active: active, changed: Boolean(data?.changed), signups_moved: ids.length });
   });
 
+  // Turn a one-off into a weekly event on the same night and time. The work is
+  // in make_signup_weekly (migration 037); this only works out the stored day,
+  // which is the next calendar day for an after-midnight event — the same rule
+  // the calendar's New Event form applies.
+  router.post('/event-schedule/from-signup/:id', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const { data: ev, error: readErr } = await supabase.from('signup_events')
+      .select('id, event_date, event_time, event_schedule_id').eq('id', req.params.id).maybeSingle();
+    if (readErr || !ev) return res.status(404).json({ error: 'That event no longer exists.' });
+    if (ev.event_schedule_id) return res.status(409).json({ error: 'That event is already weekly.' });
+    const night = new Date(`${ev.event_date}T12:00:00`).getDay();
+    const dow = createLoa.isAfterMidnight(ev.event_time) ? (night + 1) % 7 : night;
+    const { data, error } = await supabase.rpc('make_signup_weekly', { p_signup_id: ev.id, p_day_of_week: dow });
+    if (error) {
+      if (error.message.includes('signup_already_weekly')) return res.status(409).json({ error: 'That event is already weekly.' });
+      if (error.message.includes('signup_not_found')) return res.status(404).json({ error: 'That event no longer exists.' });
+      console.error('make_signup_weekly error:', error.message);
+      return res.status(500).json({ error: 'Failed to make that event weekly.' });
+    }
+    res.json({ id: data, day_of_week: dow });
+  });
+
   // Cancel (skip: true) or restore (skip: false) one night of a weekly event
   // without touching the rest of the series. `date` is the guild night.
   router.post('/event-schedule/:id/skip', async (req, res) => {

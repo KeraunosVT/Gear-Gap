@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import axios from 'axios';
 import {
   CalendarRange, Check, ChevronLeft, ChevronRight, Clock, Loader2, Users, CalendarOff, AlertTriangle, Plus,
-  LayoutGrid, List, Settings, Trash2, X, Send, Sun, Pencil,
+  LayoutGrid, List, Settings, Trash2, X, Send, Sun, Pencil, Repeat,
 } from 'lucide-react';
 import ScheduleManager from '../components/ScheduleManager';
 import WeekTimeGrid from '../components/WeekTimeGrid';
@@ -362,6 +362,23 @@ export default function EventCalendar() {
   // Same capability as deleting: a one-off is its signup.
   const onEdit = canOneOff ? (row) => setEditing(row) : null;
 
+  // A one-off becomes a weekly event on the same night and time. The signup
+  // already open for it, later one-offs of the same name on the same night of
+  // the week, and attendance taken for them all join the new weekly event.
+  const makeWeekly = (row) => {
+    const when = row.eventTime
+      ? t('cal.confirmWeeklyAt', { title: row.title, day: DAY_NAME(dowOf(row.date)), time: fmtTimeEst(row.eventTime) })
+      : t('cal.confirmWeekly', { title: row.title, day: DAY_NAME(dowOf(row.date)) });
+    if (!window.confirm(when)) return;
+    run(`weekly:${row.key}`, async () => {
+      await axios.post(`/api/admin/event-schedule/from-signup/${row.signupId}`);
+      setSelected(null);
+      load();
+      flash(t('cal.addedEvery', { title: row.title, day: DAY_NAME(dowOf(row.date)) }));
+    });
+  };
+  const onMakeWeekly = canWeekly ? makeWeekly : null;
+
   // One night of a weekly event, cancelled without touching the rest of the
   // series. If signups were already opened for it they go too — otherwise the
   // opened occurrence would keep showing as an orphan on that night.
@@ -603,7 +620,7 @@ export default function EventCalendar() {
           <Modal onClose={() => setSelected(null)} scrollable>
             <EventDetail
               night={selectedNight} row={{ ...selectedRow, date: selectedNight.date }}
-              busy={busy} onJoin={signUp} onLeave={withdraw} loa={loaActions} late={late} onDelete={onDelete} onEdit={onEdit}
+              busy={busy} onJoin={signUp} onLeave={withdraw} loa={loaActions} late={late} onDelete={onDelete} onEdit={onEdit} onMakeWeekly={onMakeWeekly}
               onSkip={onSkip && canSkip({ ...selectedRow, date: selectedNight.date }) ? onSkip : null}
             />
           </Modal>
@@ -683,7 +700,7 @@ export default function EventCalendar() {
                     </button>
                     <EventDetail
                       night={selectedNight} row={{ ...selectedRow, date: selectedNight.date }}
-                      busy={busy} onJoin={signUp} onLeave={withdraw} loa={loaActions} late={late} onDelete={onDelete} onEdit={onEdit}
+                      busy={busy} onJoin={signUp} onLeave={withdraw} loa={loaActions} late={late} onDelete={onDelete} onEdit={onEdit} onMakeWeekly={onMakeWeekly}
                       onSkip={onSkip && canSkip({ ...selectedRow, date: selectedNight.date }) ? onSkip : null}
                     />
                   </div>
@@ -830,7 +847,7 @@ function Block({ row, fill = false, showAway = false, picked = false, onClick })
 // counts — so it is fetched when the event has been opened. It is used for one
 // thing: flagging anyone who is both on LOA and signed up, which the officer
 // has to resolve and which the server already works out as `conflicts`.
-function EventDetail({ night, row, busy, onJoin, onLeave, loa, late, onDelete = null, onSkip = null, onEdit = null }) {
+function EventDetail({ night, row, busy, onJoin, onLeave, loa, late, onDelete = null, onSkip = null, onEdit = null, onMakeWeekly = null }) {
   const { t, rich } = useT();
   const [conflictIds, setConflictIds] = useState(() => new Set());
 
@@ -920,19 +937,29 @@ function EventDetail({ night, row, busy, onJoin, onLeave, loa, late, onDelete = 
       )}
 
       {/* An opened signup with no schedule entry behind it is a one-off. */}
-      {onDelete && row.signupId && !row.scheduleId && (
-        <div className="mt-5 pt-4 border-t border-line flex justify-end gap-2">
+      {(onDelete || onMakeWeekly) && row.signupId && !row.scheduleId && (
+        <div className="mt-5 pt-4 border-t border-line flex flex-wrap justify-end gap-2">
+          {onMakeWeekly && (
+            <Button
+              variant="secondary" size="sm" icon={<Repeat className="w-4 h-4" />}
+              disabled={busy === `weekly:${row.key}`} onClick={() => onMakeWeekly(row)}
+            >
+              {t('cal.makeWeekly')}
+            </Button>
+          )}
           {onEdit && (
             <Button variant="secondary" size="sm" icon={<Pencil className="w-4 h-4" />} onClick={() => onEdit(row)}>
               {t('cal.editEvent')}
             </Button>
           )}
-          <Button
-            variant="destructive" size="sm" icon={<Trash2 className="w-4 h-4" />}
-            disabled={busy === `del:${row.key}`} onClick={() => onDelete(row)}
-          >
-            {t('cal.deleteEvent')}
-          </Button>
+          {onDelete && (
+            <Button
+              variant="destructive" size="sm" icon={<Trash2 className="w-4 h-4" />}
+              disabled={busy === `del:${row.key}`} onClick={() => onDelete(row)}
+            >
+              {t('cal.deleteEvent')}
+            </Button>
+          )}
         </div>
       )}
       {/* A weekly event: cancel just this night. */}

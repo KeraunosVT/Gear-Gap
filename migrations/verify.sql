@@ -243,6 +243,10 @@ select '036 · event_schedule.category, signup_events.category',
         where table_schema = 'public' and column_name = 'category'
           and table_name in ('event_schedule', 'signup_events')) = 2
 union all
+select '037 · make_signup_weekly(uuid, int)',
+       (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'make_signup_weekly' and p.pronargs = 2) = 1
+union all
 -- Predates the numbered migrations, so no number of its own. The whole shard
 -- wishlist (weapons, need, priority, Last Updated) lives in this one column;
 -- anything but json/jsonb would refuse or flatten it on save.
