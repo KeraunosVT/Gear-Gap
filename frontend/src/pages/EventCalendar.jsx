@@ -947,7 +947,9 @@ function NewEventModal({ canOneOff, canWeekly, defaultDate, onClose, onCreated }
   const [night, setNight] = useState(String(dowOf(defaultDate)));
   const [time, setTime] = useState('');
   const [capacity, setCapacity] = useState('');
-  const [announce, setAnnounce] = useState(true);
+  // Off unless asked for: adding an event to the calendar shouldn't put a
+  // signup post in Discord on its own.
+  const [announce, setAnnounce] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
