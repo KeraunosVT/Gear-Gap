@@ -38,6 +38,8 @@ const TABLES = {
   ],
   attendance_history: [],
   member_tenure: [],
+  loa_entries: [],
+  event_schedule: [],
 };
 
 function fakeSupabase() {
@@ -122,6 +124,72 @@ describe('GET /attendance-stats/member/:id', () => {
       assert.deepEqual(statuses(await member('bo')), { e1: 'attended', e2: 'before_join' });
     } finally {
       TABLES.member_tenure.pop();
+    }
+  });
+});
+
+describe('GET /attendance-stats/missed', () => {
+  const missed = async () => Object.fromEntries(
+    (await call('30', '/attendance-stats/missed')).members.map((m) => [m.discord_id, m.missed]),
+  );
+
+  test('counts missed nights for every current member', async () => {
+    assert.deepEqual(await missed(), { ana: 0, bo: 1 });
+  });
+
+  test('lists members with no attendance at all', async () => {
+    const saved = roster;
+    roster = async () => [...await saved(), { id: 'cy', name: 'Cy' }];
+    try {
+      assert.deepEqual(await missed(), { ana: 0, bo: 1, cy: 2 });
+    } finally {
+      roster = saved;
+    }
+  });
+
+  test('nights before they joined are not missed', async () => {
+    TABLES.member_tenure.push({ discord_id: 'bo', since: `${ago(1)}T18:00:00Z`, left_at: null });
+    try {
+      assert.equal((await missed()).bo, 0);
+    } finally {
+      TABLES.member_tenure.pop();
+    }
+  });
+
+  test('sorts the most missed first', async () => {
+    const body = await call('30', '/attendance-stats/missed');
+    assert.deepEqual(body.members.map((m) => m.discord_id), ['bo', 'ana']);
+  });
+
+  test('splits missed nights by whether an LOA covered them', async () => {
+    const counts = async () => Object.fromEntries((await call('30', '/attendance-stats/missed')).members
+      .map((m) => [m.discord_id, [m.missed_loa, m.missed_no_loa]]));
+    assert.deepEqual(await counts(), { ana: [0, 0], bo: [0, 1] });
+    TABLES.loa_entries.push({ id: 1, discord_id: 'bo', type: 'range', start_date: ago(3), end_date: ago(2), reason: 'away' });
+    try {
+      assert.deepEqual(await counts(), { ana: [0, 0], bo: [1, 0] });
+    } finally {
+      TABLES.loa_entries.pop();
+    }
+  });
+
+  test('an LOA on a night they attended changes nothing', async () => {
+    TABLES.loa_entries.push({ id: 1, discord_id: 'ana', type: 'range', start_date: ago(2), end_date: ago(1), reason: 'away' });
+    try {
+      const ana = (await call('30', '/attendance-stats/missed')).members.find((m) => m.discord_id === 'ana');
+      assert.deepEqual([ana.missed, ana.missed_loa, ana.missed_no_loa], [0, 0, 0]);
+    } finally {
+      TABLES.loa_entries.pop();
+    }
+  });
+
+  test('the member breakdown flags LOA-covered missed nights', async () => {
+    TABLES.loa_entries.push({ id: 1, discord_id: 'bo', type: 'range', start_date: ago(2), end_date: ago(2), reason: 'away' });
+    try {
+      const body = await call('30', '/attendance-stats/member/:id', { id: 'bo' });
+      assert.deepEqual(Object.fromEntries(body.events.map((e) => [e.id, e.loa])), { e1: false, e2: true });
+    } finally {
+      TABLES.loa_entries.pop();
     }
   });
 });

@@ -27,6 +27,16 @@ const WINDOWS = [
   { key: 'all', label: 'All' },
 ];
 const WINDOW_LABEL = { 7: 'last 7 days', 14: 'last 14 days', 30: 'last 30 days', all: 'all time' };
+// The missed-events panel has its own filter: "who has been absent lately" is
+// a short-range question, so it has no All tab and starts at one week.
+const MISSED_WINDOWS = WINDOWS.filter((w) => w.key !== 'all');
+// Which absences to count: every missed night, only the ones an LOA covered,
+// or only the ones it didn't. `field` is the count on each member row.
+const LOA_FILTERS = [
+  { key: 'all', label: 'All', field: 'missed' },
+  { key: 'loa', label: 'With LOA', field: 'missed_loa' },
+  { key: 'no_loa', label: 'Without LOA', field: 'missed_no_loa' },
+];
 
 export default function Attendance() {
   const { can } = useAuth();
@@ -64,6 +74,14 @@ export default function Attendance() {
   const [statDir, setStatDir] = useState('desc');
   const [backfilling, setBackfilling] = useState(false);
   const [viewing, setViewing] = useState(null); // the member whose nights are open
+  const [viewingWindow, setViewingWindow] = useState(null); // which window that breakdown uses
+
+  const [missedWindow, setMissedWindow] = useState('7');
+  const [missed, setMissed] = useState({ totalEvents: 0, members: [] });
+  const [loadingMissed, setLoadingMissed] = useState(true);
+  const [loaFilter, setLoaFilter] = useState('all');
+  const [missedSort, setMissedSort] = useState('missed'); // 'name' or any count column's field
+  const [missedDir, setMissedDir] = useState('desc');
 
   // A TLGM import is previewed before anything is written: the file and the
   // server's dry-run result are held here until the officer confirms.
@@ -107,6 +125,14 @@ export default function Attendance() {
       .finally(() => setLoadingStats(false));
   }, [window_]);
 
+  const loadMissed = useCallback(() => {
+    setLoadingMissed(true);
+    axios.get('/api/admin/attendance-stats/missed', { params: { window: missedWindow } })
+      .then((res) => setMissed(res.data || { totalEvents: 0, members: [] }))
+      .catch(() => setMissed({ totalEvents: 0, members: [] }))
+      .finally(() => setLoadingMissed(false));
+  }, [missedWindow]);
+
   const loadLate = useCallback(() => {
     axios.get('/api/admin/attendance/late-requests', { params: { status: 'pending' } })
       .then((res) => setLateRequests(res.data.requests || []))
@@ -121,6 +147,7 @@ export default function Attendance() {
   }, [loadChannels, loadLate]);
 
   useEffect(() => { loadEvents(); loadStats(); }, [loadEvents, loadStats]);
+  useEffect(() => { loadMissed(); }, [loadMissed]);
 
   const channel = useMemo(
     () => channels.find((c) => c.id === configuredId) || null,
@@ -151,6 +178,19 @@ export default function Attendance() {
     });
   }, [stats.members, statSort, statDir]);
 
+  // All shows everyone, so a clean record is visible too. The LOA filters only
+  // list members who have at least one absence of that kind.
+  const missedField = LOA_FILTERS.find((f) => f.key === loaFilter).field;
+  const missedRows = useMemo(() => {
+    const rows = loaFilter === 'all' ? missed.members : missed.members.filter((m) => m[missedField] > 0);
+    const dir = missedDir === 'asc' ? 1 : -1;
+    const byName = (a, b) => a.display_name.localeCompare(b.display_name);
+    return [...rows].sort((a, b) => (missedSort === 'name'
+      ? byName(a, b) * dir
+      // Ties fall back to A–Z whichever way the column is turned.
+      : (a[missedSort] - b[missedSort]) * dir || byName(a, b)));
+  }, [missed.members, loaFilter, missedField, missedSort, missedDir]);
+
   // Every hook is above this line on purpose. It used to sit higher up, which
   // made the hook count depend on a capability check — legal only for as long
   // as nobody's permissions changed mid-session.
@@ -161,7 +201,7 @@ export default function Attendance() {
     try {
       const res = await axios.post('/api/admin/attendance/backfill-names');
       flash(`Checked ${res.data.checked} record${res.data.checked === 1 ? '' : 's'} — updated ${res.data.updated}.`);
-      loadEvents(); loadStats();
+      loadEvents(); loadStats(); loadMissed();
     } catch (err) {
       flash(err.response?.data?.error || 'Backfill failed.', false);
     } finally {
@@ -327,7 +367,7 @@ export default function Attendance() {
       // blank, and logging two events on one night is the common case.
       setSnapped([]); setRemoved(new Set()); setPicking(false);
       setTitle(''); setEventDate(todayInGuildTz()); setEventScheduleId(''); setRosterId('auto');
-      loadEvents(); loadStats();
+      loadEvents(); loadStats(); loadMissed();
     } catch (err) {
       flash(err.response?.data?.error || 'Could not save event.', false);
     } finally {
@@ -341,7 +381,7 @@ export default function Attendance() {
       await axios.delete(`/api/admin/events/${id}`);
       setEvents((prev) => prev.filter((e) => e.id !== id));
       flash('Event deleted.');
-      loadStats();
+      loadStats(); loadMissed();
     } catch (err) {
       flash(err.response?.data?.error || 'Delete failed.', false);
     }
@@ -356,7 +396,7 @@ export default function Attendance() {
         : `Declined ${req.display_name}'s request.`);
       setLateRequests((prev) => prev.filter((r) => r.id !== req.id));
       // An approval writes an attendance row, so the counts on screen are stale.
-      if (status === 'approved') { loadEvents(); loadStats(); }
+      if (status === 'approved') { loadEvents(); loadStats(); loadMissed(); }
     } catch (err) {
       flash(err.response?.data?.error || 'Could not record that decision.', false);
       // A 409 means someone else decided it — refetch rather than leave a
@@ -370,6 +410,11 @@ export default function Attendance() {
   const toggleStatSort = (key) => {
     if (statSort === key) setStatDir((d) => (d === 'desc' ? 'asc' : 'desc'));
     else { setStatSort(key); setStatDir(key === 'name' ? 'asc' : 'desc'); }
+  };
+
+  const toggleMissedSort = (key) => {
+    if (missedSort === key) setMissedDir((d) => (d === 'desc' ? 'asc' : 'desc'));
+    else { setMissedSort(key); setMissedDir(key === 'name' ? 'asc' : 'desc'); }
   };
 
   return (
@@ -691,7 +736,7 @@ export default function Attendance() {
           disagree with the list explaining it. */}
       <div className="flex items-center justify-between gap-4 mb-2">
         <h2 className="font-display text-2xl text-bone tracking-[0.08em]">Roster Attendance</h2>
-        <button onClick={() => { loadEvents(); loadStats(); }} className="inline-flex items-center gap-2 text-sm text-ash hover:text-brass" title="Refresh">
+        <button onClick={() => { loadEvents(); loadStats(); loadMissed(); }} className="inline-flex items-center gap-2 text-sm text-ash hover:text-brass" title="Refresh">
           <RefreshCw className="w-4 h-4" />
         </button>
       </div>
@@ -745,7 +790,7 @@ export default function Attendance() {
                   <Tr key={m.discord_id}>
                     <td className="p-4 text-right font-mono text-xs text-ash/60">{i + 1}</td>
                     <td className="p-4">
-                      <button onClick={() => setViewing(m)} className="text-bone hover:text-brass transition-colors text-left">
+                      <button onClick={() => { setViewing(m); setViewingWindow(window_); }} className="text-bone hover:text-brass transition-colors text-left">
                         {m.display_name}
                       </button>
                     </td>
@@ -842,7 +887,100 @@ export default function Attendance() {
         </aside>
       </div>
 
-      {viewing && <MemberNights member={viewing} window_={window_} onClose={() => setViewing(null)} />}
+      {/* ── Missed events ─────────────────────────────────────────────
+          Every current member, most absences first — including people with
+          no attendance at all, who the rate table above can't show. */}
+      <div className="flex items-center justify-between gap-4 mt-12 mb-2">
+        <h2 className="font-display text-2xl text-bone tracking-[0.08em] flex items-center gap-3">
+          <AlertTriangle className="w-5 h-5 text-oxblood" /> Missed Events
+        </h2>
+        <button onClick={loadMissed} className="inline-flex items-center gap-2 text-sm text-ash hover:text-brass" title="Refresh">
+          <RefreshCw className="w-4 h-4" />
+        </button>
+      </div>
+      <div className="rule-fade mb-4" />
+
+      <Tabs
+        variant="flat" active={missedWindow} onChange={setMissedWindow}
+        items={MISSED_WINDOWS.map((w) => ({
+          key: w.key,
+          label: w.key === missedWindow && !loadingMissed ? `${w.label} (${missed.totalEvents})` : w.label,
+        }))}
+      />
+
+      <div className="flex items-center gap-3 flex-wrap mb-3">
+        <div className="flex items-center gap-2 text-xs text-ash">
+          <X className="w-3.5 h-3.5 text-oxblood" />
+          {missed.totalEvents} event{missed.totalEvents === 1 ? '' : 's'} · {WINDOW_LABEL[missedWindow]}
+          <span className="text-ash/60">· nights before someone joined don't count as missed</span>
+        </div>
+        <div className="ml-auto inline-flex rounded-lg border border-line overflow-hidden text-xs">
+          {LOA_FILTERS.map((f) => (
+            <button
+              key={f.key} onClick={() => { setLoaFilter(f.key); setMissedSort(f.field); setMissedDir('desc'); }}
+              className={`px-3 py-1.5 transition-colors ${loaFilter === f.key ? 'bg-panelup text-brass' : 'text-ash hover:text-bone'}`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {/* Without this, a failed LOA read would show every absence as
+          unexcused and look like a guild that never files leave. */}
+      {!loadingMissed && missed.loa_checked === false && (
+        <div className="mb-3 text-xs text-brassbright inline-flex items-center gap-1.5">
+          <AlertTriangle className="w-3.5 h-3.5" /> LOAs couldn’t be loaded, so every absence is counted as without LOA.
+        </div>
+      )}
+
+      {loadingMissed ? (
+        <div className="py-16 text-center text-ash"><Loader2 className="w-5 h-5 animate-spin inline" /></div>
+      ) : missed.totalEvents === 0 ? (
+        <div className="py-16 text-center text-ash">Nothing logged in the {WINDOW_LABEL[missedWindow]}.</div>
+      ) : missedRows.length === 0 ? (
+        <div className="py-16 text-center text-ash">
+          {loaFilter === 'loa' ? 'No absences covered by an LOA' : 'No absences without an LOA'} in the {WINDOW_LABEL[missedWindow]}.
+        </div>
+      ) : (
+        <Table maxHeight="max-h-[720px]" minWidth="min-w-[360px]">
+          <Thead sticky>
+            <th className="p-4 font-normal w-10 text-right">#</th>
+            <SortableTh label="Member" sortKey="name" activeKey={missedSort} dir={missedDir} onSort={toggleMissedSort} />
+            <SortableTh label="Missed" sortKey="missed" activeKey={missedSort} dir={missedDir} onSort={toggleMissedSort} align="right" />
+            <SortableTh label="With LOA" sortKey="missed_loa" activeKey={missedSort} dir={missedDir} onSort={toggleMissedSort} align="right" />
+            <SortableTh label="Without LOA" sortKey="missed_no_loa" activeKey={missedSort} dir={missedDir} onSort={toggleMissedSort} align="right" />
+            <SortableTh label="Attended" sortKey="attended" activeKey={missedSort} dir={missedDir} onSort={toggleMissedSort} align="right" />
+          </Thead>
+          <tbody>
+            {missedRows.map((m, i) => (
+              <Tr key={m.discord_id}>
+                <td className="p-4 text-right font-mono text-xs text-ash/60">{i + 1}</td>
+                <td className="p-4">
+                  <button onClick={() => { setViewing(m); setViewingWindow(missedWindow); }} className="text-bone hover:text-brass transition-colors text-left">
+                    {m.display_name}
+                  </button>
+                </td>
+                <td className={`p-4 text-right font-mono text-xs ${missedField === 'missed' ? 'font-semibold' : ''} ${m.missed === 0 ? 'text-emerald-400' : m.missed >= 3 ? 'text-oxblood' : 'text-brassbright'}`}>
+                  {m.eligible === 0 ? <span className="text-ash/40">—</span> : m.missed}
+                </td>
+                {/* Covered absences stay neutral: an LOA is the process
+                    working, not a problem to flag. */}
+                <td className={`p-4 text-right font-mono text-xs text-ash ${missedField === 'missed_loa' ? 'font-semibold text-bone' : ''}`}>
+                  {m.eligible === 0 ? <span className="text-ash/40">—</span> : m.missed_loa}
+                </td>
+                <td className={`p-4 text-right font-mono text-xs ${missedField === 'missed_no_loa' ? 'font-semibold' : ''} ${m.missed_no_loa === 0 ? 'text-ash' : m.missed_no_loa >= 3 ? 'text-oxblood' : 'text-brassbright'}`}>
+                  {m.eligible === 0 ? <span className="text-ash/40">—</span> : m.missed_no_loa}
+                </td>
+                <td className="p-4 text-right font-mono text-xs text-ash whitespace-nowrap">
+                  {m.attended}<span className="text-ash/40">/{m.eligible}</span>
+                </td>
+              </Tr>
+            ))}
+          </tbody>
+        </Table>
+      )}
+
+      {viewing && <MemberNights member={viewing} window_={viewingWindow || window_} onClose={() => setViewing(null)} />}
     </div>
   );
 }
@@ -900,6 +1038,7 @@ function MemberNights({ member, window_, onClose }) {
                   >
                     {Icon ? <Icon className={`w-3.5 h-3.5 shrink-0 ${tone}`} /> : <span className="w-3.5 shrink-0" />}
                     <span className="text-sm text-bone truncate flex-1">{ev.title}</span>
+                    {ev.loa && <span className="text-[10px] uppercase tracking-wider text-brass border border-brass/40 rounded px-1.5 shrink-0">LOA</span>}
                     <span className="text-xs text-ash shrink-0">
                       {ev.event_date ? new Date(ev.event_date + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : 'No date'}
                     </span>
