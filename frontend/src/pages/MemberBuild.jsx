@@ -20,12 +20,11 @@ const shortDate = (iso) => new Date(iso).toLocaleDateString('en-US', { month: 's
 
 // One member's PvE and PvP builds. Anyone can look; the member and officers
 // with 'builds' can upload or fix values, and those officers also pick and
-// order the key stats shown at the top of every member's build.
+// order the key stats at the top of each build — this member's, this build's.
 export default function MemberBuild() {
   const { discordId } = useParams();
   const { user, can } = useAuth();
   const [data, setData] = useState(null);
-  const [keyStats, setKeyStats] = useState({ pve: [], pvp: [] });
   const [error, setError] = useState('');
   const [view, setView] = useState(null);
   const [showHistory, setShowHistory] = useState(false);
@@ -36,33 +35,34 @@ export default function MemberBuild() {
   const officer = can('builds');
   const canEdit = isOwner || officer;
 
-  const load = useCallback(() => Promise.all([
-    axios.get(`/api/builds/${discordId}`),
-    axios.get('/api/builds/key-stats'),
-  ]).then(([b, k]) => {
+  const load = useCallback(() => axios.get(`/api/builds/${discordId}`).then((b) => {
     setData(b.data);
-    setKeyStats(k.data.key_stats || { pve: [], pvp: [] });
     // Open on whichever build exists, PvE first.
     setView((v) => v || (b.data.builds.pve ? 'pve' : b.data.builds.pvp ? 'pvp' : 'pve'));
   }).catch((err) => setError(err.response?.data?.error || 'Could not load builds.')), [discordId]);
 
   useEffect(() => { setData(null); setView(null); load(); }, [load]);
 
+  const keyStatsOf = (kind) => data?.builds[kind]?.key_stats || [];
+  const setKeyStatsOf = (kind, ids) => setData((prev) => (prev?.builds[kind]
+    ? { ...prev, builds: { ...prev.builds, [kind]: { ...prev.builds[kind], key_stats: ids } } }
+    : prev));
+
   // Optimistic: the cards move as soon as they're dropped, and go back if the
   // save fails.
   const saveKeyStats = async (kind, ids) => {
-    const before = keyStats[kind];
-    setKeyStats((prev) => ({ ...prev, [kind]: ids }));
+    const before = keyStatsOf(kind);
+    setKeyStatsOf(kind, ids);
     try {
-      const { data: res } = await axios.put(`/api/builds/key-stats/${kind}`, { stat_ids: ids });
-      setKeyStats((prev) => ({ ...prev, [kind]: res.stat_ids }));
+      const { data: res } = await axios.put(`/api/builds/${discordId}/${kind}/key-stats`, { stat_ids: ids });
+      setKeyStatsOf(kind, res.stat_ids);
     } catch (err) {
-      setKeyStats((prev) => ({ ...prev, [kind]: before }));
+      setKeyStatsOf(kind, before);
       flash(err.response?.data?.error || 'Could not save key stats.', false);
     }
   };
   const togglePick = (kind) => (id) => {
-    const list = keyStats[kind];
+    const list = keyStatsOf(kind);
     saveKeyStats(kind, list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
   };
 
@@ -199,9 +199,9 @@ export default function MemberBuild() {
           )}
 
           <div className="mb-8">
-            <KeyStats kind={view} ids={keyStats[view]} build={build} editable={officer} onChange={(ids) => saveKeyStats(view, ids)} />
+            <KeyStats kind={view} ids={keyStatsOf(view)} build={build} editable={officer} onChange={(ids) => saveKeyStats(view, ids)} />
           </div>
-          <BuildSheet kind={view} build={build} picked={keyStats[view]} onToggle={officer ? togglePick(view) : null} />
+          <BuildSheet kind={view} build={build} picked={keyStatsOf(view)} onToggle={officer ? togglePick(view) : null} />
         </>
       )}
 

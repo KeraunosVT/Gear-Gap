@@ -99,14 +99,8 @@ create table if not exists build_history (
 );
 create index if not exists build_history_member_idx on build_history (discord_id, kind, changed_at desc);
 
--- The stats officers pin to the top of every build, per kind, in their order.
-create table if not exists build_key_stats (
-  kind text primary key check (kind in ('pve', 'pvp')),
-  stat_ids text[] not null default '{}',
-  updated_at timestamptz not null default now(),
-  updated_by text
-);
+-- Key stats were a guild-wide build_key_stats table here; they're per build
+-- now, in builds.key_stats (09_build_key_stats_per_member.sql).
 
 alter table builds enable row level security;
 alter table build_history enable row level security;
-alter table build_key_stats enable row level security;

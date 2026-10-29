@@ -53,9 +53,10 @@ function Card({ id, kind, build, editable, onRemove }) {
   );
 }
 
-// The guild's pinned stats for one build type, at the top of every member's
-// build. Officers with 'builds' add them by clicking values in the sheet, and
-// drag them here into whatever order they want; everyone sees that order.
+// The pinned stats at the top of one member's build — each member's PvE and
+// PvP build has its own list. Officers with 'builds' add them by clicking
+// values in the sheet, and drag them here into whatever order they want;
+// everyone sees that order.
 export default function KeyStats({ kind, ids, build, editable, onChange }) {
   // Pointer covers mouse and touch alike; the handle is `touch-none` so a drag
   // on a phone moves the card instead of scrolling the page.
@@ -85,8 +86,8 @@ export default function KeyStats({ kind, ids, build, editable, onChange }) {
       {ids.length === 0 ? (
         <div className="border border-dashed border-line rounded-lg p-5 text-sm text-ash">
           {editable
-            ? `No ${KIND_LABEL[kind]} key stats yet. Click a value in the tables below to pin it here for the whole guild.`
-            : 'Your officers haven\'t picked any key stats yet.'}
+            ? `No key stats on this ${KIND_LABEL[kind]} build yet. Click a value in the tables below to pin it here.`
+            : 'Your officers haven\'t picked any key stats for this build yet.'}
         </div>
       ) : (
         <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>

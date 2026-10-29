@@ -363,28 +363,6 @@ app.get('/api/builds', async (req, res) => {
   }
 });
 
-app.get('/api/builds/key-stats', async (req, res) => {
-  if (!builds) return res.status(503).json({ error: 'Database not configured.' });
-  try {
-    res.json({ key_stats: await builds.keyStats() });
-  } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
-  }
-});
-
-// The whole ordered list for one build type — adding, removing and dragging
-// all send the full list, so the stored order is always exactly what the
-// officer last saw.
-app.put('/api/builds/key-stats/:kind', async (req, res) => {
-  if (!builds) return res.status(503).json({ error: 'Database not configured.' });
-  if (!userHas(req.user, 'builds')) return res.status(403).json({ error: 'Only officers with the Builds permission can change key stats.' });
-  try {
-    res.json({ stat_ids: await builds.setKeyStats(req.params.kind, req.body?.stat_ids, req.user.id) });
-  } catch (err) {
-    res.status(err.status || 500).json({ error: err.message });
-  }
-});
-
 // Reads screenshots and returns the numbers for review. Saves nothing — the
 // page shows what was read, the member fixes anything wrong, then PUTs it.
 app.post('/api/builds/scan', buildScanLimiter, buildUpload.array('images', BUILD_MAX_IMAGES), async (req, res) => {
@@ -428,6 +406,20 @@ app.put('/api/builds/:discordId/:kind', async (req, res) => {
       actor: { id: req.user.id, name: req.user.username },
     });
     res.json(out);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+// One member's key stats for one build, in order — adding, removing and
+// dragging all send the full list, so the stored order is always exactly what
+// the officer last saw. Officers with 'builds' only — unlike the build itself,
+// a member can't change their own.
+app.put('/api/builds/:discordId/:kind/key-stats', async (req, res) => {
+  if (!builds) return res.status(503).json({ error: 'Database not configured.' });
+  if (!userHas(req.user, 'builds')) return res.status(403).json({ error: 'Only officers with the Builds permission can change key stats.' });
+  try {
+    res.json({ stat_ids: await builds.setKeyStats(String(req.params.discordId), req.params.kind, req.body?.stat_ids) });
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }

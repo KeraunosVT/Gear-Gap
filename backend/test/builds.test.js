@@ -105,20 +105,30 @@ describe('cleaning and diffing', () => {
 
 // Just enough PostgREST for builds.save and setKeyStats.
 function fakeSupabase(existing = null) {
-  const state = { build: existing, upserts: [], history: [], keyStats: [] };
+  const state = { build: existing, upserts: [], history: [] };
   const api = {
     from(table) {
       if (table === 'builds') {
         return {
           select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: state.build, error: null }) }) }) }),
           upsert: (row) => { state.upserts.push(row); state.build = row; return Promise.resolve({ error: null }); },
+          // update(patch).eq(col, v).eq(col, v).select(): only the matching row.
+          update: (patch) => {
+            const where = {};
+            const chain = {
+              eq: (col, v) => { where[col] = v; return chain; },
+              select: () => {
+                const hit = state.build && Object.entries(where).every(([c, v]) => state.build[c] === v);
+                if (hit) state.build = { ...state.build, ...patch };
+                return Promise.resolve({ data: hit ? [{ discord_id: state.build.discord_id }] : [], error: null });
+              },
+            };
+            return chain;
+          },
         };
       }
       if (table === 'build_history') {
         return { insert: (row) => { state.history.push(row); return Promise.resolve({ error: null }); } };
-      }
-      if (table === 'build_key_stats') {
-        return { upsert: (row) => { state.keyStats.push(row); return Promise.resolve({ error: null }); } };
       }
       throw new Error(`unexpected table ${table}`);
     },
@@ -203,15 +213,32 @@ describe('builds.save', () => {
 });
 
 describe('builds.setKeyStats', () => {
-  test('keeps the order given, minus duplicates and unknown ids', async () => {
-    const { api, state } = fakeSupabase();
-    const out = await createBuilds(api).setKeyStats('pvp', ['stun_tolerance', 'nope', 'hp_max', 'stun_tolerance', 'pvp_melee_critical_defense'], 'officer-1');
+  const pvpBuild = () => ({ discord_id: 'member-1', kind: 'pvp', class: 'Ravager', stats: { hp_max: 33552 }, flags: {}, key_stats: [], updated_at: 'then' });
+
+  test('keeps the order given, minus duplicates and unknown ids, on that build only', async () => {
+    const { api, state } = fakeSupabase(pvpBuild());
+    const out = await createBuilds(api).setKeyStats('member-1', 'pvp', ['stun_tolerance', 'nope', 'hp_max', 'stun_tolerance', 'pvp_melee_critical_defense']);
     assert.deepEqual(out, ['stun_tolerance', 'hp_max', 'pvp_melee_critical_defense']);
-    assert.deepEqual(state.keyStats[0].stat_ids, out);
+    assert.deepEqual(state.build.key_stats, out);
+    assert.equal(state.build.updated_at, 'then', 'pinning isn\'t a change to the numbers');
   });
 
-  test('refuses a bad build type', async () => {
-    const { api } = fakeSupabase();
-    await assert.rejects(createBuilds(api).setKeyStats('raid', []), { status: 400 });
+  test('a different member\'s build, or the other build type, is a 404', async () => {
+    const { api } = fakeSupabase(pvpBuild());
+    const b = createBuilds(api);
+    await assert.rejects(b.setKeyStats('member-2', 'pvp', ['hp_max']), { status: 404 });
+    await assert.rejects(b.setKeyStats('member-1', 'pve', ['hp_max']), { status: 404 });
+  });
+
+  test('refuses a bad build type or a list that isn\'t one', async () => {
+    const { api } = fakeSupabase(pvpBuild());
+    await assert.rejects(createBuilds(api).setKeyStats('member-1', 'raid', []), { status: 400 });
+    await assert.rejects(createBuilds(api).setKeyStats('member-1', 'pvp', 'hp_max'), { status: 400 });
+  });
+
+  test('a rescan leaves the pinned stats alone', async () => {
+    const { api, state } = fakeSupabase(null);
+    await createBuilds(api).save(saveArgs());
+    assert.equal('key_stats' in state.upserts[0], false, 'an upsert naming key_stats would overwrite them');
   });
 });

@@ -219,7 +219,9 @@ module.exports = function createBuilds(supabase, identities = null) {
       }
       const builds = { pve: null, pvp: null };
       const history = { pve: [], pvp: [] };
-      (rows || []).forEach((r) => { builds[r.kind] = r; });
+      // Key stats lose any id the stat list no longer has, so a retired stat
+      // can't leave an empty card pinned.
+      (rows || []).forEach((r) => { builds[r.kind] = { ...r, key_stats: (r.key_stats || []).filter((id) => BY_ID[id]) }; });
       (hist || []).forEach((h) => { if (history[h.kind].length < 30) history[h.kind].push(h); });
       const fallback = rows?.[0]?.display_name || null;
       return { display_name: await nameFor(discordId, fallback), builds, history };
@@ -285,25 +287,19 @@ module.exports = function createBuilds(supabase, identities = null) {
       return { build: row, changed: true };
     },
 
-    async keyStats() {
-      const { data, error } = await supabase.from('build_key_stats').select('kind, stat_ids');
-      if (error) { console.error('builds.keyStats error:', error.message); throw httpError(500, 'Failed to load key stats.'); }
-      const out = { pve: [], pvp: [] };
-      (data || []).forEach((r) => { if (isKind(r.kind)) out[r.kind] = (r.stat_ids || []).filter((id) => BY_ID[id]); });
-      return out;
-    },
-
-    // The whole ordered list for one kind, replacing the last one. Order is
-    // the officers' drag order and is kept exactly; duplicates and unknown ids
-    // are dropped.
-    async setKeyStats(kind, statIds, actorId) {
+    // One build's whole ordered key stats list, replacing the last one. Order
+    // is the officers' drag order and is kept exactly; duplicates and unknown
+    // ids are dropped. Lives on the build row, so there's nothing to pin to
+    // until the build exists. Doesn't touch updated_at: that's when the
+    // numbers last changed, which pinning one of them doesn't.
+    async setKeyStats(discordId, kind, statIds) {
       if (!isKind(kind)) throw httpError(400, 'Build type must be "pve" or "pvp".');
       if (!Array.isArray(statIds)) throw httpError(400, 'stat_ids must be a list.');
       const clean = [...new Set(statIds.filter((id) => BY_ID[id]))].slice(0, STATS.length);
-      const { error } = await supabase.from('build_key_stats').upsert({
-        kind, stat_ids: clean, updated_at: new Date().toISOString(), updated_by: actorId || null,
-      }, { onConflict: 'kind' });
+      const { data, error } = await supabase.from('builds').update({ key_stats: clean })
+        .eq('discord_id', discordId).eq('kind', kind).select('discord_id');
       if (error) { console.error('builds.setKeyStats error:', error.message); throw httpError(500, 'Failed to save key stats.'); }
+      if (!data?.length) throw httpError(404, 'There\'s no build of that type to pin stats on yet.');
       return clean;
     },
   };

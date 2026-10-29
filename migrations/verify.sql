@@ -43,10 +43,9 @@ union all
 select '02 · gear bucket exists AND is private',
        (select count(*) from storage.buckets where id = 'gear' and public = false) = 1
 union all
-select '02 · builds, build_history, build_key_stats tables',
+select '02 · builds, build_history tables',
        to_regclass('public.builds') is not null
        and to_regclass('public.build_history') is not null
-       and to_regclass('public.build_key_stats') is not null
 union all
 
 -- ── 03_loot ─────────────────────────────────────────────────────────────────
@@ -248,6 +247,17 @@ union all
 select '08 · builds.class',
        (select count(*) from information_schema.columns
         where table_schema = 'public' and table_name = 'builds' and column_name = 'class') = 1
+union all
+
+-- ── 09_build_key_stats_per_member ───────────────────────────────────────────
+select '09 · builds.key_stats is text[]',
+       coalesce((select data_type = 'ARRAY' and udt_name = '_text'
+        from information_schema.columns
+        where table_schema = 'public' and table_name = 'builds'
+          and column_name = 'key_stats'), false)
+union all
+select '09 · guild-wide build_key_stats table is gone',
+       to_regclass('public.build_key_stats') is null
 union all
 
 -- ── BASE SCHEMA ─────────────────────────────────────────────────────────────
