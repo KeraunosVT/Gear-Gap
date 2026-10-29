@@ -13,6 +13,9 @@ import Modal from '../components/ui/Modal';
 import { Table, Thead, SortableTh, Tr } from '../components/ui/Table';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+// One-offs sit in the event picker beside the weekly events as `signup:<id>`,
+// the same convention the party builder uses, so the two kinds of id can't collide.
+const SIGNUP_PICK = 'signup:';
 
 // The four windows this page can be looked at through. Server-side: the rate
 // table and the event list sit side by side, and the only way to guarantee they
@@ -49,6 +52,9 @@ export default function Attendance() {
   // they just removed — and they'd have to remove them again after each one.
   const [removed, setRemoved] = useState(() => new Set());
   const [schedule, setSchedule] = useState([]);
+  // One-off events opened for the night being logged (signups with no
+  // schedule entry). The weekly schedule alone doesn't know about them.
+  const [oneOffs, setOneOffs] = useState([]);
   const [eventScheduleId, setEventScheduleId] = useState('');
   const [title, setTitle] = useState('');
   // Defaults to the guild NIGHT, not the calendar day. Left empty, an officer
@@ -148,6 +154,15 @@ export default function Attendance() {
 
   useEffect(() => { loadEvents(); loadStats(); }, [loadEvents, loadStats]);
   useEffect(() => { loadMissed(); }, [loadMissed]);
+
+  useEffect(() => {
+    if (!eventDate) { setOneOffs([]); return undefined; }
+    let live = true;
+    axios.get('/api/admin/signups/one-offs', { params: { date: eventDate } })
+      .then((res) => { if (live) setOneOffs(res.data.events || []); })
+      .catch(() => { if (live) setOneOffs([]); });
+    return () => { live = false; };
+  }, [eventDate]);
 
   const channel = useMemo(
     () => channels.find((c) => c.id === configuredId) || null,
@@ -330,23 +345,31 @@ export default function Attendance() {
     flash(`Added ${members.length} by hand.`);
   };
 
+  // The picked event's name, from the schedule or — for a one-off — its signup.
+  const pickedName = (id) => (id.startsWith(SIGNUP_PICK)
+    ? oneOffs.find((o) => String(o.id) === id.slice(SIGNUP_PICK.length))?.title
+    : schedule.find((s) => s.id === id)?.name);
+
   const selectScheduleEvent = (id) => {
     setEventScheduleId(id);
-    const ev = schedule.find((s) => s.id === id);
-    if (ev) setTitle(ev.name);
+    const name = pickedName(id);
+    if (name) setTitle(name);
   };
 
   // Moving the date to another night drops a scheduled event that isn't on it —
   // otherwise the select shows "custom" while a hidden id from the old night
   // still gets saved. The title goes too, but only if it was the event's name
-  // filled in automatically; one the officer typed is theirs.
+  // filled in automatically; one the officer typed is theirs. A one-off belongs
+  // to exactly one night, so any date change drops it.
   const changeDate = (date) => {
     setEventDate(date);
     if (!eventScheduleId || !date) return;
-    const onNight = eventsForGuildDay(schedule, new Date(date + 'T12:00:00').getDay());
-    if (onNight.some((s) => s.id === eventScheduleId)) return;
-    const ev = schedule.find((s) => s.id === eventScheduleId);
-    if (ev && title === ev.name) setTitle('');
+    if (!eventScheduleId.startsWith(SIGNUP_PICK)) {
+      const onNight = eventsForGuildDay(schedule, new Date(date + 'T12:00:00').getDay());
+      if (onNight.some((s) => s.id === eventScheduleId)) return;
+    }
+    const name = pickedName(eventScheduleId);
+    if (name && title === name) setTitle('');
     setEventScheduleId('');
   };
 
@@ -356,7 +379,11 @@ export default function Attendance() {
     setSaving(true); setError('');
     try {
       const res = await axios.post('/api/admin/events', {
-        title, event_date: eventDate || null, event_schedule_id: eventScheduleId || null, attendees: snapped,
+        title, event_date: eventDate || null,
+        // A one-off is recorded as a night with no schedule id, under its own
+        // title — how the Event Calendar matches attendance back to it.
+        event_schedule_id: eventScheduleId && !eventScheduleId.startsWith(SIGNUP_PICK) ? eventScheduleId : null,
+        attendees: snapped,
         // 'auto' means omit the field entirely, which is what tells the server
         // to look for the roster built for this night. Sending null instead
         // would read as "deliberately no party".
@@ -540,6 +567,11 @@ export default function Attendance() {
                   {s.name} — {DAYS[guildDayOfWeek(s.day_of_week, s.event_time)]}
                   {isAfterMidnight(s.event_time) ? ' night' : ''}
                   {s.event_time ? ` at ${fmtTimeEst(s.event_time)}` : ''}
+                </option>
+              ))}
+              {oneOffs.map((o) => (
+                <option key={o.id} value={`${SIGNUP_PICK}${o.id}`}>
+                  {o.title} — one-off{o.event_time ? ` at ${fmtTimeEst(o.event_time)}` : ''}
                 </option>
               ))}
             </select>

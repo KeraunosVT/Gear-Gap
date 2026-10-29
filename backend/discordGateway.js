@@ -886,25 +886,34 @@ async function autocompleteAttendanceEvent(interaction) {
   const dateInput = interaction.options.getString('date');
   const date = dateInput && loa.isValidDate(dateInput) ? dateInput : createLoa.todayInGuildTz();
   const events = await loa.eventsForDate(date);
-  if (events.length === 0) {
+  // That night's one-offs too (signups with no schedule entry), as
+  // `signup:<id>` so the two kinds of id can't collide. Soft-failed: the weekly
+  // events are still worth offering without them.
+  const oneOffs = signups ? await signups.oneOffsOn(date).catch(() => []) : [];
+  if (events.length === 0 && oneOffs.length === 0) {
     // A placeholder, not an empty list: Discord shows "no options" for an
     // empty one, which reads as broken rather than "nothing runs tonight".
     return interaction.respond([{ name: `— nothing scheduled on ${date} —`, value: 'none' }]).catch(() => {});
   }
-  const choices = events
-    .filter((e) => e.name.toLowerCase().includes(focused))
-    .slice(0, 25)
-    // Labelled by the night it belongs to, matching how the guild talks about
-    // it — an after-midnight event is stored on the next calendar day, so
-    // DAY_NAMES[e.day_of_week] alone would name the wrong night.
-    .map((e) => {
-      const night = DAY_NAMES[createLoa.guildDayOfWeek(e.day_of_week, e.event_time)];
-      const late = createLoa.isAfterMidnight(e.event_time) ? ' night' : '';
-      return {
-        name: e.event_time ? `${e.name} (${night}${late}, ${fmt12h(e.event_time)})` : `${e.name} (${night})`,
-        value: e.id,
-      };
-    });
+  // Labelled by the night it belongs to, matching how the guild talks about
+  // it — an after-midnight event is stored on the next calendar day, so
+  // DAY_NAMES[e.day_of_week] alone would name the wrong night.
+  const weekly = events.map((e) => {
+    const night = DAY_NAMES[createLoa.guildDayOfWeek(e.day_of_week, e.event_time)];
+    const late = createLoa.isAfterMidnight(e.event_time) ? ' night' : '';
+    return {
+      name: e.event_time ? `${e.name} (${night}${late}, ${fmt12h(e.event_time)})` : `${e.name} (${night})`,
+      value: e.id,
+    };
+  });
+  const night = DAY_NAMES[new Date(`${date}T12:00:00`).getDay()];
+  const single = oneOffs.map((o) => ({
+    name: `${o.title} (one-off, ${night}${o.event_time ? `, ${fmt12h(o.event_time)}` : ''})`.slice(0, 100),
+    value: `signup:${o.id}`,
+  }));
+  const choices = [...weekly, ...single]
+    .filter((c) => c.name.toLowerCase().includes(focused))
+    .slice(0, 25);
   await interaction.respond(choices).catch(() => {});
 }
 
@@ -976,22 +985,39 @@ async function handleAttendance(interaction) {
   if (!attendance) return interaction.editReply('Attendance tracking is not configured right now.');
   if (!isAdminMember(interaction)) return interaction.editReply('Officers only.');
 
-  const eventScheduleId = interaction.options.getString('event');
+  const picked = interaction.options.getString('event');
   const dateInput = interaction.options.getString('date');
   const eventDate = dateInput || createLoa.todayInGuildTz();
   if (!loa.isValidDate(eventDate)) return interaction.editReply('Date must be in YYYY-MM-DD format.');
 
-  if (eventScheduleId === 'none') {
+  if (picked === 'none') {
     return interaction.editReply(`Nothing is scheduled on ${eventDate}. Add it to the schedule on the Event Calendar first.`);
   }
-  const ev = await attendance.getScheduleEvent(eventScheduleId);
-  if (!ev) return interaction.editReply('Unknown event — pick one from the list.');
   // The list only offers this night's events, but a value can still arrive
   // from a stale list (the date changed after the event was picked). Refused
   // rather than filed: the wrong event against a night is a quiet error that
   // misreports everyone's attendance for it.
-  if (createLoa.guildDayOfWeek(ev.day_of_week, ev.event_time) !== new Date(`${eventDate}T12:00:00`).getDay()) {
-    return interaction.editReply(`${ev.name} doesn't run on ${eventDate}. Pick the event again after setting the date.`);
+  //
+  // A one-off (`signup:<id>`) is recorded as a night with no schedule id under
+  // its own title — how the Event Calendar matches attendance back to it.
+  let ev;
+  let eventScheduleId = null;
+  if (picked.startsWith('signup:')) {
+    const one = signups ? await signups.get(picked.slice('signup:'.length)).catch(() => null) : null;
+    if (!one || one.event_schedule_id || one.status === 'cancelled') {
+      return interaction.editReply('Unknown event — pick one from the list.');
+    }
+    if (one.event_date !== eventDate) {
+      return interaction.editReply(`${one.title} isn't on ${eventDate}. Pick the event again after setting the date.`);
+    }
+    ev = { name: one.title };
+  } else {
+    ev = await attendance.getScheduleEvent(picked);
+    if (!ev) return interaction.editReply('Unknown event — pick one from the list.');
+    if (createLoa.guildDayOfWeek(ev.day_of_week, ev.event_time) !== new Date(`${eventDate}T12:00:00`).getDay()) {
+      return interaction.editReply(`${ev.name} doesn't run on ${eventDate}. Pick the event again after setting the date.`);
+    }
+    eventScheduleId = picked;
   }
 
   // Three ways to find the channel, in order of how specific the intent is:

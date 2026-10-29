@@ -2406,6 +2406,19 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
     }
   });
 
+  // A night's one-off events, for the Attendance page's event picker. The same
+  // feed as /signups/by-occasion/one-offs, but under plain /signups so it takes
+  // 'attendance' — that one is the party builder's and takes 'parties'.
+  // Registered above /signups/:id so 'one-offs' can't be read as an id.
+  router.get('/signups/one-offs', async (req, res) => {
+    if (!signups) return res.status(503).json({ error: 'Database not configured.' });
+    try {
+      res.json({ events: await signups.oneOffsOn(req.query.date || todayInGuildTz()) });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
+    }
+  });
+
   // The party builder's feed. Note this path takes the 'parties' capability
   // rather than 'attendance' (see permissions.js) — a parties officer has to be
   // able to read it to seed a roster.
