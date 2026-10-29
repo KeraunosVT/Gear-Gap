@@ -128,7 +128,7 @@ function fakeSupabase(existing = null) {
 
 const actor = { id: 'member-1', name: 'Ravager' };
 const saveArgs = (over = {}) => ({
-  discordId: 'member-1', displayName: 'Ravager', kind: 'pve', stats: { hp_max: 33552, cost_max: 16800 }, flags: {}, how: 'scan', actor, ...over,
+  discordId: 'member-1', displayName: 'Ravager', kind: 'pve', buildClass: 'Ravager', stats: { hp_max: 33552, cost_max: 16800 }, flags: {}, how: 'scan', actor, ...over,
 });
 
 describe('builds.save', () => {
@@ -144,7 +144,7 @@ describe('builds.save', () => {
   });
 
   test('a rescan records exactly what moved', async () => {
-    const { api, state } = fakeSupabase({ discord_id: 'member-1', kind: 'pve', stats: { hp_max: 33552, cost_max: 16800 }, flags: {} });
+    const { api, state } = fakeSupabase({ discord_id: 'member-1', kind: 'pve', class: 'Ravager', stats: { hp_max: 33552, cost_max: 16800 }, flags: {} });
     await createBuilds(api).save(saveArgs({ stats: { hp_max: 38904, cost_max: 16800 } }));
     assert.equal(state.history[0].how, 'scan');
     assert.deepEqual(state.history[0].changes, [{ id: 'hp_max', from: 33552, to: 38904 }]);
@@ -161,7 +161,7 @@ describe('builds.save', () => {
   });
 
   test('saving the same numbers writes nothing', async () => {
-    const { api, state } = fakeSupabase({ discord_id: 'member-1', kind: 'pve', stats: { hp_max: 33552, cost_max: 16800 }, flags: {} });
+    const { api, state } = fakeSupabase({ discord_id: 'member-1', kind: 'pve', class: 'Ravager', stats: { hp_max: 33552, cost_max: 16800 }, flags: {} });
     const res = await createBuilds(api).save(saveArgs());
     assert.equal(res.changed, false);
     assert.deepEqual(state.upserts, []);
@@ -169,19 +169,36 @@ describe('builds.save', () => {
   });
 
   test('confirming a flagged value updates the build but adds no history line', async () => {
-    const { api, state } = fakeSupabase({ discord_id: 'member-1', kind: 'pve', stats: { hp_max: 33552, cost_max: 16800 }, flags: { hp_max: 'check' } });
+    const { api, state } = fakeSupabase({ discord_id: 'member-1', kind: 'pve', class: 'Ravager', stats: { hp_max: 33552, cost_max: 16800 }, flags: { hp_max: 'check' } });
     const res = await createBuilds(api).save(saveArgs());
     assert.equal(res.changed, true);
     assert.deepEqual(state.build.flags, {});
     assert.deepEqual(state.history, []);
   });
 
-  test('refuses a bad build type, an unknown update kind, or no stats', async () => {
+  test('changing only the class updates the build but adds no history line', async () => {
+    const { api, state } = fakeSupabase({ discord_id: 'member-1', kind: 'pve', class: 'Ravager', stats: { hp_max: 33552, cost_max: 16800 }, flags: {} });
+    const res = await createBuilds(api).save(saveArgs({ buildClass: 'Oracle (DPS)', how: 'edit' }));
+    assert.equal(res.changed, true);
+    assert.equal(state.build.class, 'Oracle (DPS)');
+    assert.deepEqual(state.history, []);
+  });
+
+  test('a build saved before classes takes one on its next save', async () => {
+    const { api, state } = fakeSupabase({ discord_id: 'member-1', kind: 'pve', stats: { hp_max: 33552, cost_max: 16800 }, flags: {} });
+    const res = await createBuilds(api).save(saveArgs({ how: 'edit' }));
+    assert.equal(res.changed, true);
+    assert.equal(state.build.class, 'Ravager');
+  });
+
+  test('refuses a bad build type, an unknown update kind, no stats, or a missing or unknown class', async () => {
     const { api } = fakeSupabase(null);
     const b = createBuilds(api);
     await assert.rejects(b.save(saveArgs({ kind: 'raid' })), { status: 400 });
     await assert.rejects(b.save(saveArgs({ how: 'magic' })), { status: 400 });
     await assert.rejects(b.save(saveArgs({ stats: { nope: 1 } })), { status: 400 });
+    await assert.rejects(b.save(saveArgs({ buildClass: '' })), { status: 400 });
+    await assert.rejects(b.save(saveArgs({ buildClass: 'Necromancer' })), { status: 400 });
   });
 });
 

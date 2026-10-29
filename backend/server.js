@@ -354,7 +354,7 @@ app.get('/api/builds', async (req, res) => {
     const byId = new Map(list.map((b) => [b.discord_id, b]));
     for (const m of members) {
       if (!byId.has(m.id)) {
-        byId.set(m.id, { discord_id: m.id, display_name: ids ? ids.displayNameFor(m.id, m.name) : m.name, pve: null, pvp: null });
+        byId.set(m.id, { discord_id: m.id, display_name: ids ? ids.displayNameFor(m.id, m.name) : m.name, pve: null, pvp: null, classes: { pve: null, pvp: null } });
       }
     }
     res.json({ members: [...byId.values()] });
@@ -421,6 +421,7 @@ app.put('/api/builds/:discordId/:kind', async (req, res) => {
       discordId: target,
       displayName: target === String(req.user.id) ? req.user.username : null,
       kind: req.params.kind,
+      buildClass: req.body?.class,
       stats: req.body?.stats,
       flags: req.body?.flags,
       how: req.body?.how,

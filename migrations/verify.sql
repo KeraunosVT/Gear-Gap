@@ -244,6 +244,12 @@ select '07 · loa_entries.signup_event_id',
         where table_schema = 'public' and table_name = 'loa_entries' and column_name = 'signup_event_id') = 1
 union all
 
+-- ── 08_build_class ──────────────────────────────────────────────────────────
+select '08 · builds.class',
+       (select count(*) from information_schema.columns
+        where table_schema = 'public' and table_name = 'builds' and column_name = 'class') = 1
+union all
+
 -- ── BASE SCHEMA ─────────────────────────────────────────────────────────────
 -- Predates tracked migrations, so no file of its own. The whole shard wishlist
 -- (weapons, need, priority, Last Updated) lives in this one column; anything

@@ -2,17 +2,18 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useAuth } from '../auth';
 import weaponToClass from '../../../shared/weaponClasses.json';
+import EXTRA_CLASSES from '../../../shared/extraClasses.json';
 import { Check } from 'lucide-react';
 import { PageShell } from '../components/ui/PageShell';
 import EmptyState from '../components/ui/EmptyState';
 import Button from '../components/ui/Button';
 
-// Build variants that share a weapon pair with an existing class, so they have
-// no entry of their own in weaponClasses.json — Wand/Orb and Wand/Longbow are
-// both healer-leaning by default, and a member running one as DPS needs to be
-// able to say so. Only the picker on this page offers these; Admin's class list
-// stays keyed to real weapon combos, since it labels scoreboard rows.
-const EXTRA_CLASSES = ['Oracle (DPS)', 'Seeker (DPS)'];
+// shared/extraClasses.json: build variants that share a weapon pair with an
+// existing class, so they have no entry of their own in weaponClasses.json —
+// Wand/Orb and Wand/Longbow are both healer-leaning by default, and a member
+// running one as DPS needs to be able to say so. This picker and the Builds
+// class picker offer these; Admin's class list stays keyed to real weapon
+// combos, since it labels scoreboard rows.
 const CLASS_LIST = [...new Set([...Object.values(weaponToClass), ...EXTRA_CLASSES])].sort();
 const RANK_LABELS = ['Primary', 'Secondary', 'Tertiary'];
 

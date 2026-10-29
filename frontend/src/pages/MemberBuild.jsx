@@ -88,7 +88,7 @@ export default function MemberBuild() {
       title: `${KIND_LABEL[k]} build`,
       chip: <span className={`text-[10px] font-bold tracking-wide rounded-full px-2 py-0.5 border ${KIND_CHIP[k]}`}>{KIND_LABEL[k]}</span>,
       detail: builds[k]
-        ? `Updated ${shortDate(builds[k].updated_at)} · ${ago(builds[k].updated_at)}${flaggedCount(k) ? ` · ${flaggedCount(k)} to check` : ''}`
+        ? `${builds[k].class ? `${builds[k].class} · ` : ''}Updated ${shortDate(builds[k].updated_at)} · ${ago(builds[k].updated_at)}${flaggedCount(k) ? ` · ${flaggedCount(k)} to check` : ''}`
         : 'Not uploaded yet',
     })),
     {
@@ -157,6 +157,7 @@ export default function MemberBuild() {
           {/* Last updated: when, who, how and what changed. */}
           <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
             <p className="text-sm text-ash">
+              {build.class && <><span className="text-brass font-medium">{build.class}</span> · </>}
               <span className="text-bone font-medium">Last updated {fmtWhen(build.updated_at)}</span>
               {last(view) && <> by {last(view).changed_by_name || 'someone'} · {HOW_LABEL[last(view).how]} · {summarise(last(view))}</>}
             </p>
@@ -180,6 +181,15 @@ export default function MemberBuild() {
             </div>
           </div>
           {showHistory && <div className="mb-6"><BuildHistory history={history[view]} /></div>}
+
+          {/* Saved before builds had a class. Any save now needs one, so this
+              is fixed by the next upload or Fix values. */}
+          {!build.class && (
+            <div className="mb-6 px-4 py-2.5 rounded-lg border border-amber-400/40 bg-amber-400/5 text-sm text-bone">
+              This build doesn&apos;t say which class it&apos;s for.
+              {canEdit && <> Use <span className="text-brass">Fix values</span> to pick one.</>}
+            </div>
+          )}
 
           {flaggedCount(view) > 0 && (
             <div className="mb-6 px-4 py-2.5 rounded-lg border border-amber-400/40 bg-amber-400/5 text-sm text-bone">

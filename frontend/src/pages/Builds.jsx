@@ -14,13 +14,16 @@ const STALE_DAYS = 30;
 const daysAgo = (iso) => (iso ? Math.floor((Date.now() - new Date(iso).getTime()) / 86400000) : null);
 const fmtDate = (iso) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 
-function Updated({ iso }) {
+function Updated({ iso, cls }) {
   if (!iso) return <span className="text-ash/40 text-xs whitespace-nowrap">Not uploaded</span>;
   const d = daysAgo(iso);
   const stale = d >= STALE_DAYS;
   return (
-    <span className={`text-xs whitespace-nowrap ${stale ? 'text-oxblood' : 'text-ash'}`} title={stale ? `Not updated for ${d} days` : undefined}>
-      {fmtDate(iso)} · {d === 0 ? 'today' : `${d}d ago`}
+    <span className="min-w-0">
+      {cls && <span className="block text-xs text-bone truncate">{cls}</span>}
+      <span className={`block text-xs whitespace-nowrap ${stale ? 'text-oxblood' : 'text-ash'}`} title={stale ? `Not updated for ${d} days` : undefined}>
+        {fmtDate(iso)} · {d === 0 ? 'today' : `${d}d ago`}
+      </span>
     </span>
   );
 }
@@ -43,7 +46,8 @@ export default function Builds() {
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
     return (members || [])
-      .filter((m) => !q || (m.display_name || '').toLowerCase().includes(q))
+      // A member's name or either build's class, so "templar" finds the Templars.
+      .filter((m) => !q || [m.display_name, m.classes?.pve, m.classes?.pvp].some((s) => (s || '').toLowerCase().includes(q)))
       .filter((m) => filter === 'all' || (filter === 'missing' ? !m.pve || !m.pvp : m.pve || m.pvp))
       .sort((a, b) => (a.display_name || '').localeCompare(b.display_name || ''));
   }, [members, query, filter]);
@@ -76,7 +80,7 @@ export default function Builds() {
         <div className="relative flex-1 min-w-[200px]">
           <Search className="w-4 h-4 text-ash absolute left-3 top-1/2 -translate-y-1/2" />
           <input
-            value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Find a member"
+            value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Find a member or class"
             className="w-full bg-hall border border-line rounded-lg pl-9 pr-4 py-2 text-sm text-bone focus:outline-none focus:border-brass"
           />
         </div>
@@ -111,7 +115,7 @@ export default function Builds() {
               {KINDS.map((k) => (
                 <span key={k} className="flex items-center gap-2 col-start-1 sm:col-start-auto">
                   <span className={`sm:hidden text-[10px] font-bold tracking-wide rounded-full px-2 py-0.5 border ${KIND_CHIP[k]}`}>{KIND_LABEL[k]}</span>
-                  <Updated iso={m[k]} />
+                  <Updated iso={m[k]} cls={m.classes?.[k]} />
                 </span>
               ))}
               {/* Pinned beside the name on phones, where the dates stack below

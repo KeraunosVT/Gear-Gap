@@ -9,9 +9,14 @@
 // so the prompt, the validation here and the layout there can't disagree about
 // which stats exist or what unit they're in.
 const STATS = require('../shared/buildStats.json');
+const WEAPON_CLASSES = require('../shared/weaponClasses.json');
+const EXTRA_CLASSES = require('../shared/extraClasses.json');
 const vision = require('./vision');
 
 const KINDS = ['pve', 'pvp'];
+// The class a build is for, picked by the member — the same list the Classes
+// page offers, so a build and a member's class picks use one vocabulary.
+const CLASSES = new Set([...Object.values(WEAPON_CLASSES), ...EXTRA_CLASSES]);
 const BY_ID = Object.fromEntries(STATS.map((s) => [s.id, s]));
 // A history row keeps at most this many changes. A full rescan touches ~110
 // stats; anything past that is a malformed request, not a build.
@@ -182,12 +187,16 @@ module.exports = function createBuilds(supabase, identities = null) {
     // Everyone's builds, one entry per member who has at least one.
     async list() {
       const { data, error } = await supabase.from('builds')
-        .select('discord_id, kind, display_name, updated_at');
+        .select('discord_id, kind, display_name, class, updated_at');
       if (error) { console.error('builds.list error:', error.message); throw httpError(500, 'Failed to load builds.'); }
       const byMember = new Map();
       for (const r of data || []) {
-        if (!byMember.has(r.discord_id)) byMember.set(r.discord_id, { discord_id: r.discord_id, display_name: r.display_name, pve: null, pvp: null });
-        byMember.get(r.discord_id)[r.kind] = r.updated_at;
+        if (!byMember.has(r.discord_id)) {
+          byMember.set(r.discord_id, { discord_id: r.discord_id, display_name: r.display_name, pve: null, pvp: null, classes: { pve: null, pvp: null } });
+        }
+        const m = byMember.get(r.discord_id);
+        m[r.kind] = r.updated_at;
+        m.classes[r.kind] = r.class || null;
       }
       const out = [...byMember.values()];
       if (identities) {
@@ -219,9 +228,13 @@ module.exports = function createBuilds(supabase, identities = null) {
     // Stores a build and records what changed. `how` is 'scan' or 'edit' from
     // the caller; the first build of a kind is always recorded as 'upload'.
     // Returns { build, changed } — a save that changes nothing writes nothing.
-    async save({ discordId, displayName, kind, stats, flags, how, actor }) {
+    // Every save names the class, so a build from before classes picks one up
+    // the next time anyone touches it.
+    async save({ discordId, displayName, kind, buildClass, stats, flags, how, actor }) {
       if (!isKind(kind)) throw httpError(400, 'Build type must be "pve" or "pvp".');
       if (!['scan', 'edit'].includes(how)) throw httpError(400, 'Unknown kind of update.');
+      if (!buildClass) throw httpError(400, 'Pick the class this build is for.');
+      if (!CLASSES.has(buildClass)) throw httpError(400, 'Unknown class.');
       const cleanS = cleanStats(stats);
       if (!Object.keys(cleanS).length) throw httpError(400, 'A build needs at least one stat.');
       const cleanF = cleanFlags(flags, cleanS);
@@ -231,7 +244,7 @@ module.exports = function createBuilds(supabase, identities = null) {
       if (readErr) { console.error('builds.save read error:', readErr.message); throw httpError(500, 'Failed to save build.'); }
 
       const changes = diffStats(existing?.stats || {}, cleanS);
-      if (existing && !changes.length && sameFlags(existing.flags || {}, cleanF)) {
+      if (existing && !changes.length && sameFlags(existing.flags || {}, cleanF) && existing.class === buildClass) {
         return { build: existing, changed: false };
       }
 
@@ -241,6 +254,7 @@ module.exports = function createBuilds(supabase, identities = null) {
         discord_id: discordId,
         kind,
         display_name: name ? String(name).slice(0, 120) : null,
+        class: buildClass,
         stats: cleanS,
         flags: cleanF,
         updated_at: now,
@@ -250,7 +264,8 @@ module.exports = function createBuilds(supabase, identities = null) {
       if (error) { console.error('builds.save error:', error.message); throw httpError(500, 'Failed to save build.'); }
 
       // Only when a number moved. Clearing a flag alone ("yes, that's right")
-      // updates the build but isn't a change anyone needs in the history.
+      // or relabelling the class updates the build but isn't a change anyone
+      // needs in the stat history.
       if (changes.length) {
         const first = !existing;
         const { error: hErr } = await supabase.from('build_history').insert({
@@ -295,6 +310,7 @@ module.exports = function createBuilds(supabase, identities = null) {
 };
 
 module.exports.KINDS = KINDS;
+module.exports.CLASSES = CLASSES;
 module.exports.cleanStats = cleanStats;
 module.exports.cleanFlags = cleanFlags;
 module.exports.diffStats = diffStats;

@@ -3,10 +3,27 @@ import axios from 'axios';
 import { UploadCloud, Loader2, X, AlertTriangle } from 'lucide-react';
 import Modal from '../ui/Modal';
 import BuildReview, { toInputs, fromInputs } from './BuildReview';
-import { KINDS, KIND_LABEL, KIND_CHIP, uploadWarnings } from '../../buildStats';
+import { KINDS, KIND_LABEL, KIND_CHIP, BUILD_CLASSES, uploadWarnings } from '../../buildStats';
 import { fmtWhen } from './BuildHistory';
 
 const MAX_IMAGES = 10;
+
+// Which class the build is for. Required on every save, so a build from before
+// classes existed starts blank here and has to be given one.
+function ClassSelect({ value, onChange, disabled }) {
+  return (
+    <div>
+      <label htmlFor="build-class" className="eyebrow text-[10px] text-ash block mb-2">Which class is this build for?</label>
+      <select
+        id="build-class" value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled}
+        className="w-full bg-hall border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass"
+      >
+        <option value="">— pick a class —</option>
+        {BUILD_CLASSES.map((c) => <option key={c} value={c}>{c}</option>)}
+      </select>
+    </div>
+  );
+}
 
 // Shared state for editing a set of numbers: the inputs, the flags, and what
 // typing into a flagged one does (clears it — the person has looked at it).
@@ -37,6 +54,11 @@ function Header({ title, onClose }) {
 // step, so a bad read costs a retry, not a wrong build on file.
 export function UploadBuildModal({ discordId, initialKind, builds, onClose, onSaved }) {
   const [kind, setKind] = useState(initialKind);
+  // Starts on the class already on file — this build's, else the other one's,
+  // since most members run both on the same class.
+  const [buildClass, setBuildClass] = useState(
+    () => builds[initialKind]?.class || builds[initialKind === 'pve' ? 'pvp' : 'pve']?.class || '',
+  );
   const [files, setFiles] = useState([]);
   const [step, setStep] = useState('pick');
   const [busy, setBusy] = useState(false);
@@ -73,7 +95,7 @@ export function UploadBuildModal({ discordId, initialKind, builds, onClose, onSa
   const save = async (asKind = kind) => {
     setBusy(true); setError('');
     try {
-      await axios.put(`/api/builds/${discordId}/${asKind}`, { stats, flags: edit.flags, how: 'scan' });
+      await axios.put(`/api/builds/${discordId}/${asKind}`, { class: buildClass, stats, flags: edit.flags, how: 'scan' });
       onSaved(asKind, `${KIND_LABEL[asKind]} build saved.`);
     } catch (err) {
       setError(err.response?.data?.error || 'Could not save that build.');
@@ -83,7 +105,7 @@ export function UploadBuildModal({ discordId, initialKind, builds, onClose, onSa
 
   return (
     <Modal onClose={busy ? () => {} : onClose} maxWidth="max-w-2xl" scrollable>
-      <Header title={step === 'pick' ? 'Upload build screenshots' : `Check your ${KIND_LABEL[kind]} build`} onClose={busy ? () => {} : onClose} />
+      <Header title={step === 'pick' ? 'Upload build screenshots' : `Check your ${KIND_LABEL[kind]} build · ${buildClass}`} onClose={busy ? () => {} : onClose} />
 
       {step === 'pick' && (
         <div className="space-y-5">
@@ -104,6 +126,8 @@ export function UploadBuildModal({ discordId, initialKind, builds, onClose, onSa
                 : `This will be your first ${KIND_LABEL[kind]} build.`}
             </p>
           </div>
+
+          <ClassSelect value={buildClass} onChange={setBuildClass} disabled={busy} />
 
           <label
             onDragOver={(e) => e.preventDefault()}
@@ -137,10 +161,15 @@ export function UploadBuildModal({ discordId, initialKind, builds, onClose, onSa
           {error && <div className="px-4 py-2.5 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
 
           <div className="flex items-center justify-between gap-3 flex-wrap">
-            <span className="text-xs text-ash">{files.length} of {MAX_IMAGES} screenshots{files.length > 0 && files.length < 7 ? ' · seven covers every stat' : ''}</span>
+            <span className="text-xs text-ash">
+              {files.length} of {MAX_IMAGES} screenshots{files.length > 0 && files.length < 7 ? ' · seven covers every stat' : ''}
+              {files.length > 0 && !buildClass && <span className="text-oxblood"> · pick a class first</span>}
+            </span>
             <div className="flex gap-2">
               <button type="button" onClick={onClose} disabled={busy} className="px-4 py-2 text-sm text-ash hover:text-bone">Cancel</button>
-              <button type="button" onClick={read} disabled={busy || !files.length}
+              {/* Gated on the class too, so nobody reads seven screenshots and
+                  only then finds the save refused. */}
+              <button type="button" onClick={read} disabled={busy || !files.length || !buildClass}
                 className="inline-flex items-center gap-2 px-5 py-2 bg-brass hover:bg-brassbright text-ink text-sm font-semibold rounded-lg transition-colors disabled:opacity-40">
                 {busy && <Loader2 className="w-4 h-4 animate-spin" />} {busy ? 'Reading screenshots…' : 'Read screenshots'}
               </button>
@@ -158,7 +187,7 @@ export function UploadBuildModal({ discordId, initialKind, builds, onClose, onSa
                 {w.type === 'same' ? (
                   <button type="button" onClick={() => { setStep('pick'); setFiles([]); }} className="px-3 py-1.5 text-xs rounded-md border border-line text-bone hover:border-ash">Choose different screenshots</button>
                 ) : (
-                  <button type="button" onClick={() => save(otherKind)} disabled={busy || invalid.length > 0} className="px-3 py-1.5 text-xs rounded-md border border-line text-bone hover:border-ash">
+                  <button type="button" onClick={() => save(otherKind)} disabled={busy || invalid.length > 0 || !buildClass} className="px-3 py-1.5 text-xs rounded-md border border-line text-bone hover:border-ash">
                     Save as {KIND_LABEL[otherKind]} build instead
                   </button>
                 )}
@@ -174,7 +203,7 @@ export function UploadBuildModal({ discordId, initialKind, builds, onClose, onSa
             <button type="button" onClick={() => setStep('pick')} disabled={busy} className="text-sm text-ash hover:text-bone">Back</button>
             <div className="flex items-center gap-3">
               {invalid.length > 0 && <span className="text-xs text-oxblood">{invalid.length} value{invalid.length === 1 ? ' isn\'t a number' : 's aren\'t numbers'}</span>}
-              <button type="button" onClick={() => save()} disabled={busy || invalid.length > 0 || !Object.keys(stats).length}
+              <button type="button" onClick={() => save()} disabled={busy || invalid.length > 0 || !Object.keys(stats).length || !buildClass}
                 className="inline-flex items-center gap-2 px-5 py-2 bg-brass hover:bg-brassbright text-ink text-sm font-semibold rounded-lg transition-colors disabled:opacity-40">
                 {busy && <Loader2 className="w-4 h-4 animate-spin" />} Save as {KIND_LABEL[kind]} build
               </button>
@@ -190,6 +219,7 @@ export function UploadBuildModal({ discordId, initialKind, builds, onClose, onSa
 // rather correct one number than rescan. Recorded as a manual fix.
 export function FixBuildModal({ discordId, kind, build, memberName, onClose, onSaved }) {
   const edit = useEditable(build.stats, build.flags);
+  const [buildClass, setBuildClass] = useState(build.class || '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const { stats, invalid } = fromInputs(edit.inputs);
@@ -197,7 +227,7 @@ export function FixBuildModal({ discordId, kind, build, memberName, onClose, onS
   const save = async () => {
     setBusy(true); setError('');
     try {
-      const { data } = await axios.put(`/api/builds/${discordId}/${kind}`, { stats, flags: edit.flags, how: 'edit' });
+      const { data } = await axios.put(`/api/builds/${discordId}/${kind}`, { class: buildClass, stats, flags: edit.flags, how: 'edit' });
       onSaved(kind, data.changed ? `${KIND_LABEL[kind]} build updated.` : 'Nothing changed.');
     } catch (err) {
       setError(err.response?.data?.error || 'Could not save that build.');
@@ -208,12 +238,14 @@ export function FixBuildModal({ discordId, kind, build, memberName, onClose, onS
   return (
     <Modal onClose={busy ? () => {} : onClose} maxWidth="max-w-2xl" scrollable>
       <Header title={`Fix values · ${memberName}'s ${KIND_LABEL[kind]} build`} onClose={busy ? () => {} : onClose} />
+      <div className="mb-5"><ClassSelect value={buildClass} onChange={setBuildClass} disabled={busy} /></div>
       <BuildReview inputs={edit.inputs} flags={edit.flags} onInput={edit.onInput} onConfirm={edit.onConfirm} />
       {error && <div className="mt-4 px-4 py-2.5 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
       <div className="flex items-center justify-end gap-3 flex-wrap sticky bottom-0 bg-panel pt-3 mt-5 border-t border-line">
         {invalid.length > 0 && <span className="text-xs text-oxblood">{invalid.length} value{invalid.length === 1 ? ' isn\'t a number' : 's aren\'t numbers'}</span>}
+        {!buildClass && <span className="text-xs text-oxblood">Pick a class first</span>}
         <button type="button" onClick={onClose} disabled={busy} className="px-4 py-2 text-sm text-ash hover:text-bone">Cancel</button>
-        <button type="button" onClick={save} disabled={busy || invalid.length > 0 || !Object.keys(stats).length}
+        <button type="button" onClick={save} disabled={busy || invalid.length > 0 || !Object.keys(stats).length || !buildClass}
           className="inline-flex items-center gap-2 px-5 py-2 bg-brass hover:bg-brassbright text-ink text-sm font-semibold rounded-lg transition-colors disabled:opacity-40">
           {busy && <Loader2 className="w-4 h-4 animate-spin" />} Save changes
         </button>

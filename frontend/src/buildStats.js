@@ -2,11 +2,17 @@
 // shared/buildStats.json, the same file backend/builds.js reads the
 // screenshots against, so the page can't show a stat the reader doesn't know.
 import STATS from '../../shared/buildStats.json';
+import WEAPON_CLASSES from '../../shared/weaponClasses.json';
+import EXTRA_CLASSES from '../../shared/extraClasses.json';
 
 export const BUILD_STATS = STATS;
 export const STAT = Object.fromEntries(STATS.map((s) => [s.id, s]));
 export const KINDS = ['pve', 'pvp'];
 export const KIND_LABEL = { pve: 'PvE', pvp: 'PvP' };
+
+// The classes a build can be for — the Classes page's list, and the one
+// backend/builds.js checks a save against.
+export const BUILD_CLASSES = [...new Set([...Object.values(WEAPON_CLASSES), ...EXTRA_CLASSES])].sort();
 
 // The site's existing PvE/PvP colours (Shards' build pill, Parties' toggle).
 export const KIND_CHIP = {
