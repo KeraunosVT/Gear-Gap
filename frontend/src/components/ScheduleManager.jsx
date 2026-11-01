@@ -2,7 +2,9 @@ import { useState } from 'react';
 import axios from 'axios';
 import { Plus, Trash2, X, Pencil, Check, RotateCcw } from 'lucide-react';
 
-import { fmtTimeEst, isAfterMidnight, guildDayOfWeek, todayInGuildTz } from '../timeUtils';
+import {
+  fmtTimeEst, isAfterMidnight, guildDayOfWeek, todayInGuildTz, addDays, eventRunsThatWeek,
+} from '../timeUtils';
 import { categoryOf } from '../eventCategories';
 import CategorySelect from './CategorySelect';
 
@@ -10,6 +12,30 @@ const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 
 const shortDate = (dateStr) =>
   new Date(`${dateStr}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 const FIELD = 'bg-hall border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass';
+const EDIT_FIELD = 'bg-panel border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass';
+
+// An every-other-week event is picked by its first NIGHT, not a weekday — the
+// date is what says which weeks are the on weeks. The stored day follows from
+// it the way the calendar's New Event form works it out: an after-midnight
+// event is kept on the next calendar day.
+const storedDay = (night, time) => {
+  const dow = new Date(`${night}T12:00:00`).getDay();
+  return isAfterMidnight(time) ? (dow + 1) % 7 : dow;
+};
+
+// What the request body says about how often, for either form.
+const cadenceBody = (every, anchor) => (every === '2' ? { interval_weeks: 2, anchor_date: anchor } : { interval_weeks: 1 });
+
+// The next night an every-other-week event runs, from tonight — an anchor date
+// months back says nothing useful about which week this is.
+function nextNight(s, today) {
+  const night = guildDayOfWeek(s.day_of_week, s.event_time);
+  for (let i = 0; i < 14; i += 1) {
+    const d = addDays(today, i);
+    if (new Date(`${d}T12:00:00`).getDay() === night && eventRunsThatWeek(s, d)) return d;
+  }
+  return null;
+}
 
 // The recurring event schedule: add, edit, remove. Lived inline on the LOA
 // page; it moved to the Event Calendar, which is where the schedule is shown.
@@ -27,23 +53,32 @@ export default function ScheduleManager({ schedule, onChanged }) {
   const [newDay, setNewDay] = useState('');
   const [newTime, setNewTime] = useState('');
   const [newCategory, setNewCategory] = useState('');
+  const [newEvery, setNewEvery] = useState('1');
+  const [newAnchor, setNewAnchor] = useState('');
 
   const [editingId, setEditingId] = useState(null);
   const [editName, setEditName] = useState('');
   const [editDay, setEditDay] = useState('');
   const [editTime, setEditTime] = useState('');
   const [editCategory, setEditCategory] = useState('');
+  const [editEvery, setEditEvery] = useState('1');
+  const [editAnchor, setEditAnchor] = useState('');
   const [saving, setSaving] = useState(false);
 
   const say = (text, ok = true) => setMsg({ text, ok });
 
+  const canAdd = Boolean(newName.trim()) && (newEvery === '2' ? Boolean(newAnchor) : newDay !== '');
   const add = async () => {
-    if (!newName.trim() || newDay === '') return;
+    if (!canAdd) return;
     try {
       await axios.post('/api/admin/event-schedule', {
-        name: newName.trim(), day_of_week: parseInt(newDay, 10), event_time: newTime || null, category: newCategory || null,
+        name: newName.trim(),
+        day_of_week: newEvery === '2' ? storedDay(newAnchor, newTime) : parseInt(newDay, 10),
+        event_time: newTime || null,
+        category: newCategory || null,
+        ...cadenceBody(newEvery, newAnchor),
       });
-      setNewName(''); setNewDay(''); setNewTime(''); setNewCategory('');
+      setNewName(''); setNewDay(''); setNewTime(''); setNewCategory(''); setNewEvery('1'); setNewAnchor('');
       onChanged();
       say('Event added to schedule.');
     } catch (err) {
@@ -81,17 +116,21 @@ export default function ScheduleManager({ schedule, onChanged }) {
     setEditDay(String(s.day_of_week));
     setEditTime(s.event_time || '');
     setEditCategory(s.category || '');
+    setEditEvery(String(s.interval_weeks || 1));
+    setEditAnchor(s.anchor_date ? String(s.anchor_date).slice(0, 10) : '');
   };
 
+  const canSave = Boolean(editName.trim()) && (editEvery === '2' ? Boolean(editAnchor) : editDay !== '');
   const save = async (id) => {
-    if (!editName.trim() || editDay === '') return;
+    if (!canSave) return;
     setSaving(true);
     try {
       await axios.put(`/api/admin/event-schedule/${id}`, {
         name: editName.trim(),
-        day_of_week: parseInt(editDay, 10),
+        day_of_week: editEvery === '2' ? storedDay(editAnchor, editTime) : parseInt(editDay, 10),
         event_time: editTime || null,
         category: editCategory || null,
+        ...cadenceBody(editEvery, editAnchor),
       });
       setEditingId(null);
       onChanged();
@@ -111,14 +150,22 @@ export default function ScheduleManager({ schedule, onChanged }) {
     <div>
       <div className="flex flex-wrap gap-2 mb-4">
         <input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Event name" className={`${FIELD} flex-1 min-w-[160px]`} />
-        <select value={newDay} onChange={(e) => setNewDay(e.target.value)} className={FIELD}>
-          <option value="">— day —</option>
-          {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+        <select value={newEvery} onChange={(e) => setNewEvery(e.target.value)} className={FIELD} title="How often it repeats">
+          <option value="1">Weekly</option>
+          <option value="2">Every 2 weeks</option>
         </select>
+        {newEvery === '2' ? (
+          <input type="date" value={newAnchor} onChange={(e) => setNewAnchor(e.target.value)} className={FIELD} title="First night it runs" />
+        ) : (
+          <select value={newDay} onChange={(e) => setNewDay(e.target.value)} className={FIELD}>
+            <option value="">— day —</option>
+            {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+          </select>
+        )}
         <input type="time" value={newTime} onChange={(e) => setNewTime(e.target.value)} className={FIELD} title="Event time, guild time (optional)" />
         <CategorySelect value={newCategory} onChange={setNewCategory} title={newName} className={FIELD} />
         <button
-          onClick={add} disabled={!newName.trim() || newDay === ''} title="Add to schedule"
+          onClick={add} disabled={!canAdd} title="Add to schedule"
           className="px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40"
         >
           <Plus className="w-4 h-4" />
@@ -134,16 +181,21 @@ export default function ScheduleManager({ schedule, onChanged }) {
           editingId === s.id ? (
             <div key={s.id} className="flex flex-wrap gap-2 bg-hall border border-brass/50 rounded-lg px-3 py-2">
               <input value={editName} onChange={(e) => setEditName(e.target.value)} placeholder="Event name"
-                className="bg-panel border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass flex-1 min-w-[140px]" />
-              <select value={editDay} onChange={(e) => setEditDay(e.target.value)}
-                className="bg-panel border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass">
-                {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+                className={`${EDIT_FIELD} flex-1 min-w-[140px]`} />
+              <select value={editEvery} onChange={(e) => setEditEvery(e.target.value)} className={EDIT_FIELD} title="How often it repeats">
+                <option value="1">Weekly</option>
+                <option value="2">Every 2 weeks</option>
               </select>
-              <input type="time" value={editTime} onChange={(e) => setEditTime(e.target.value)}
-                className="bg-panel border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass" />
-              <CategorySelect value={editCategory} onChange={setEditCategory} title={editName}
-                className="bg-panel border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass" />
-              <button onClick={() => save(s.id)} disabled={saving || !editName.trim()}
+              {editEvery === '2' ? (
+                <input type="date" value={editAnchor} onChange={(e) => setEditAnchor(e.target.value)} className={EDIT_FIELD} title="A night it runs" />
+              ) : (
+                <select value={editDay} onChange={(e) => setEditDay(e.target.value)} className={EDIT_FIELD}>
+                  {DAYS.map((d, i) => <option key={i} value={i}>{d}</option>)}
+                </select>
+              )}
+              <input type="time" value={editTime} onChange={(e) => setEditTime(e.target.value)} className={EDIT_FIELD} />
+              <CategorySelect value={editCategory} onChange={setEditCategory} title={editName} className={EDIT_FIELD} />
+              <button onClick={() => save(s.id)} disabled={saving || !canSave}
                 className="px-3 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40">
                 <Check className="w-4 h-4" />
               </button>
@@ -159,6 +211,11 @@ export default function ScheduleManager({ schedule, onChanged }) {
                   {s.name} <span className="text-ash">— {DAYS[s.day_of_week]}{s.event_time ? ` at ${fmtTimeEst(s.event_time)}` : ''}</span>
                   {isAfterMidnight(s.event_time) && (
                     <span className="text-brass"> · {DAYS[guildDayOfWeek(s.day_of_week, s.event_time)]} night</span>
+                  )}
+                  {(s.interval_weeks || 1) > 1 && (
+                    <span className="text-ash">
+                      {' '}· every other week{nextNight(s, today) ? `, next ${shortDate(nextNight(s, today))}` : ''}
+                    </span>
                   )}
                 </span>
                 <div className="flex items-center gap-1 shrink-0">

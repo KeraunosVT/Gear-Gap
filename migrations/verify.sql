@@ -260,6 +260,13 @@ select '09 · guild-wide build_key_stats table is gone',
        to_regclass('public.build_key_stats') is null
 union all
 
+-- ── 10_event_schedule_biweekly ──────────────────────────────────────────────
+select '10 · event_schedule.interval_weeks, anchor_date',
+       (select count(*) from information_schema.columns
+        where table_schema = 'public' and table_name = 'event_schedule'
+          and column_name in ('interval_weeks', 'anchor_date')) = 2
+union all
+
 -- ── BASE SCHEMA ─────────────────────────────────────────────────────────────
 -- Predates tracked migrations, so no file of its own. The whole shard wishlist
 -- (weapons, need, priority, Last Updated) lives in this one column; anything

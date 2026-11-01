@@ -118,4 +118,13 @@ describe('eventsForGuildDay', () => {
     assert.deepEqual(tu.eventsForGuildDay(skipped, 6, '2026-09-12').map((e) => e.id), ['d', 'a', 'b']);
     assert.deepEqual(tu.eventsForGuildDay(skipped, 6).map((e) => e.id), ['d', 'a', 'b'], 'no date = the weekly pattern');
   });
+
+  test('an every-other-week event shows on its on weeks only', () => {
+    // 'b' is stored on Sunday 00:30 but anchored on its night, Saturday 5 Sep.
+    const biweekly = SCHEDULE.map((s) => (s.id === 'b' ? { ...s, interval_weeks: 2, anchor_date: '2026-09-05' } : s));
+    assert.deepEqual(tu.eventsForGuildDay(biweekly, 6, '2026-09-05').map((e) => e.id), ['d', 'a', 'b']);
+    assert.deepEqual(tu.eventsForGuildDay(biweekly, 6, '2026-09-12').map((e) => e.id), ['d', 'a']);
+    assert.deepEqual(tu.eventsForGuildDay(biweekly, 6, '2026-09-19').map((e) => e.id), ['d', 'a', 'b']);
+    assert.deepEqual(tu.eventsForGuildDay(biweekly, 6).map((e) => e.id), ['d', 'a', 'b'], 'no date = the pattern');
+  });
 });

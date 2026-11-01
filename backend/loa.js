@@ -74,6 +74,25 @@ function loaSkipsDate(entry, dateStr) {
   return Array.isArray(skips) && skips.includes(dateStr);
 }
 
+// Does an every-other-week event (migration 10) run in the week of this guild
+// night? Assumes the night of the week already matches; this only answers
+// which weeks. A weekly row, or no night to ask about, is always yes.
+//
+// Rounded to the nearest week rather than required to be an exact multiple of
+// seven days: the DST toggle can move an event across day_start onto the
+// neighbouring night, and that mustn't flip its on and off weeks. Exported for
+// the conformance test, like loaSkipsDate.
+const WEEK_MS = 7 * 86_400_000;
+function eventRunsThatWeek(s, dateStr) {
+  const every = Number(s?.interval_weeks) || 1;
+  if (every <= 1 || !s.anchor_date || !dateStr) return true;
+  const weeks = Math.round(
+    (Date.parse(`${dateStr}T12:00:00Z`) - Date.parse(`${String(s.anchor_date).slice(0, 10)}T12:00:00Z`)) / WEEK_MS,
+  );
+  if (!Number.isFinite(weeks)) return true;
+  return ((weeks % every) + every) % every === 0;
+}
+
 // Parses either a 24-hour "HH:MM" (what the website's <input type="time"> sends)
 // or a freeform clock string like "9pm" / "9:00 PM" (what the Discord command
 // takes, since slash commands have no time picker). Returns "HH:MM" or null.
@@ -253,13 +272,16 @@ module.exports = function createLoa(supabase, identities = null) {
   // An optional scheduled event, checked against the night it's being tied to.
   // Against the night it belongs to, not the calendar day it's stored on —
   // otherwise picking Saturday + the 12:30am event is rejected as a mismatch,
-  // even though that's exactly Saturday night's last event.
-  const scheduledEventName = async (eventScheduleId, dow, mismatch) => {
+  // even though that's exactly Saturday night's last event. With a date (an
+  // LOA for one night), an every-other-week event's off week is a mismatch too.
+  // '*' so a database without migration 10 still files LOAs.
+  const scheduledEventName = async (eventScheduleId, dow, mismatch, dateStr = null) => {
     if (!eventScheduleId) return null;
     const { data: ev, error: evErr } = await supabase.from('event_schedule')
-      .select('id, name, day_of_week, event_time').eq('id', eventScheduleId).single();
+      .select('*').eq('id', eventScheduleId).single();
     if (evErr || !ev) throw httpError(400, 'Unknown event.');
     if (guildDayOfWeek(ev.day_of_week, ev.event_time) !== dow) throw httpError(400, mismatch);
+    if (!eventRunsThatWeek(ev, dateStr)) throw httpError(400, mismatch);
     return ev.name;
   };
 
@@ -285,7 +307,7 @@ module.exports = function createLoa(supabase, identities = null) {
     const cleanReason = requireReason(reason);
     const eventName = signupEventId
       ? await signupEventName(signupEventId, eventDate)
-      : await scheduledEventName(eventScheduleId, dayOfWeek(eventDate), "That event isn't scheduled on that date.");
+      : await scheduledEventName(eventScheduleId, dayOfWeek(eventDate), "That event isn't scheduled on that date.", eventDate);
     return {
       cols: {
         type: 'event',
@@ -369,11 +391,12 @@ module.exports = function createLoa(supabase, identities = null) {
     // 00:30 row in and leave Sunday evening's rows out. Filtered in JS because
     // the schedule is a couple of dozen rows and the alternative is an or()
     // spanning two days. Ordered by slot so the small hours come last.
-    async eventsForDay(dow) {
+    // `dateStr` (a night) also leaves out an every-other-week event's off week.
+    async eventsForDay(dow, dateStr = null) {
       const { data, error } = await supabase.from('event_schedule').select('*');
       if (error) { console.error('loa.eventsForDay error:', error.message); return []; }
       return (data || [])
-        .filter((e) => guildDayOfWeek(e.day_of_week, e.event_time) === dow)
+        .filter((e) => guildDayOfWeek(e.day_of_week, e.event_time) === dow && eventRunsThatWeek(e, dateStr))
         .sort((a, b) => (a.event_time ? daySlot(a.event_time) : -1) - (b.event_time ? daySlot(b.event_time) : -1)
           || String(a.name).localeCompare(String(b.name)));
     },
@@ -381,7 +404,7 @@ module.exports = function createLoa(supabase, identities = null) {
     // Same, but keyed off a calendar date instead of a raw day-of-week number.
     async eventsForDate(dateStr) {
       if (!isValidDate(dateStr)) return [];
-      return this.eventsForDay(dayOfWeek(dateStr));
+      return this.eventsForDay(dayOfWeek(dateStr), dateStr);
     },
 
     // Who's out on a date, optionally narrowed to one scheduled event. Lives
@@ -688,6 +711,7 @@ module.exports.daySlot = daySlot;
 // test is what keeps them honest.
 module.exports.withinLoaWindow = withinLoaWindow;
 module.exports.loaSkipsDate = loaSkipsDate;
+module.exports.eventRunsThatWeek = eventRunsThatWeek;
 module.exports.guildDayOfWeek = guildDayOfWeek;
 module.exports.isAfterMidnight = isAfterMidnight;
 // Accessors, not constants — the rollover and timezone are configuration now.

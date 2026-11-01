@@ -305,12 +305,14 @@ export default {
   'cal.newEventTitle': 'NOVO EVENTO',
   'cal.oneOff': 'Único',
   'cal.weekly': 'Semanal',
+  'cal.biweekly': 'A cada 2 semanas',
   'cal.name': 'Nome',
   'cal.namePlaceholder': 'ex.: Archboss — Morokai',
   'cal.type': 'Tipo',
   'cal.typeAuto': 'Automático pelo nome ({type})',
   'cal.night': 'Noite',
   'cal.every': 'Toda',
+  'cal.firstNight': 'Primeira noite',
   'cal.timeOptional': 'Horário (opcional)',
   'cal.afterMidnightNote': 'Depois da meia-noite — conta como parte da noite anterior.',
   'cal.capOptional': 'Limite (opcional)',
@@ -329,6 +331,7 @@ export default {
   'cal.addedForPosted': '{title} adicionado para {date} e publicado no Discord.',
   'cal.alreadyOnCalendar': 'Esse evento já estava no calendário.',
   'cal.addedEvery': '{title} adicionado toda {day}.',
+  'cal.addedEveryOther': '{title} adicionado a cada duas semanas, {day}.',
   'cal.createFailed': 'Não foi possível criar esse evento.',
 
   // Post to Discord

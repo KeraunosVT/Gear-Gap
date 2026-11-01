@@ -173,6 +173,53 @@ describe('loaSkipsDate is identical on both sides', () => {
   });
 });
 
+describe('eventRunsThatWeek is identical on both sides', () => {
+  // A drift here puts an every-other-week event on the calendar for a night the
+  // server then refuses signups for, or hides one it would accept.
+  const ANCHOR = '2026-09-01'; // a Tuesday
+  const NIGHTS = Array.from({ length: 21 }, (_, i) => {
+    const d = new Date(`${ANCHOR}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + (i - 10) * 7);
+    return d.toISOString().slice(0, 10);
+  });
+  const ROWS = [
+    { interval_weeks: 2, anchor_date: ANCHOR },
+    { interval_weeks: 1, anchor_date: null },
+    { interval_weeks: 2, anchor_date: null },
+    { interval_weeks: null },
+    {},
+  ];
+
+  test('every row shape against every week, either side of the anchor', () => {
+    const mismatches = [];
+    for (const s of ROWS) {
+      for (const d of [...NIGHTS, null]) {
+        if (createLoa.eventRunsThatWeek(s, d) !== fe.eventRunsThatWeek(s, d)) mismatches.push(`${JSON.stringify(s)} @ ${d}`);
+      }
+    }
+    assert.deepEqual(mismatches, []);
+  });
+
+  test('alternates from the anchor, backwards as well as forwards', () => {
+    const s = { interval_weeks: 2, anchor_date: ANCHOR };
+    for (const impl of [createLoa, fe]) {
+      assert.equal(impl.eventRunsThatWeek(s, ANCHOR), true);
+      assert.equal(impl.eventRunsThatWeek(s, '2026-09-08'), false);
+      assert.equal(impl.eventRunsThatWeek(s, '2026-09-15'), true);
+      assert.equal(impl.eventRunsThatWeek(s, '2026-08-25'), false);
+      assert.equal(impl.eventRunsThatWeek(s, '2026-08-18'), true);
+    }
+  });
+
+  test('a night moved one day by the DST toggle keeps its weeks', () => {
+    const s = { interval_weeks: 2, anchor_date: ANCHOR };
+    for (const impl of [createLoa, fe]) {
+      assert.equal(impl.eventRunsThatWeek(s, '2026-09-14'), true, 'Monday before an on Tuesday');
+      assert.equal(impl.eventRunsThatWeek(s, '2026-09-07'), false, 'Monday before an off Tuesday');
+    }
+  });
+});
+
 describe('a non-default rollover moves both the same way', () => {
   // Guild Settings can change day_start, and the two sides learn about it by
   // completely different routes — guild_config on the backend, GET /api/guild

@@ -161,13 +161,31 @@ export function eventSkipsDate(s, dateStr) {
   return Boolean(dateStr) && Array.isArray(s?.skip_dates) && s.skip_dates.includes(dateStr);
 }
 
+// Does an every-other-week event run in the week of this guild night? Assumes
+// the night of the week already matches; this only answers which weeks. Rounded
+// to the nearest week so a DST shift across day_start doesn't flip the on and
+// off weeks. Mirrors eventRunsThatWeek in backend/loa.js, held in step by the
+// conformance test.
+const WEEK_MS = 7 * 86_400_000;
+export function eventRunsThatWeek(s, dateStr) {
+  const every = Number(s?.interval_weeks) || 1;
+  if (every <= 1 || !s.anchor_date || !dateStr) return true;
+  const weeks = Math.round(
+    (Date.parse(`${dateStr}T12:00:00Z`) - Date.parse(`${String(s.anchor_date).slice(0, 10)}T12:00:00Z`)) / WEEK_MS,
+  );
+  if (!Number.isFinite(weeks)) return true;
+  return ((weeks % every) + every) % every === 0;
+}
+
 // Events for one guild night, newest-last. Not a plain day_of_week filter:
 // Saturday night's list has to pull in the Sunday 00:30 row and leave Sunday
 // evening's rows out. Pass `dateStr` (the night) to also drop any event
-// cancelled for that one night; without it you get the weekly pattern.
+// cancelled for that one night, and every-other-week events on their off week;
+// without it you get the weekly pattern.
 export function eventsForGuildDay(schedule, dow, dateStr = null) {
   return (schedule || [])
-    .filter((s) => guildDayOfWeek(s.day_of_week, s.event_time) === dow && !eventSkipsDate(s, dateStr))
+    .filter((s) => guildDayOfWeek(s.day_of_week, s.event_time) === dow && !eventSkipsDate(s, dateStr)
+      && eventRunsThatWeek(s, dateStr))
     .sort((a, b) => (a.event_time ? daySlot(a.event_time) : -1) - (b.event_time ? daySlot(b.event_time) : -1)
       || String(a.name).localeCompare(String(b.name)));
 }

@@ -984,13 +984,15 @@ function EventDetail({ night, row, busy, onJoin, onLeave, loa, late, onDelete = 
 
 const FIELD = 'w-full bg-hall border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass';
 
-// One form, two kinds of event. A one-off opens signups for a single date —
+// One form, three kinds of event. A one-off opens signups for a single date —
 // that is what an unscheduled event on this calendar already is, so it shows
 // up here the moment it's made. A weekly one is a schedule entry, the same as
-// adding it on the LOA page.
+// adding it on the LOA page. Every other week is a schedule entry too, picked
+// by its first night rather than a weekday: the date is what says which weeks
+// are the on weeks.
 //
-// Both take the NIGHT, not the calendar day: a 12:30am event picked for
-// Saturday is Saturday night's. For a weekly event that means storing it on
+// All take the NIGHT, not the calendar day: a 12:30am event picked for
+// Saturday is Saturday night's. For a repeating event that means storing it on
 // the next calendar day, which is how the schedule keeps after-midnight rows.
 function NewEventModal({ canOneOff, canWeekly, defaultDate, onClose, onCreated }) {
   const { t } = useT();
@@ -1006,6 +1008,11 @@ function NewEventModal({ canOneOff, canWeekly, defaultDate, onClose, onCreated }
   const [announce, setAnnounce] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const kinds = [
+    canOneOff && ['once', t('cal.oneOff')],
+    canWeekly && ['weekly', t('cal.weekly')],
+    canWeekly && ['biweekly', t('cal.biweekly')],
+  ].filter(Boolean);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -1021,14 +1028,16 @@ function NewEventModal({ canOneOff, canWeekly, defaultDate, onClose, onCreated }
           ? t(announce ? 'cal.addedForPosted' : 'cal.addedFor', { title: title.trim(), date: shortDate(date) })
           : t('cal.alreadyOnCalendar'));
       } else {
-        const n = parseInt(night, 10);
+        const biweekly = kind === 'biweekly';
+        const n = biweekly ? dowOf(date) : parseInt(night, 10);
         await axios.post('/api/admin/event-schedule', {
           name: title.trim(),
           day_of_week: isAfterMidnight(time) ? (n + 1) % 7 : n,
           event_time: time || null,
           category: category || null,
+          ...(biweekly ? { interval_weeks: 2, anchor_date: date } : {}),
         });
-        onCreated(t('cal.addedEvery', { title: title.trim(), day: DAY_NAME(n) }));
+        onCreated(t(biweekly ? 'cal.addedEveryOther' : 'cal.addedEvery', { title: title.trim(), day: DAY_NAME(n) }));
       }
     } catch (err) {
       setError(err.response?.data?.error || t('cal.createFailed'));
@@ -1041,9 +1050,9 @@ function NewEventModal({ canOneOff, canWeekly, defaultDate, onClose, onCreated }
       <form onSubmit={submit} className="space-y-4">
         <h2 className="font-display text-lg tracking-[0.08em] text-bone">{t('cal.newEventTitle')}</h2>
 
-        {canOneOff && canWeekly && (
+        {kinds.length > 1 && (
           <div className="flex gap-2">
-            {[['once', t('cal.oneOff')], ['weekly', t('cal.weekly')]].map(([key, label]) => (
+            {kinds.map(([key, label]) => (
               <button
                 key={key} type="button" onClick={() => setKind(key)}
                 className={`flex-1 px-3 py-2 rounded-lg border text-sm transition-colors ${kind === key ? 'border-brass text-brass bg-panelup' : 'border-line text-ash hover:text-bone'}`}
@@ -1065,9 +1074,9 @@ function NewEventModal({ canOneOff, canWeekly, defaultDate, onClose, onCreated }
         </div>
 
         <div className="flex gap-3">
-          {kind === 'once' ? (
+          {kind !== 'weekly' ? (
             <div className="flex-1">
-              <label className="eyebrow text-[10px] text-ash block mb-2">{t('cal.night')}</label>
+              <label className="eyebrow text-[10px] text-ash block mb-2">{t(kind === 'once' ? 'cal.night' : 'cal.firstNight')}</label>
               <input type="date" value={date} min={todayInGuildTz()} onChange={(e) => setDate(e.target.value)} required className={FIELD} />
             </div>
           ) : (

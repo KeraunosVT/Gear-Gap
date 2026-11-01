@@ -177,6 +177,9 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
         if (createLoa.guildDayOfWeek(ev.day_of_week, ev.event_time) !== dayOfWeek(eventDate)) {
           throw httpError(400, `${ev.name} doesn't run on that night.`);
         }
+        if (!createLoa.eventRunsThatWeek(ev, eventDate)) {
+          throw httpError(400, `${ev.name} runs every other week, and that night is an off week.`);
+        }
         eventTime = ev.event_time || null;
         eventCategory = categoryKey(ev.category);
         if (!eventName) eventName = ev.name;
