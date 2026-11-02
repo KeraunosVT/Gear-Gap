@@ -173,8 +173,8 @@ async function registerCommands() {
       .addSubcommand((sub) =>
         sub.setName('range')
           .setDescription('Request LOA for a date range.')
-          .addStringOption((opt) => opt.setName('start_date').setDescription('Start date, YYYY-MM-DD').setRequired(true))
-          .addStringOption((opt) => opt.setName('end_date').setDescription('End date, YYYY-MM-DD').setRequired(true))
+          .addStringOption((opt) => opt.setName('start_date').setDescription('First night you\u2019re out — pick from the list').setRequired(true).setAutocomplete(true))
+          .addStringOption((opt) => opt.setName('end_date').setDescription('Last night you\u2019re out — pick from the list').setRequired(true).setAutocomplete(true))
           .addStringOption((opt) => opt.setName('reason').setDescription('Visible to officers only').setRequired(true))
           .addUserOption((opt) => opt.setName('member').setDescription('Officers only: submit on behalf of this member').setRequired(false))
       )
@@ -875,6 +875,7 @@ async function handleAutocomplete(interaction) {
   if (interaction.commandName !== 'loa') return interaction.respond([]).catch(() => {});
   const sub = interaction.options.getSubcommand();
   if (sub === 'event') return autocompleteLoaEvent(interaction);
+  if (sub === 'range') return autocompleteLoaRange(interaction);
   if (sub === 'recurring') return autocompleteLoaRecurring(interaction);
   if (sub === 'cancel') return autocompleteLoaCancel(interaction);
   return interaction.respond([]).catch(() => {});
@@ -922,20 +923,25 @@ async function autocompleteAttendanceEvent(interaction) {
   await interaction.respond(choices).catch(() => {});
 }
 
-// The next 25 guild nights as autocomplete choices for /loa event's `date`,
-// starting tonight — Discord has no date-picker option type, so this is the
-// nearest thing. Each choice can be found by what someone would type: "fri",
+// 25 guild nights as autocomplete choices for the /loa date fields, starting
+// at `from` (tonight by default) — Discord has no date-picker option type, so
+// this is the nearest thing. Today and Tomorrow are labelled against `today`
+// whatever the list starts from, so an end-date list that begins at the start
+// date still names tonight correctly. Each choice can be found by what someone would type: "fri",
 // "friday", "nov 14", "11/14" or "2026-11-14". A complete YYYY-MM-DD outside
 // the list is offered as typed, so dates further out still work.
-function loaDateChoices(today, query = '') {
-  const base = new Date(`${today}T12:00:00Z`);
+function loaDateChoices(today, query = '', from = today) {
+  const base = new Date(`${from}T12:00:00Z`);
+  const todayMs = new Date(`${today}T12:00:00Z`).getTime();
+  const thisYear = new Date(todayMs).getUTCFullYear();
   const fmt = (d, opts) => d.toLocaleDateString('en-US', { timeZone: 'UTC', ...opts });
   const days = Array.from({ length: 25 }, (_, i) => {
     const d = new Date(base.getTime() + i * 86_400_000);
     const value = d.toISOString().slice(0, 10);
     const short = fmt(d, { weekday: 'short', month: 'short', day: 'numeric' })
-      + (d.getUTCFullYear() !== base.getUTCFullYear() ? `, ${d.getUTCFullYear()}` : '');
-    const name = i === 0 ? `Today — ${short}` : i === 1 ? `Tomorrow — ${short}` : short;
+      + (d.getUTCFullYear() !== thisYear ? `, ${d.getUTCFullYear()}` : '');
+    const offset = Math.round((d.getTime() - todayMs) / 86_400_000);
+    const name = offset === 0 ? `Today — ${short}` : offset === 1 ? `Tomorrow — ${short}` : short;
     const haystack = [
       name, value,
       fmt(d, { weekday: 'long' }), fmt(d, { month: 'long', day: 'numeric' }),
@@ -951,6 +957,20 @@ function loaDateChoices(today, query = '') {
     choices.unshift({ name: q, value: q });
   }
   return choices.slice(0, 25);
+}
+
+// Both range fields get the date list. The end date's starts at the chosen
+// start date, so it can't offer a night before it — or at tonight when the
+// start is blank or unreadable.
+async function autocompleteLoaRange(interaction) {
+  const focusedOption = interaction.options.getFocused(true);
+  const today = createLoa.todayInGuildTz();
+  let from = today;
+  if (focusedOption.name === 'end_date') {
+    const start = interaction.options.getString('start_date');
+    if (loa && loa.isValidDate(start)) from = start;
+  }
+  await interaction.respond(loaDateChoices(today, focusedOption.value, from)).catch(() => {});
 }
 
 async function autocompleteLoaEvent(interaction) {
