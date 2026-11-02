@@ -39,3 +39,24 @@ describe('loaDateChoices', () => {
     assert.equal(c[1].name, 'Tomorrow — Thu, Dec 31');
   });
 });
+
+describe('loaDateChoices from a start date (the /loa range end date)', () => {
+  test('starts at the start date, still labelling today and tomorrow by today', () => {
+    const c = loaDateChoices('2026-11-02', '', '2026-11-03');
+    assert.equal(c.length, 25);
+    assert.deepEqual(c[0], { name: 'Tomorrow — Tue, Nov 3', value: '2026-11-03' });
+    assert.deepEqual(c[1], { name: 'Wed, Nov 4', value: '2026-11-04' });
+    assert.equal(c[24].value, '2026-11-27');
+  });
+
+  test('a start date further out lists from there', () => {
+    const c = loaDateChoices('2026-11-02', '', '2026-12-20');
+    assert.deepEqual(c[0], { name: 'Sun, Dec 20', value: '2026-12-20' });
+    assert.equal(c[12].name, 'Fri, Jan 1, 2027');
+  });
+
+  test('search still works from a start date', () => {
+    assert.deepEqual(loaDateChoices('2026-11-02', 'fri', '2026-11-10').map((c) => c.value),
+      ['2026-11-13', '2026-11-20', '2026-11-27', '2026-12-04']);
+  });
+});
