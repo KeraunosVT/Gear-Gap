@@ -1863,10 +1863,21 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
       // is a whole roster of jsonb per row, and the list only needs to know
       // whether there is one. An id-only query costs nothing; shipping thirty
       // party layouts to render thirty badges is not free.
-      const [{ data: att }, { data: parties }] = await Promise.all([
-        supabase.from('event_attendance').select('event_id').in('event_id', eventIds),
-        supabase.from('events').select('id').in('id', eventIds).not('party_layout', 'is', null),
-      ]);
+      // Paged: one read stops at the project's max-rows, and since rows come
+      // back oldest first, the nights that lose their count are the newest.
+      let att, parties;
+      try {
+        [att, { data: parties }] = await Promise.all([
+          fetchAll(
+            () => supabase.from('event_attendance').select('event_id').in('event_id', eventIds).order('id'),
+            { label: 'event_attendance' },
+          ),
+          supabase.from('events').select('id').in('id', eventIds).not('party_layout', 'is', null),
+        ]);
+      } catch (err) {
+        console.error('Event list attendance load failed:', err.message);
+        return res.status(500).json({ error: 'Failed to load events.' });
+      }
       (att || []).forEach((a) => { countMap[a.event_id] = (countMap[a.event_id] || 0) + 1; });
       (parties || []).forEach((p) => withParty.add(String(p.id)));
     }
