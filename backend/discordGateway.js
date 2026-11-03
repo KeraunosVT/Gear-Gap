@@ -160,8 +160,11 @@ async function registerCommands() {
       .addSubcommand((sub) =>
         sub.setName('event')
           .setDescription('Request LOA for a single date — one event, or everything from a time onward.')
-          .addStringOption((opt) => opt.setName('date').setDescription('Event date, YYYY-MM-DD').setRequired(true))
           .addStringOption((opt) => opt.setName('reason').setDescription('Visible to officers only').setRequired(true))
+          // Optional, and so after `reason`: Discord rejects a required option
+          // listed below an optional one. Blank means tonight; the dropdown
+          // saves typing YYYY-MM-DD, since Discord has no date-picker option.
+          .addStringOption((opt) => opt.setName('date').setDescription('Pick a date, or leave blank for today').setRequired(false).setAutocomplete(true))
           .addStringOption((opt) => opt.setName('event').setDescription('Which event (leave blank + set a start time for "everything after X")').setRequired(false).setAutocomplete(true))
           .addStringOption((opt) => opt.setName('start_time').setDescription('Absent from this time onward, e.g. 9:00 PM (blank = just the picked event)').setRequired(false))
           .addStringOption((opt) => opt.setName('end_time').setDescription('Back after this time, e.g. 10:00 PM (blank = out for the rest of the day)').setRequired(false))
@@ -170,8 +173,8 @@ async function registerCommands() {
       .addSubcommand((sub) =>
         sub.setName('range')
           .setDescription('Request LOA for a date range.')
-          .addStringOption((opt) => opt.setName('start_date').setDescription('Start date, YYYY-MM-DD').setRequired(true))
-          .addStringOption((opt) => opt.setName('end_date').setDescription('End date, YYYY-MM-DD').setRequired(true))
+          .addStringOption((opt) => opt.setName('start_date').setDescription('First night you\u2019re out — pick from the list').setRequired(true).setAutocomplete(true))
+          .addStringOption((opt) => opt.setName('end_date').setDescription('Last night you\u2019re out — pick from the list').setRequired(true).setAutocomplete(true))
           .addStringOption((opt) => opt.setName('reason').setDescription('Visible to officers only').setRequired(true))
           .addUserOption((opt) => opt.setName('member').setDescription('Officers only: submit on behalf of this member').setRequired(false))
       )
@@ -722,7 +725,9 @@ async function handleLoaEvent(interaction) {
   const target = resolveTarget(interaction);
   if (target.error) return interaction.editReply(target.error);
 
-  const date = interaction.options.getString('date');
+  // Blank is tonight — the guild night, so a 12:30am filing lands on the
+  // evening it belongs to.
+  const date = interaction.options.getString('date') || createLoa.todayInGuildTz();
   const eventScheduleId = interaction.options.getString('event');
   const startTimeRaw = interaction.options.getString('start_time');
   const endTimeRaw = interaction.options.getString('end_time');
@@ -870,6 +875,7 @@ async function handleAutocomplete(interaction) {
   if (interaction.commandName !== 'loa') return interaction.respond([]).catch(() => {});
   const sub = interaction.options.getSubcommand();
   if (sub === 'event') return autocompleteLoaEvent(interaction);
+  if (sub === 'range') return autocompleteLoaRange(interaction);
   if (sub === 'recurring') return autocompleteLoaRecurring(interaction);
   if (sub === 'cancel') return autocompleteLoaCancel(interaction);
   return interaction.respond([]).catch(() => {});
@@ -917,9 +923,64 @@ async function autocompleteAttendanceEvent(interaction) {
   await interaction.respond(choices).catch(() => {});
 }
 
+// 25 guild nights as autocomplete choices for the /loa date fields, starting
+// at `from` (tonight by default) — Discord has no date-picker option type, so
+// this is the nearest thing. Today and Tomorrow are labelled against `today`
+// whatever the list starts from, so an end-date list that begins at the start
+// date still names tonight correctly. Each choice can be found by what someone would type: "fri",
+// "friday", "nov 14", "11/14" or "2026-11-14". A complete YYYY-MM-DD outside
+// the list is offered as typed, so dates further out still work.
+function loaDateChoices(today, query = '', from = today) {
+  const base = new Date(`${from}T12:00:00Z`);
+  const todayMs = new Date(`${today}T12:00:00Z`).getTime();
+  const thisYear = new Date(todayMs).getUTCFullYear();
+  const fmt = (d, opts) => d.toLocaleDateString('en-US', { timeZone: 'UTC', ...opts });
+  const days = Array.from({ length: 25 }, (_, i) => {
+    const d = new Date(base.getTime() + i * 86_400_000);
+    const value = d.toISOString().slice(0, 10);
+    const short = fmt(d, { weekday: 'short', month: 'short', day: 'numeric' })
+      + (d.getUTCFullYear() !== thisYear ? `, ${d.getUTCFullYear()}` : '');
+    const offset = Math.round((d.getTime() - todayMs) / 86_400_000);
+    const name = offset === 0 ? `Today — ${short}` : offset === 1 ? `Tomorrow — ${short}` : short;
+    const haystack = [
+      name, value,
+      fmt(d, { weekday: 'long' }), fmt(d, { month: 'long', day: 'numeric' }),
+      `${d.getUTCMonth() + 1}/${d.getUTCDate()}`,
+    ].join(' ').toLowerCase();
+    return { name, value, haystack };
+  });
+  const q = String(query).trim().toLowerCase();
+  const choices = days
+    .filter((c) => !q || c.haystack.includes(q))
+    .map(({ name, value }) => ({ name, value }));
+  if (/^\d{4}-\d{2}-\d{2}$/.test(q) && !choices.some((c) => c.value === q)) {
+    choices.unshift({ name: q, value: q });
+  }
+  return choices.slice(0, 25);
+}
+
+// Both range fields get the date list. The end date's starts at the chosen
+// start date, so it can't offer a night before it — or at tonight when the
+// start is blank or unreadable.
+async function autocompleteLoaRange(interaction) {
+  const focusedOption = interaction.options.getFocused(true);
+  const today = createLoa.todayInGuildTz();
+  let from = today;
+  if (focusedOption.name === 'end_date') {
+    const start = interaction.options.getString('start_date');
+    if (loa && loa.isValidDate(start)) from = start;
+  }
+  await interaction.respond(loaDateChoices(today, focusedOption.value, from)).catch(() => {});
+}
+
 async function autocompleteLoaEvent(interaction) {
   if (!loa) return interaction.respond([]).catch(() => {});
-  const date = interaction.options.getString('date');
+  const focusedOption = interaction.options.getFocused(true);
+  if (focusedOption.name === 'date') {
+    return interaction.respond(loaDateChoices(createLoa.todayInGuildTz(), focusedOption.value)).catch(() => {});
+  }
+  // No date yet means tonight, the same default the command itself applies.
+  const date = interaction.options.getString('date') || createLoa.todayInGuildTz();
   if (!loa.isValidDate(date)) return interaction.respond([]).catch(() => {});
 
   const focused = interaction.options.getFocused().toLowerCase();
@@ -1552,7 +1613,8 @@ module.exports = {
   notifyLateAttendance,
 };
 
-// Exposed for backend/test/eliteButtons.test.js, and for nothing else. The
+// Exposed for backend/test/eliteButtons.test.js and loaDateChoices.test.js, and
+// for nothing else. The
 // gateway's own `eliteTimers` is set by start(), which opens a websocket and
 // logs in — so a test can't reach the board rendering or the button branching
 // any other way. Same motivation as gearIlvl exporting parseGearScreenshot for
@@ -1561,4 +1623,5 @@ module.exports.__test = {
   setEliteTimers: (t) => { eliteTimers = t; },
   eliteBoard,
   handleEliteButton,
+  loaDateChoices,
 };
