@@ -2731,6 +2731,11 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
 
   // Cancel (skip: true) or restore (skip: false) one night of a weekly event
   // without touching the rest of the series. `date` is the guild night.
+  //
+  // A cancelled night stays on the calendar, marked cancelled. Signups already
+  // opened for it are marked cancelled too rather than deleted, so whoever
+  // signed up sees the Discord post say so instead of watching it vanish — and
+  // restoring the night reopens them, entries intact.
   router.post('/event-schedule/:id/skip', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
     const { date, skip = true } = req.body || {};
@@ -2744,7 +2749,16 @@ module.exports = function createAdminRouter(supabase, gateway, lootCatalog, iden
       : current.filter((d) => d !== date);
     const { error } = await supabase.from('event_schedule').update({ skip_dates: next }).eq('id', ev.id);
     if (error) return res.status(500).json({ error: 'Failed to update event.' });
+
+    // Only 'open' <-> 'cancelled': a signup the sweep already closed stays
+    // closed either way.
+    const { data: opened, error: occErr } = await supabase.from('signup_events')
+      .update({ status: skip ? 'cancelled' : 'open', updated_at: new Date().toISOString() })
+      .eq('event_schedule_id', ev.id).eq('event_date', date).eq('status', skip ? 'open' : 'cancelled')
+      .select('id');
+    if (occErr) console.error('skip: signup status update failed:', occErr.message);
     res.json({ ok: true, skip_dates: next });
+    (opened || []).forEach((o) => gateway?.refreshSignupMessage?.(o.id));
   });
 
   router.delete('/event-schedule/:id', async (req, res) => {

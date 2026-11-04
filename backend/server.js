@@ -926,8 +926,9 @@ app.get('/api/signups', async (req, res) => {
     // included, up to yesterday. The Event Calendar uses it to tell "you signed
     // up but aren't on the roll" on nights already run. The default (no param)
     // is unchanged: open signups from tonight on, the only ones anyone can act on.
-    // ?include_closed=1 adds the closed ones from tonight on: the sweep closes a
-    // signup once it starts, and the calendar still shows the event that night.
+    // ?include_closed=1 adds the closed and cancelled ones from tonight on: the
+    // sweep closes a signup once it starts, and the calendar still shows the
+    // event that night — and shows a cancelled one as cancelled, not gone.
     const pastDays = parseInt(req.query.past_days, 10);
     if (Number.isFinite(pastDays) && pastDays > 0) {
       const today = createLoa.todayInGuildTz();
@@ -939,8 +940,7 @@ app.get('/api/signups', async (req, res) => {
       });
     }
     if (req.query.include_closed === '1') {
-      const all = await signups.list({ includeClosed: true, discordId: req.user.id });
-      return res.json({ signups: all.filter((e) => e.status !== 'cancelled') });
+      return res.json({ signups: await signups.list({ includeClosed: true, discordId: req.user.id }) });
     }
     res.json({ signups: await signups.list({ discordId: req.user.id }) });
   } catch (err) {
