@@ -1299,6 +1299,7 @@ function signupEmbed({ event, going, waitlist }) {
   const cap = event.capacity ? `/${event.capacity}` : '';
   const waiting = waitlist.length ? ` · ${waitlist.length} waiting` : '';
   const closed = event.status !== 'open';
+  const cancelled = event.status === 'cancelled';
 
   // Grouped rather than one flat list, so the shape of the raid reads at a
   // glance — "12 going" says nothing about whether it has a tank.
@@ -1325,11 +1326,12 @@ function signupEmbed({ event, going, waitlist }) {
   }
 
   return {
-    title: event.title,
+    title: cancelled ? `🚫 CANCELLED — ${event.title}` : event.title,
     description: `<t:${unix}:F> (<t:${unix}:R>)\n**${going.length}${cap}** going${waiting}`
       + `\n${ROLE_COLUMNS.map((r) => `${ROLE_EMOJI[r]} ${byRole[r].length}`).join('   ')}`
-      + (closed ? '\n\n*Signups are closed.*' : ''),
-    color: 0xc9973a,
+      + (cancelled ? '\n\n**This event has been cancelled.**' : closed ? '\n\n*Signups are closed.*' : ''),
+    // Grey for cancelled, so it reads as off even before the title is read.
+    color: cancelled ? 0x6b7280 : 0xc9973a,
     fields,
     footer: { text: houseName() },
     timestamp: new Date().toISOString(),

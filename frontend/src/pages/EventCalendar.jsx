@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import axios from 'axios';
 import {
   CalendarRange, Check, ChevronLeft, ChevronRight, Clock, Loader2, Users, CalendarOff, AlertTriangle, Plus,
-  LayoutGrid, List, Settings, Trash2, X, Send, Sun, Pencil, Repeat,
+  LayoutGrid, List, Settings, Trash2, X, Send, Sun, Pencil, Repeat, Ban, RotateCcw,
 } from 'lucide-react';
 import ScheduleManager from '../components/ScheduleManager';
 import WeekTimeGrid from '../components/WeekTimeGrid';
@@ -15,7 +15,7 @@ import { CATEGORIES, OTHER, categoryOf } from '../eventCategories';
 
 import {
   fmtTimeEst, todayInGuildTz, eventsForGuildDay, isAfterMidnight, daySlot, getGuildTz,
-  addDays, loaCovers,
+  addDays, loaCovers, eventSkipsDate, eventRunsThatWeek,
 } from '../timeUtils';
 import { useAuth } from '../auth';
 import { PageShell } from '../components/ui/PageShell';
@@ -208,9 +208,15 @@ export default function EventCalendar() {
 
     // Every scheduled event that runs this night, whether or not anyone has
     // opened it. This is the half /signups can't show.
-    const scheduled = eventsForGuildDay(schedule, dow, date).map((s) => {
+    const running = eventsForGuildDay(schedule, dow, date);
+    // Nights cancelled out of a weekly event stay on the calendar, marked
+    // cancelled — the skip is what stops signups, not what hides the night.
+    const cancelledHere = eventsForGuildDay(schedule, dow)
+      .filter((s) => eventSkipsDate(s, date) && eventRunsThatWeek(s, date));
+    const scheduled = [...running, ...cancelledHere].map((s) => {
       const occ = byScheduleId.get(s.id) || null;
       return {
+        cancelled: eventSkipsDate(s, date) || occ?.status === 'cancelled',
         key: occ ? occ.id : `sched:${s.id}:${date}`,
         signupId: occ?.id || null,
         scheduleId: s.id,
@@ -233,6 +239,7 @@ export default function EventCalendar() {
     const shown = new Set(scheduled.filter((r) => r.occ).map((r) => r.occ.id));
     const extra = opened.filter((o) => !shown.has(o.id)).map((o) => ({
       key: o.id,
+      cancelled: o.status === 'cancelled',
       signupId: o.id,
       scheduleId: o.event_schedule_id || null,
       title: o.title,
@@ -283,8 +290,8 @@ export default function EventCalendar() {
           // once their time has passed.
           started: date < today || (date === today && Boolean(r.eventTime) && daySlot(r.eventTime) <= nowSlot),
           // A finished night nobody took attendance for — "no record", which
-          // is not the same as "you missed it".
-          noRoll: date < today && !r.attendance,
+          // is not the same as "you missed it". A cancelled one wasn't run.
+          noRoll: date < today && !r.attendance && !r.cancelled,
         };
       })
       .sort((a, b) => (a.eventTime ? daySlot(a.eventTime) : -1) - (b.eventTime ? daySlot(b.eventTime) : -1)
@@ -300,7 +307,7 @@ export default function EventCalendar() {
   const loggedThisWeek = nights.flatMap((n) => n.rows.map((r) => r.attendance).filter(Boolean));
 
   const totalRows = nights.reduce((n, d) => n + d.rows.length, 0);
-  const myCount = nights.reduce((n, d) => n + d.rows.filter((r) => r.myStatus).length, 0);
+  const myCount = nights.reduce((n, d) => n + d.rows.filter((r) => r.myStatus && !r.cancelled).length, 0);
 
   const run = async (key, fn) => {
     setBusy(key);
@@ -385,24 +392,46 @@ export default function EventCalendar() {
   const onMakeWeekly = canWeekly ? makeWeekly : null;
 
   // One night of a weekly event, cancelled without touching the rest of the
-  // series. If signups were already opened for it they go too — otherwise the
-  // opened occurrence would keep showing as an orphan on that night.
+  // series. It stays on the calendar marked cancelled; the server marks any
+  // signups opened for it cancelled too, which updates their Discord post.
   const skipNight = (row) => {
-    const tail = row.signupId ? ` ${t('cal.skipSignupsToo')}` : '';
-    if (!window.confirm(`${t('cal.confirmSkip', { title: row.title, date: shortDate(row.date) })}${tail}`)) return;
+    const tail = row.signupId ? ` ${t('cal.cancelNightSignups')}` : '';
+    if (!window.confirm(`${t('cal.confirmCancelNight', { title: row.title, date: shortDate(row.date) })}${tail}`)) return;
     run(`skip:${row.key}`, async () => {
-      if (row.signupId) await axios.delete(`/api/admin/signups/${row.signupId}`);
       await axios.post(`/api/admin/event-schedule/${row.scheduleId}/skip`, { date: row.date, skip: true });
-      setSelected(null);
       load();
-      flash(t('cal.skipped', { title: row.title, date: shortDate(row.date) }));
+      flash(t('cal.nightCancelled', { title: row.title, date: shortDate(row.date) }));
     });
   };
-  // Opened signups can only be deleted with 'attendance', so a night that has
-  // them needs both.
-  const canSkip = (row) => canWeekly && row.fromSchedule && row.date >= today && !row.attendance
-    && (!row.signupId || canOneOff);
+  const canSkip = (row) => canWeekly && row.fromSchedule && row.date >= today && !row.attendance && !row.cancelled;
   const onSkip = canWeekly ? skipNight : null;
+
+  // Cancelling, undone. Only for nights still to come — a past one is history.
+  const restoreNight = (row) => run(`restore:${row.key}`, async () => {
+    if (row.fromSchedule) {
+      await axios.post(`/api/admin/event-schedule/${row.scheduleId}/skip`, { date: row.date, skip: false });
+    } else {
+      await axios.patch(`/api/admin/signups/${row.signupId}`, { status: 'open' });
+    }
+    load();
+    flash(t('cal.restored', { title: row.title, date: shortDate(row.date) }));
+  });
+  const canRestore = (row) => row.cancelled && row.date >= today
+    && (row.fromSchedule ? canWeekly : Boolean(row.signupId) && canOneOff);
+  const onRestore = (canWeekly || canOneOff) ? restoreNight : null;
+
+  // A one-off, cancelled but kept on the calendar — Delete is still there for
+  // one that should vanish. The signup stops taking names and its Discord post
+  // says cancelled.
+  const cancelOneOff = (row) => {
+    if (!window.confirm(t('cal.confirmCancelEvent', { title: row.title, date: shortDate(row.date) }))) return;
+    run(`cancel:${row.key}`, async () => {
+      await axios.patch(`/api/admin/signups/${row.signupId}`, { status: 'cancelled' });
+      load();
+      flash(t('cal.eventCancelled', { title: row.title, date: shortDate(row.date) }));
+    });
+  };
+  const onCancelEvent = canOneOff ? cancelOneOff : null;
 
   // Daylight saving: the server moves every weekly event, and the signups
   // already opened for nights still to come, an hour in one go. If another
@@ -627,6 +656,8 @@ export default function EventCalendar() {
               night={selectedNight} row={{ ...selectedRow, date: selectedNight.date }}
               busy={busy} onJoin={signUp} onLeave={withdraw} loa={loaActions} late={late} onDelete={onDelete} onEdit={onEdit} onMakeWeekly={onMakeWeekly}
               onSkip={onSkip && canSkip({ ...selectedRow, date: selectedNight.date }) ? onSkip : null}
+              onRestore={onRestore && canRestore({ ...selectedRow, date: selectedNight.date }) ? onRestore : null}
+              onCancelEvent={onCancelEvent}
             />
           </Modal>
         </div>
@@ -707,6 +738,8 @@ export default function EventCalendar() {
                       night={selectedNight} row={{ ...selectedRow, date: selectedNight.date }}
                       busy={busy} onJoin={signUp} onLeave={withdraw} loa={loaActions} late={late} onDelete={onDelete} onEdit={onEdit} onMakeWeekly={onMakeWeekly}
                       onSkip={onSkip && canSkip({ ...selectedRow, date: selectedNight.date }) ? onSkip : null}
+                      onRestore={onRestore && canRestore({ ...selectedRow, date: selectedNight.date }) ? onRestore : null}
+                      onCancelEvent={onCancelEvent}
                     />
                   </div>
                 ) : (
@@ -798,6 +831,23 @@ function Block({ row, fill = false, showAway = false, picked = false, onClick })
   const awayCount = row.awayList?.length || 0;
   const ring = picked ? 'ring-2 ring-bone ring-offset-1 ring-offset-panel' : '';
 
+  // Cancelled: still in its slot so the week reads true, but outlined and
+  // struck through so nobody mistakes it for one that's on.
+  if (row.cancelled && !row.attendance) {
+    return (
+      <button
+        onClick={onClick}
+        aria-pressed={picked}
+        title={`${row.title} · ${t('cal.cancelled')}`}
+        className={`w-full ${fill ? 'h-full' : ''} flex items-center gap-1 rounded px-1.5 py-0.5 text-left text-[11px] leading-tight overflow-hidden bg-panel text-ash transition-[filter] hover:brightness-125 ${ring}`}
+        style={{ border: `1px dashed ${cat.color}` }}
+      >
+        <Ban className="w-3 h-3 shrink-0 text-oxblood" />
+        <span className="truncate line-through">{row.title}</span>
+      </button>
+    );
+  }
+
   if (row.attendance) {
     const s = standing(row.attendance);
     const Icon = STANDING_ICON[s];
@@ -852,7 +902,10 @@ function Block({ row, fill = false, showAway = false, picked = false, onClick })
 // counts — so it is fetched when the event has been opened. It is used for one
 // thing: flagging anyone who is both on LOA and signed up, which the officer
 // has to resolve and which the server already works out as `conflicts`.
-function EventDetail({ night, row, busy, onJoin, onLeave, loa, late, onDelete = null, onSkip = null, onEdit = null, onMakeWeekly = null }) {
+function EventDetail({
+  night, row, busy, onJoin, onLeave, loa, late,
+  onDelete = null, onSkip = null, onEdit = null, onMakeWeekly = null, onRestore = null, onCancelEvent = null,
+}) {
   const { t, rich } = useT();
   const [conflictIds, setConflictIds] = useState(() => new Set());
 
@@ -879,6 +932,11 @@ function EventDetail({ night, row, busy, onJoin, onLeave, loa, late, onDelete = 
       <div className="border border-line rounded-lg">
         <EventRow row={row} busy={busy} onJoin={onJoin} onLeave={onLeave} loa={loa} />
       </div>
+      {row.cancelled && (
+        <p className="mt-3 text-sm text-oxblood flex items-start gap-1.5">
+          <Ban className="w-4 h-4 shrink-0 mt-px" /> {t('cal.cancelledNote')}
+        </p>
+      )}
 
       {/* The looking-back half: where you stand on a night attendance was
           taken for, and the late request if it missed you. */}
@@ -941,10 +999,19 @@ function EventDetail({ night, row, busy, onJoin, onLeave, loa, late, onDelete = 
         </div>
       )}
 
-      {/* An opened signup with no schedule entry behind it is a one-off. */}
-      {(onDelete || onMakeWeekly) && row.signupId && !row.scheduleId && (
+      {/* An opened signup with no schedule entry behind it is a one-off. A
+          cancelled one keeps only Restore and Delete. */}
+      {(onDelete || onMakeWeekly || onCancelEvent || onRestore) && row.signupId && !row.scheduleId && (
         <div className="mt-5 pt-4 border-t border-line flex flex-wrap justify-end gap-2">
-          {onMakeWeekly && (
+          {onRestore && (
+            <Button
+              variant="secondary" size="sm" icon={<RotateCcw className="w-4 h-4" />}
+              disabled={busy === `restore:${row.key}`} onClick={() => onRestore(row)}
+            >
+              {t('cal.restoreEvent')}
+            </Button>
+          )}
+          {onMakeWeekly && !row.cancelled && (
             <Button
               variant="secondary" size="sm" icon={<Repeat className="w-4 h-4" />}
               disabled={busy === `weekly:${row.key}`} onClick={() => onMakeWeekly(row)}
@@ -952,9 +1019,17 @@ function EventDetail({ night, row, busy, onJoin, onLeave, loa, late, onDelete = 
               {t('cal.makeWeekly')}
             </Button>
           )}
-          {onEdit && (
+          {onEdit && !row.cancelled && (
             <Button variant="secondary" size="sm" icon={<Pencil className="w-4 h-4" />} onClick={() => onEdit(row)}>
               {t('cal.editEvent')}
+            </Button>
+          )}
+          {onCancelEvent && !row.cancelled && !row.started && (
+            <Button
+              variant="destructive" size="sm" icon={<Ban className="w-4 h-4" />}
+              disabled={busy === `cancel:${row.key}`} onClick={() => onCancelEvent(row)}
+            >
+              {t('cal.cancelEvent')}
             </Button>
           )}
           {onDelete && (
@@ -967,14 +1042,24 @@ function EventDetail({ night, row, busy, onJoin, onLeave, loa, late, onDelete = 
           )}
         </div>
       )}
-      {/* A weekly event: cancel just this night. */}
+      {/* A weekly event: cancel just this night, or undo that. */}
       {onSkip && (
         <div className="mt-5 pt-4 border-t border-line flex justify-end">
           <Button
-            variant="destructive" size="sm" icon={<Trash2 className="w-4 h-4" />}
+            variant="destructive" size="sm" icon={<Ban className="w-4 h-4" />}
             disabled={busy === `skip:${row.key}`} onClick={() => onSkip(row)}
           >
-            {t('cal.removeNightOnly')}
+            {t('cal.cancelNight')}
+          </Button>
+        </div>
+      )}
+      {onRestore && row.fromSchedule && (
+        <div className="mt-5 pt-4 border-t border-line flex justify-end">
+          <Button
+            variant="secondary" size="sm" icon={<RotateCcw className="w-4 h-4" />}
+            disabled={busy === `restore:${row.key}`} onClick={() => onRestore(row)}
+          >
+            {t('cal.restoreNight')}
           </Button>
         </div>
       )}
@@ -1275,7 +1360,7 @@ function LoaModal({ row, onClose, onFiled }) {
 function eventsForPost(schedule, occurrences, date) {
   const sched = eventsForGuildDay(schedule, dowOf(date), date);
   const ids = new Set(sched.map((s) => s.id));
-  const extra = occurrences.filter((o) => o.event_date === date && !ids.has(o.event_schedule_id));
+  const extra = occurrences.filter((o) => o.event_date === date && !ids.has(o.event_schedule_id) && o.status !== 'cancelled');
   return [
     ...sched.map((s) => ({ name: s.name, time: s.event_time || '' })),
     ...extra.map((o) => ({ name: o.title, time: o.event_time || '' })),
@@ -1410,7 +1495,7 @@ function EventRow({ row, busy, onJoin, onLeave, loa = null, showAway = false, on
       </div>
 
       <div className="min-w-0 flex-1 basis-36">
-        <div className={`truncate ${row.started ? 'text-ash/60' : 'text-bone'}`}>{row.title}</div>
+        <div className={`truncate ${row.cancelled ? 'text-ash/60 line-through' : row.started ? 'text-ash/60' : 'text-bone'}`}>{row.title}</div>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-0.5 text-xs">
           <span className="inline-flex items-center gap-1 text-ash">
             <Users className="w-3 h-3" />
@@ -1470,7 +1555,7 @@ function EventRow({ row, busy, onJoin, onLeave, loa = null, showAway = false, on
           LOA (a range, a standing night) already covers it — that one is
           managed on the LOA page. */}
       <div className="ml-auto flex items-center gap-2 shrink-0">
-        {loa && !row.started && (row.myLoaId ? (
+        {loa && !row.started && !row.cancelled && (row.myLoaId ? (
           <Button
             variant="ghost" size="none" className="px-2 py-1.5 text-sm shrink-0 text-brass"
             onClick={() => loa.onCancel(row)} disabled={busy === `loa:${row.key}`}
@@ -1488,7 +1573,11 @@ function EventRow({ row, busy, onJoin, onLeave, loa = null, showAway = false, on
         ) : null)}
 
         <div className="shrink-0">
-          {row.started ? (
+          {row.cancelled ? (
+            <span className="inline-flex items-center gap-1 text-xs text-oxblood font-medium">
+              <Ban className="w-3.5 h-3.5" /> {t('cal.cancelled')}
+            </span>
+          ) : row.started ? (
             <span className="text-ash/40 text-xs">{t('cal.started')}</span>
           ) : row.occ?.status === 'closed' ? (
             <span className="text-ash/40 text-xs">{t('signups.status.closed')}</span>
