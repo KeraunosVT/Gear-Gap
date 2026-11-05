@@ -22,7 +22,8 @@ const createIdentities = require('./identities');
 const createLoa = require('./loa');
 const { fetchAll } = require('./pagedRead');
 const { aggregatePlayerRows } = require('./playerStats');
-const { foldRoster, RECENT_GAMES } = require('./feudRoster');
+const { className: getClassNameBackend } = require('./weaponClass');
+const { loadRoster } = require('./scouting');
 const createEventSignups = require('./eventSignups');
 const createAuditLog = require('./auditLog');
 const guildConfig = require('./guildConfig');
@@ -664,24 +665,11 @@ app.get('/api/guilds/feuds/:name', async (req, res) => {
   if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
   try {
     const enemy = decodeURIComponent(req.params.name);
-    const { data, error } = await supabase.rpc('get_guild_feud_roster', {
-      p_guild_names: Object.keys(guildAliases()),
-      p_enemy: enemy,
-      p_recent: RECENT_GAMES,
-    });
-    if (error) throw error;
-
-    // Rows arrive grouped by player AND weapon pair. The fold — per-player
-    // totals, per-match rates, the class mix, and which players stand out
-    // against their own guild's median — lives in feudRoster so it can be
-    // tested; see the note at the top of that module.
-    //
-    // classify is passed in rather than imported there, so
-    // shared/weaponClasses.json stays the site's only class vocabulary.
-    res.json({
-      enemy_guild: enemy,
-      ...foldRoster(data || [], { enemyGuild: enemy, classify: getClassNameBackend }),
-    });
+    // The read and the fold — per-player totals, per-match rates, the class
+    // mix, and who stands out against their own guild's median — are shared
+    // with the Discord scouting post (backend/scouting.js), so the page and the
+    // post can never disagree about who is marked.
+    res.json({ enemy_guild: enemy, ...(await loadRoster(supabase, enemy)) });
   } catch (err) {
     console.error('Guild feud roster error:', err.message);
     res.status(500).json({ error: 'Failed to load that guild.' });
@@ -1638,22 +1626,6 @@ function fetchAllRows(supabase, table, columns, guildNames, matchIds) {
   }, { label: table });
 }
 
-// Backend Class Helper
-const weaponToClass = require('../shared/weaponClasses.json');
-
-function getClassNameBackend(weapon1, weapon2) {
-  if (!weapon1) return "Unknown";
-  const w1 = (weapon1 || "").trim();
-  const w2 = (weapon2 || "").trim();
-
-  let key = (w1 + w2).replace(/\s+/g, '');
-  if (weaponToClass[key]) return weaponToClass[key];
-
-  key = (w2 + w1).replace(/\s+/g, '');
-  if (weaponToClass[key]) return weaponToClass[key];
-
-  return `${w1} ${w2}`.trim() || "Unknown";
-}
 
 // ── SERVE REACT FRONTEND ─────────────────────────────────────────────────────
 const frontendPath = path.join(__dirname, '../frontend/dist');

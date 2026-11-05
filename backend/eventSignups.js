@@ -479,7 +479,8 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
         const before = event.starts_at ? new Date(event.starts_at).getTime() : null;
         const after = startsAt ? startsAt.getTime() : null;
         update.starts_at = startsAt ? startsAt.toISOString() : null;
-        if (before !== after) update.reminder_sent_at = null;
+        // Same for the scouting post: it was timed off the old start.
+        if (before !== after) { update.reminder_sent_at = null; update.scouting_sent_at = null; }
       }
 
       const { data, error } = await supabase.from('signup_events')
@@ -532,6 +533,50 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
         .eq('id', id).is('reminder_sent_at', null).select('id');
       if (error) { console.error('signups.claimReminder error:', error.message); return false; }
       return Boolean((data || []).length);
+    },
+
+    // Who this night is against — an enemy guild's name as the Feuds page
+    // shows it, or null. Free text rather than a key: there is no enemy guild
+    // table, only names on scoreboards, and a first meeting has no record yet.
+    // Changing it re-arms the automatic scouting post; one already sent was
+    // about somebody else.
+    async setOpponent(id, name) {
+      const opponent = String(name ?? '').trim().replace(/\s+/g, ' ').slice(0, 80) || null;
+      const { data, error } = await supabase.from('signup_events')
+        .update({ opponent_guild: opponent, scouting_sent_at: null, updated_at: new Date().toISOString() })
+        .eq('id', id).select('*').single();
+      if (error || !data) {
+        console.error('signups.setOpponent error:', error?.message);
+        throw httpError(error ? 500 : 404, error ? 'Failed to save the opponent.' : 'That signup no longer exists.');
+      }
+      return data;
+    },
+
+    // The scouting post's claim — same compare-and-set as claimReminder, so
+    // the sweep, a second instance and the manual button can't post it twice.
+    async claimScouting(id) {
+      const { data, error } = await supabase.from('signup_events')
+        .update({ scouting_sent_at: new Date().toISOString() })
+        .eq('id', id).is('scouting_sent_at', null).select('id');
+      if (error) { console.error('signups.claimScouting error:', error.message); return false; }
+      return Boolean((data || []).length);
+    },
+
+    // Occurrences with an opponent whose scouting post is due: starting within
+    // `leadMinutes`, not yet posted. Unlike reminders the lead is one constant,
+    // so the whole test is SQL. Closed counts — an officer closing signups
+    // early doesn't call the fight off; cancelled does. `starts_at > now()` is
+    // the same outage guard as dueForReminder's: no post for a fight that's over.
+    async dueForScouting(leadMinutes) {
+      const now = Date.now();
+      const { data, error } = await supabase.from('signup_events').select('*')
+        .neq('status', 'cancelled')
+        .not('opponent_guild', 'is', null)
+        .is('scouting_sent_at', null)
+        .gt('starts_at', new Date(now).toISOString())
+        .lte('starts_at', new Date(now + leadMinutes * 60_000).toISOString());
+      if (error) { console.error('signups.dueForScouting error:', error.message); return []; }
+      return data || [];
     },
 
     // Occurrences whose reminder is due now.

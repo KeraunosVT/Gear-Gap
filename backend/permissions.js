@@ -22,7 +22,7 @@ const supabase = SUPABASE_URL && SUPABASE_SERVICE_KEY
 const ALL_PERMISSIONS = [
   { key: 'match', label: 'War Records', hint: 'Upload, edit and delete matches' },
   { key: 'parties', label: 'Parties', hint: 'Roster builder and member roles' },
-  { key: 'attendance', label: 'Attendance', hint: 'Voice snapshots and event logs' },
+  { key: 'attendance', label: 'Attendance', hint: 'Voice snapshots, event logs, signups and scouting posts' },
   { key: 'gear', label: 'Gear Levels', hint: 'Guild-wide gear level table' },
   { key: 'names', label: 'Merge Names', hint: 'Reconcile in-game names to players' },
   { key: 'schedule', label: 'Event Schedule', hint: 'Recurring event schedule' },
@@ -65,6 +65,10 @@ const ROUTE_PERMISSIONS = [
   // carve-out as /loa/unavailable above, and for the same reason: a parties
   // officer has to be able to read it. The sort below puts this first.
   { prefix: '/signups/by-occasion', permission: 'parties' },
+  // Posting a scouting report is part of setting up a night — the opponent is
+  // set on the signup — so it goes with signups rather than a new key that
+  // would start out granted to nobody.
+  { prefix: '/scouting', permission: 'attendance' },
   // Not covered by '/attendance': the boundary rule requires an exact match or a
   // '/'-separated prefix, so a hyphen doesn't count. That strictness is what
   // stops '/events' swallowing '/event-schedule', and it needs its own rule here.

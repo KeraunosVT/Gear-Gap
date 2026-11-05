@@ -23,6 +23,7 @@ const FEATURE_PREFIXES = [
   { prefix: '/events', label: 'Attendance' },
   { prefix: '/attendance', label: 'Attendance' },
   { prefix: '/signups', label: 'Attendance' },
+  { prefix: '/scouting', label: 'Scouting' },
   { prefix: '/gear-ilvl', label: 'Gear Levels' },
   { prefix: '/event-schedule', label: 'LOA Schedule' },
   { prefix: '/members', label: 'Members' },

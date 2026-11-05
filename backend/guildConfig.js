@@ -32,7 +32,7 @@ const COLUMNS = [
   'id', 'house', 'tag', 'aliases', 'motto', 'creed', 'timezone', 'day_start',
   'admin_role_ids', 'allowed_role_ids', 'member_role_ids',
   'roster_channel_id', 'loa_channel_id', 'announce_channel_id', 'signup_channel_id', 'calendar_channel_id',
-  'attendance_voice_channel_id', 'loa_notify_discord_id', 'dst_active', 'updated_at',
+  'scouting_channel_id', 'attendance_voice_channel_id', 'loa_notify_discord_id', 'dst_active', 'updated_at',
 ].join(', ');
 
 // What get() returns before the first load completes, or if the table is
@@ -61,6 +61,8 @@ const DEFAULTS = Object.freeze({
   announce_channel_id: null,
   signup_channel_id: null,
   calendar_channel_id: null,
+  // Null means scouting reports are never posted automatically (migration 11).
+  scouting_channel_id: null,
   attendance_voice_channel_id: null,
   // Null means nobody is DMed about LOA cancellations, which is what every
   // deployment did before migration 018.
@@ -174,6 +176,12 @@ const signupChannelId = () => {
 // signups go.
 const calendarChannelId = () => get().calendar_channel_id || signupChannelId();
 
+// Where scouting reports post automatically. Deliberately NO fallback: an
+// automatic post naming the opposition's carries is an officer decision, and
+// falling back to a public channel would make it for them. Blank = never
+// automatically; the Post to Discord buttons still work and ask for a channel.
+const scoutingChannelId = () => get().scouting_channel_id || null;
+
 // The alias -> canonical-tag map server.js collapses `guild_name` through.
 // Built fresh on each call from the live config; the old module-scope version
 // of this map is precisely why a rename used to need a redeploy.
@@ -218,6 +226,7 @@ module.exports = {
   invalidate,
   signupChannelId,
   calendarChannelId,
+  scoutingChannelId,
   aliasMap,
   canonicalGuild,
   publicIdentity,

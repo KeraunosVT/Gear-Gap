@@ -1,12 +1,13 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import axios from 'axios';
-import { ArrowLeft, Users, RefreshCw, TrendingUp, Merge, Undo2, Loader2 } from 'lucide-react';
+import { ArrowLeft, Users, RefreshCw, TrendingUp, Merge, Undo2, Loader2, Send } from 'lucide-react';
 import { PageShell } from '../components/ui/PageShell';
 import ErrorState from '../components/ui/ErrorState';
 import EmptyState from '../components/ui/EmptyState';
 import { Table, Thead, SortableTh, Tr, useSort, sortRows } from '../components/ui/Table';
 import PlayerGuildHistory from '../components/PlayerGuildHistory';
+import ScoutPostModal from '../components/ScoutPostModal';
 import Modal from '../components/ui/Modal';
 import Button from '../components/ui/Button';
 import Toast from '../components/ui/Toast';
@@ -76,6 +77,10 @@ export default function GuildFeudRoster() {
   const [mergeTo, setMergeTo] = useState('');
   const [busy, setBusy] = useState('');
   const [msg, flash] = useFlash();
+  // Posting this page to Discord goes with running a night (signups), not with
+  // merging names — same capability the server checks on /scouting.
+  const canScout = can('attendance');
+  const [scouting, setScouting] = useState(false);
 
   const sort = useSort(['main_class', 'player_name'], 'appearances', 'desc');
 
@@ -253,6 +258,12 @@ export default function GuildFeudRoster() {
         <button onClick={load} title="Refresh" className="inline-flex items-center gap-2 text-sm text-ash hover:text-brass transition-colors">
           <RefreshCw className="w-4 h-4" />
         </button>
+        {canScout && (
+          <Button variant="secondary" size="sm" icon={<Send className="w-4 h-4" />} onClick={() => setScouting(true)}
+            title="Post their current roster and standouts to a Discord channel">
+            Post to Discord
+          </Button>
+        )}
       </div>
 
       {rows.length === 0 ? (
@@ -337,6 +348,14 @@ export default function GuildFeudRoster() {
       </p>
 
       {lookup && <PlayerGuildHistory name={lookup} onClose={() => setLookup(null)} />}
+
+      {scouting && (
+        <ScoutPostModal
+          guild={enemy}
+          onClose={() => setScouting(false)}
+          onPosted={(text) => { setScouting(false); flash(text); }}
+        />
+      )}
 
       {mergeFrom && (
         <Modal onClose={() => setMergeFrom(null)} maxWidth="max-w-md">

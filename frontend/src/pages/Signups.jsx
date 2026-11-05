@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import axios from 'axios';
 import { useAuth } from '../auth';
 import {
-  ClipboardList, Check, X, Users, Megaphone, Bell, Trash2, Lock, ChevronDown, Loader2,
+  ClipboardList, Check, X, Users, Megaphone, Bell, Trash2, Lock, ChevronDown, Loader2, Swords, Send,
 } from 'lucide-react';
 
 import { fmtTimeEst, todayInGuildTz, eventsForGuildDay, isAfterMidnight } from '../timeUtils';
@@ -13,6 +13,7 @@ import EmptyState from '../components/ui/EmptyState';
 import ErrorState from '../components/ui/ErrorState';
 import Toast from '../components/ui/Toast';
 import { useFlash } from '../components/ui/useFlash';
+import ScoutPostModal from '../components/ScoutPostModal';
 import { useT, translate, fmtDay, weekdayName } from '../i18n';
 
 const DAY_ABBR = (dow) => weekdayName(dow, 'short');
@@ -124,6 +125,18 @@ export default function Signups() {
   const [formCapacity, setFormCapacity] = useState('');
   const [formReminder, setFormReminder] = useState('1440');
   const [opening, setOpening] = useState(false);
+
+  // Enemy guilds already on the Feuds page, offered when setting a night's
+  // opponent so the name matches their record. Free text still works — a first
+  // meeting has no record yet. Soft-failed: suggestions are a convenience.
+  const [enemyGuilds, setEnemyGuilds] = useState([]);
+  const [scoutFor, setScoutFor] = useState(null);
+  useEffect(() => {
+    if (!isOfficer) return;
+    axios.get('/api/guilds/feuds')
+      .then((res) => setEnemyGuilds((res.data.feuds || []).map((f) => f.enemy_guild).filter(Boolean)))
+      .catch(() => {});
+  }, [isOfficer]);
 
   const load = useCallback(() => {
     setError('');
@@ -331,6 +344,7 @@ export default function Signups() {
               }, okMsg)}
               onAnnounce={() => run(`ann:${row.id}`, () => axios.post(`/api/admin/signups/${row.id}/announce`), t('signups.reposted'))}
               onRemind={() => run(`rem:${row.id}`, () => axios.post(`/api/admin/signups/${row.id}/remind`), t('signups.reminding'))}
+              onScout={() => setScoutFor(row)}
               onDelete={() => run(`del:${row.id}`, async () => {
                 await axios.delete(`/api/admin/signups/${row.id}`);
                 setExpanded(null);
@@ -344,17 +358,35 @@ export default function Signups() {
           ))}
         </div>
       )}
+
+      {isOfficer && (
+        <datalist id="signup-enemy-guilds">
+          {enemyGuilds.map((g) => <option key={g} value={g} />)}
+        </datalist>
+      )}
+
+      {scoutFor && (
+        <ScoutPostModal
+          guild={scoutFor.opponent_guild}
+          signupId={scoutFor.id}
+          onClose={() => setScoutFor(null)}
+          onPosted={(text) => { setScoutFor(null); flash(text); load(); }}
+        />
+      )}
     </PageShell>
   );
 }
 
 function SignupCard({
   row, detail, expanded, onToggle, isOfficer, busy,
-  onJoin, onWithdraw, onPatch, onAnnounce, onRemind, onDelete, onRemoveEntry,
+  onJoin, onWithdraw, onPatch, onAnnounce, onRemind, onScout, onDelete, onRemoveEntry,
 }) {
   const { t } = useT();
   const [capacity, setCapacity] = useState(row.capacity ?? '');
   useEffect(() => { setCapacity(row.capacity ?? ''); }, [row.capacity]);
+  const [opponent, setOpponent] = useState(row.opponent_guild ?? '');
+  useEffect(() => { setOpponent(row.opponent_guild ?? ''); }, [row.opponent_guild]);
+  const opponentChanged = opponent.trim() !== (row.opponent_guild ?? '');
 
   const closed = row.status !== 'open';
   const full = row.capacity != null && row.going_count >= row.capacity;
@@ -373,6 +405,11 @@ function SignupCard({
             )}
           </div>
           <div className="text-sm text-ash mt-0.5">{nightLabel(row.event_date, row.event_time)}</div>
+          {row.opponent_guild && (
+            <div className="text-sm text-brassbright mt-0.5 inline-flex items-center gap-1.5">
+              <Swords className="w-3.5 h-3.5" /> {t('signups.vs', { guild: row.opponent_guild })}
+            </div>
+          )}
         </div>
 
         <div className="text-right shrink-0">
@@ -488,6 +525,33 @@ function SignupCard({
                       {detail.noResponse.map((m) => <NameChip key={m.discord_id}>{m.display_name}</NameChip>)}
                     </NameGroup>
                   )}
+
+                  {/* Who it's against. Saving one posts their scouting report
+                      to the Scouting channel an hour before the start, if Guild
+                      Settings names one; the button posts it now, anywhere. */}
+                  <div>
+                  <div className="flex items-end gap-2 flex-wrap pt-1">
+                    <label className="block flex-1 min-w-[12rem]">
+                      <span className="eyebrow text-[10px] text-ash/75 block mb-1.5">{t('signups.opponent')}</span>
+                      <input list="signup-enemy-guilds" value={opponent} onChange={(e) => setOpponent(e.target.value)}
+                        placeholder={t('signups.opponentPlaceholder')} className={`w-full ${INPUT} py-2`} />
+                    </label>
+                    <Button variant="secondary" size="sm" disabled={working || !opponentChanged}
+                      onClick={() => onPatch({ opponent_guild: opponent.trim() || null },
+                        opponent.trim() ? t('signups.opponentSaved', { guild: opponent.trim() }) : t('signups.opponentCleared'))}>
+                      {t('signups.saveOpponent')}
+                    </Button>
+                    {row.opponent_guild && (
+                      <Button variant="ghost" size="sm" icon={<Send className="w-4 h-4" />} disabled={working || opponentChanged}
+                        onClick={onScout} title={t('signups.scoutTitle')}>
+                        {t('signups.scoutNow')}
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-xs text-ash/70 mt-1.5">
+                    {row.opponent_guild && row.scouting_sent_at ? t('signups.scoutSent') : t('signups.scoutAuto')}
+                  </p>
+                  </div>
 
                   <div className="flex items-end gap-2 flex-wrap pt-1">
                     <label className="block">

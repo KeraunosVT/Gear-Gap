@@ -544,4 +544,22 @@ export default {
   'signups.confirmDelete': '¿Eliminar la inscripción de {title}? Las entradas de todos se eliminan también.',
   'signups.deleted': 'Inscripción eliminada.',
   'signups.removed': 'Quitado.',
+  'signups.vs': 'contra {guild}',
+  'signups.opponent': 'Rival',
+  'signups.opponentPlaceholder': 'Gremio enemigo, si esta noche hay uno',
+  'signups.saveOpponent': 'Guardar rival',
+  'signups.opponentSaved': 'Rival fijado: {guild}.',
+  'signups.opponentCleared': 'Rival quitado.',
+  'signups.scoutNow': 'Publicar informe',
+  'signups.scoutTitle': 'Publicar ahora en Discord la alineación actual del rival y sus destacados',
+  'signups.scoutAuto': 'Con un rival fijado, su informe de exploración se publica en el canal de Exploración una hora antes del inicio, si la Configuración del gremio indica uno.',
+  'signups.scoutSent': 'Informe de exploración publicado. Cambiar el rival o la hora de inicio lo vuelve a programar.',
+
+  // Scouting report post (Feuds roster page and signups)
+  'scout.eyebrow': 'Informe de exploración',
+  'scout.explain': 'A quién han alineado en sus últimas partidas, los jugadores que destacan y vuestro historial contra ellos.',
+  'scout.notePlaceholder': 'p. ej. Primero a sus sanadores',
+  'scout.claimsAuto': 'Publicarlo ahora sustituye la publicación automática de esta noche, así que no saldrá dos veces.',
+  'scout.posted': 'Informe de exploración sobre {guild} publicado.',
+  'scout.postedTo': 'Informe de exploración sobre {guild} publicado en #{channel}.',
 };

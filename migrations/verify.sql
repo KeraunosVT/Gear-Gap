@@ -267,6 +267,18 @@ select '10 · event_schedule.interval_weeks, anchor_date',
           and column_name in ('interval_weeks', 'anchor_date')) = 2
 union all
 
+-- ── 11_scouting ─────────────────────────────────────────────────────────────
+select '11 · signup_events.opponent_guild, scouting_sent_at',
+       (select count(*) from information_schema.columns
+        where table_schema = 'public' and table_name = 'signup_events'
+          and column_name in ('opponent_guild', 'scouting_sent_at')) = 2
+union all
+-- Read by guildConfig.js on every load; a missing column fails that read.
+select '11 · guild_config.scouting_channel_id',
+       (select count(*) from information_schema.columns
+        where table_schema = 'public' and table_name = 'guild_config' and column_name = 'scouting_channel_id') = 1
+union all
+
 -- ── BASE SCHEMA ─────────────────────────────────────────────────────────────
 -- Predates tracked migrations, so no file of its own. The whole shard wishlist
 -- (weapons, need, priority, Last Updated) lives in this one column; anything

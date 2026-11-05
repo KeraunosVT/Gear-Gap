@@ -13,6 +13,7 @@ const createEventSignups = require('./eventSignups');
 const createLateAttendance = require('./lateAttendance');
 const { listMembers } = require('./discord');
 const guildConfig = require('./guildConfig');
+const { postScouting, SCOUTING_LEAD_MINUTES } = require('./scouting');
 
 // Only the three things that are identity or secret still come from the
 // environment. Every channel, every role list and the house name are columns on
@@ -82,6 +83,9 @@ let attendance = null;
 let signups = null;
 let lateAttendance = null;
 let sweepTimer = null;
+// Only the scouting post reads the database directly (through scouting.js);
+// everything else here goes through one of the modules above.
+let db = null;
 
 function start(supabase) {
   if (!BOT_TOKEN || !GUILD_ID) {
@@ -89,6 +93,7 @@ function start(supabase) {
     return;
   }
 
+  db = supabase || null;
   eliteTimers = supabase ? createEliteTimers(supabase) : null;
   identities = supabase ? createIdentities(supabase) : null;
   loa = supabase ? createLoa(supabase, identities) : null;
@@ -1327,7 +1332,11 @@ function signupEmbed({ event, going, waitlist }) {
 
   return {
     title: cancelled ? `🚫 CANCELLED — ${event.title}` : event.title,
-    description: `<t:${unix}:F> (<t:${unix}:R>)\n**${going.length}${cap}** going${waiting}`
+    description: `<t:${unix}:F> (<t:${unix}:R>)`
+      // Who it's against, when an officer has said. The PATCH that sets it
+      // re-renders this post, so it appears without a re-announce.
+      + (event.opponent_guild ? `\n⚔️ vs **${event.opponent_guild.replace(/([\\*_`~|>])/g, '\\$1')}**` : '')
+      + `\n**${going.length}${cap}** going${waiting}`
       + `\n${ROLE_COLUMNS.map((r) => `${ROLE_EMOJI[r]} ${byRole[r].length}`).join('   ')}`
       + (cancelled ? '\n\n**This event has been cancelled.**' : closed ? '\n\n*Signups are closed.*' : ''),
     // Grey for cancelled, so it reads as off even before the title is read.
@@ -1532,6 +1541,26 @@ async function sendSignupReminder(signupEventId) {
   }
 }
 
+// The automatic scouting post: the opponent's report, SCOUTING_LEAD_MINUTES
+// before a signup that names one. Only when Guild Settings names a Scouting
+// channel — checked before claiming, so setting one mid-way still catches a
+// fight that's already inside the window. Claimed before posting, like the
+// reminder: a post that then fails is logged, not retried every minute.
+async function sendScoutingReport(event) {
+  const channelId = guildConfig.scoutingChannelId();
+  if (!db || !signups || !channelId) return;
+  try {
+    if (!(await signups.claimScouting(event.id))) return;
+    await postScouting(db, {
+      enemy: event.opponent_guild,
+      channelId,
+      event: { title: event.title, startsAt: event.starts_at },
+    });
+  } catch (err) {
+    console.error(`Scouting post error for ${event.id}:`, err.response?.data?.message || err.message);
+  }
+}
+
 // The only scheduler in the backend. Runs in the web process, so it does nothing
 // while that process is asleep — and the `starts_at > now()` guard in
 // dueForReminder means a long outage suppresses stale reminders rather than
@@ -1542,6 +1571,11 @@ function startSignupSweep() {
   sweepTimer = setInterval(async () => {
     try {
       for (const event of await signups.dueForReminder()) await sendSignupReminder(event.id);
+      // Skipped outright with no Scouting channel, so a guild that never sets
+      // one doesn't pay for the query every minute.
+      if (guildConfig.scoutingChannelId()) {
+        for (const event of await signups.dueForScouting(SCOUTING_LEAD_MINUTES)) await sendScoutingReport(event);
+      }
       for (const event of await signups.dueToClose()) {
         await signups.setStatus(event.id, 'closed');
         await renderSignupMessage(event.id); // Immediate, not debounced — nobody is racing this.

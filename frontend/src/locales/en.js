@@ -548,4 +548,22 @@ export default {
   'signups.confirmDelete': "Delete the signup for {title}? Everyone's entries go with it.",
   'signups.deleted': 'Signup deleted.',
   'signups.removed': 'Removed.',
+  'signups.vs': 'vs {guild}',
+  'signups.opponent': 'Opponent',
+  'signups.opponentPlaceholder': 'Enemy guild, if this night has one',
+  'signups.saveOpponent': 'Save opponent',
+  'signups.opponentSaved': 'Opponent set: {guild}.',
+  'signups.opponentCleared': 'Opponent cleared.',
+  'signups.scoutNow': 'Post scouting',
+  'signups.scoutTitle': "Post the opponent's current roster and standouts to Discord now",
+  'signups.scoutAuto': 'With an opponent set, their scouting report posts to the Scouting channel an hour before the start, if Guild Settings names one.',
+  'signups.scoutSent': 'Scouting report posted. Changing the opponent or the start time re-arms it.',
+
+  // Scouting report post (Feuds roster page and signups)
+  'scout.eyebrow': 'Scouting report',
+  'scout.explain': 'Who they have fielded in their last few games, the players who stand out, and your record against them.',
+  'scout.notePlaceholder': 'e.g. Focus their healers first',
+  'scout.claimsAuto': "Posting this now replaces the automatic post for this night, so it won't go out twice.",
+  'scout.posted': 'Scouting report on {guild} posted.',
+  'scout.postedTo': 'Scouting report on {guild} posted to #{channel}.',
 };

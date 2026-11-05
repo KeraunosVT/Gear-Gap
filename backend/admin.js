@@ -33,6 +33,7 @@ const FEATURES = [
   require('./admin/attendance'),
   require('./admin/signups'),
   require('./admin/schedule'),
+  require('./admin/scouting'),
 ];
 
 module.exports = function createAdminRouter(supabase, gateway, lootCatalog, identities) {

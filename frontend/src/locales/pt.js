@@ -544,4 +544,22 @@ export default {
   'signups.confirmDelete': 'Excluir a inscrição de {title}? As entradas de todos vão junto.',
   'signups.deleted': 'Inscrição excluída.',
   'signups.removed': 'Removido.',
+  'signups.vs': 'contra {guild}',
+  'signups.opponent': 'Adversário',
+  'signups.opponentPlaceholder': 'Guilda inimiga, se esta noite tiver uma',
+  'signups.saveOpponent': 'Salvar adversário',
+  'signups.opponentSaved': 'Adversário definido: {guild}.',
+  'signups.opponentCleared': 'Adversário removido.',
+  'signups.scoutNow': 'Postar relatório',
+  'signups.scoutTitle': 'Postar agora no Discord a escalação atual do adversário e seus destaques',
+  'signups.scoutAuto': 'Com um adversário definido, o relatório de reconhecimento é postado no canal de Reconhecimento uma hora antes do início, se as Configurações da guilda indicarem um.',
+  'signups.scoutSent': 'Relatório de reconhecimento postado. Mudar o adversário ou o horário de início o reprograma.',
+
+  // Scouting report post (Feuds roster page and signups)
+  'scout.eyebrow': 'Relatório de reconhecimento',
+  'scout.explain': 'Quem eles escalaram nas últimas partidas, os jogadores que se destacam e o seu histórico contra eles.',
+  'scout.notePlaceholder': 'ex.: Foquem os curandeiros primeiro',
+  'scout.claimsAuto': 'Postar agora substitui a postagem automática desta noite, então ela não sai duas vezes.',
+  'scout.posted': 'Relatório de reconhecimento sobre {guild} postado.',
+  'scout.postedTo': 'Relatório de reconhecimento sobre {guild} postado em #{channel}.',
 };

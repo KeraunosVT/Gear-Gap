@@ -96,7 +96,7 @@ module.exports = function registerSignups(router, ctx) {
 
   router.patch('/signups/:id', async (req, res) => {
     if (!signups) return res.status(503).json({ error: 'Database not configured.' });
-    const { capacity, status, reminder_minutes, title, event_date, event_time, category } = req.body || {};
+    const { capacity, status, reminder_minutes, title, event_date, event_time, category, opponent_guild } = req.body || {};
     try {
       let promoted = [];
       // First, so a refused edit (a weekly night, a bad time) changes nothing.
@@ -107,6 +107,9 @@ module.exports = function registerSignups(router, ctx) {
       }
       if (capacity !== undefined) promoted = await signups.setCapacity(req.params.id, capacity);
       if (reminder_minutes !== undefined) await signups.setReminderMinutes(req.params.id, reminder_minutes);
+      // Unlike title/time, allowed on a weekly night too: the event is the
+      // same every week, the guild on the other side isn't.
+      if (opponent_guild !== undefined) await signups.setOpponent(req.params.id, opponent_guild);
       if (status !== undefined) await signups.setStatus(req.params.id, status);
       res.json({ ok: true, promoted });
       gateway.refreshSignupMessage(req.params.id);
