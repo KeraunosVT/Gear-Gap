@@ -39,7 +39,7 @@ alter table public.wargame_matches add column if not exists notes text;
 -- guild_config.aliases means "names WE have gone by", and player_identities
 -- means "our members" — one enemy name in either folds a rival into us.
 -- The guards (nothing mapping to or from our names, no chains) are in the
--- write path in backend/admin.js.
+-- write path in backend/admin/names.js.
 create table if not exists enemy_guild_aliases (
   alias text primary key,      -- as scoreboards record it, whitespace collapsed
   canonical text not null,     -- the guild it really is

@@ -1245,7 +1245,7 @@ async function notifyAttendance(attendees, title, eventDate) {
 // createMessageComponentCollector(), which lives in memory and would go dead on
 // every restart, silently, for every existing post.
 //
-// Sibling of admin.js's ROLE_EMOJI. Kept local rather than shared because the
+// Sibling of admin/parties.js's ROLE_EMOJI. Kept local rather than shared because the
 // two render for different surfaces (a roster image caption vs. a signup list)
 // and neither should have to change when the other's presentation does.
 const ROLE_EMOJI = { Tank: '🛡️', DPS: '⚔️', Healer: '💚' };
@@ -1292,7 +1292,7 @@ function nameLines(entries, withEmoji = true) {
 const ROLE_COLUMNS = ['Tank', 'DPS', 'Healer'];
 const columnFor = (role) => (ROLE_COLUMNS.includes(role) ? role : 'Unassigned');
 
-// Raw object rather than EmbedBuilder, matching admin.js's rosterEmbed — the
+// Raw object rather than EmbedBuilder, matching admin/parties.js's rosterEmbed — the
 // only other embed in the codebase.
 function signupEmbed({ event, going, waitlist }) {
   const unix = signupUnix(event);

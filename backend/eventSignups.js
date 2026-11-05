@@ -623,7 +623,7 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
   };
 };
 
-// For the schedule routes in admin.js, which take the same field.
+// For the schedule routes in admin/schedule.js, which take the same field.
 module.exports.categoryKey = categoryKey;
 
 // LOA reasons are officer-only everywhere else (loa.all strips them for

@@ -4,7 +4,7 @@
 -- anchor_date: one guild NIGHT the event runs on, which fixes which weeks are
 -- the on weeks. Only read when interval_weeks > 1; a weekly row leaves it null.
 -- The night has to fall on the event's own night of the week — checked in
--- backend/admin.js, which already has the after-midnight rule to hand.
+-- backend/admin/schedule.js, which already has the after-midnight rule to hand.
 --
 -- Nothing else moves. The DST toggle (05) can shift an event across day_start
 -- onto the neighbouring night; the cadence check rounds to the nearest week, so
