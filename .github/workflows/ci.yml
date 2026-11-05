@@ -1,0 +1,39 @@
+# Runs on every PR and every push to main: the same install a deploy runs
+# (root `npm ci` → postinstall installs backend + frontend and builds the
+# frontend), then the backend test suite. A broken `vite build` fails here
+# instead of on the host; a broken test fails here instead of never running.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # 22, not 18: `npm test` passes a quoted glob to `node --test`, and Node
+      # only expands globs there from 21 on — below that it looks for a file
+      # literally named `*.test.js` and fails.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Install and build (same path as a deploy)
+        run: npm ci
+
+      - name: Backend tests
+        run: npm test
