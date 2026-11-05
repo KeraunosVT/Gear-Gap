@@ -10,6 +10,7 @@ const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const multer = require('multer');
 const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
+const { securityHeaders } = require('./securityHeaders');
 const {
   router: authRouter, requireAuth, requireAdminArea, requirePermission, userHas,
 } = require('./auth');
@@ -55,6 +56,10 @@ const app = express();
 // Render/Railway/etc. sit behind one reverse proxy — needed for req.ip and
 // req.secure to reflect the real client rather than the proxy.
 app.set('trust proxy', 1);
+
+// First, so every response — API, the built frontend, the SPA fallback, errors
+// — carries them. See securityHeaders.js for what each one allows and why.
+app.use(securityHeaders());
 
 // Per-member throttle for endpoints that call the vision model (each request costs real
 // API money). Keyed on the session user id; IP is only a fallback in case this

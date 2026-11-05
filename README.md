@@ -90,7 +90,7 @@ npm test     # from the repo root
 
 `node:test`, which is built into Node — no dependency, no config, no runner to install. Lives in [`backend/test/`](backend/test/) and needs no database: everything is driven through a fake Supabase.
 
-[CI](.github/workflows/ci.yml) runs the same install a deploy does (`npm ci`, which builds the frontend) and then `npm test`, on every pull request and every push to `main`. Needs Node 21+ to run locally: the quoted glob in `npm test` is expanded by `node --test` itself, which older versions don't do.
+[CI](.github/workflows/ci.yml) runs the same install a deploy does (`npm ci`, which builds the frontend) and then `npm test`, on every pull request and every push to `main`. [Dependabot](.github/dependabot.yml) opens weekly dependency PRs (minor and patch grouped per folder) and security fixes as soon as an advisory lands, so CI tests them before anything is merged. Needs Node 21+ to run locally: the quoted glob in `npm test` is expanded by `node --test` itself, which older versions don't do.
 
 The suite is deliberately narrow. It covers the logic where a mistake produces a **plausible wrong answer** rather than an error — row-cap paging, and the guild-night comparisons. Rendering and routing aren't tested and don't need to be; a broken page is obvious the moment you look at it, while a truncated read is not.
 
@@ -218,6 +218,17 @@ To check which day each event is filed under: `node scripts/dumpEventSchedule.js
 **The rule lives in two files, and a test keeps them in step.** `daySlot`, `guildDayOfWeek`, `isAfterMidnight`, `todayInGuildTz` and `withinLoaWindow` exist in both [`backend/loa.js`](backend/loa.js) and [`frontend/src/timeUtils.js`](frontend/src/timeUtils.js). [`backend/test/guildNightConformance.test.js`](backend/test/guildNightConformance.test.js) drives **both** over every half hour of the clock, every day of the week, and six LOA windows, and fails if they ever disagree — including under a changed rollover.
 
 A single `shared/guildNight.js` was tried and doesn't work. As CommonJS, `vite build` rejects it; adding `build.commonjsOptions.include` fixes the build but the **dev server serves it untransformed**, so `module.exports` reaches the browser and `npm run dev` breaks — passing in production and failing only in local dev. As ESM, the CommonJS backend can't `require()` it below Node 22.12, and this project supports Node 18+. The two also differ for a reason beyond syntax: the backend re-reads the rollover from `guild_config` on every call, while the frontend reads module state `GuildProvider` sets once — so even a shared file would keep both wrappers. If you change one implementation, run `npm test` before assuming the other agrees.
+
+### Security headers
+
+Every response carries helmet's headers, configured in [`backend/securityHeaders.js`](backend/securityHeaders.js). The Content-Security-Policy is a list of what the browser may load and from where:
+- **Scripts:** only this site's own files, nothing inline.
+- **Network calls:** only this site.
+- **Fonts and styles:** Google Fonts.
+- **Images:** any HTTPS source.
+- **Framing:** no other site can frame the hall, which closes off clickjacking an officer into a button.
+
+**If something stops loading after a change** (a new font, image host, or browser-side API call), the browser console names the directive that refused it, and that file is where it gets added. HSTS and `upgrade-insecure-requests` are sent only when `NODE_ENV=production`, so plain-HTTP local dev keeps working.
 
 ### When a page crashes
 
