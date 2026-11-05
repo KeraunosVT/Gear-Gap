@@ -12,7 +12,7 @@ const multer = require('multer');
 const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const { securityHeaders } = require('./securityHeaders');
 const {
-  router: authRouter, requireAuth, requireAdminArea, requirePermission, userHas,
+  router: authRouter, requireAuth, requireAdminArea, requirePermission, userHas, canActFor,
 } = require('./auth');
 const { listMembers, fetchRoleGrants, botConfigured } = require('./discord');
 const shardWishlist = require('./shardWishlist');
@@ -330,7 +330,7 @@ app.get('/api/gear-screenshot/mine', async (req, res) => {
 app.get('/api/gear-screenshot/:discordId', async (req, res) => {
   if (!gearIlvl) return res.status(503).json({ error: 'Database not configured.' });
   const target = String(req.params.discordId);
-  if (target !== String(req.user.id) && !userHas(req.user, 'gear')) {
+  if (!canActFor(req.user, target, 'gear')) {
     return res.status(403).json({ error: 'Gear screenshots are visible to officers and their owner.' });
   }
   const screenshot = await gearIlvl.screenshotFor(target);
@@ -397,7 +397,7 @@ app.get('/api/builds/:discordId', async (req, res) => {
 app.put('/api/builds/:discordId/:kind', async (req, res) => {
   if (!builds) return res.status(503).json({ error: 'Database not configured.' });
   const target = String(req.params.discordId);
-  if (target !== String(req.user.id) && !userHas(req.user, 'builds')) {
+  if (!canActFor(req.user, target, 'builds')) {
     return res.status(403).json({ error: 'You can only change your own builds.' });
   }
   try {
@@ -498,8 +498,8 @@ app.put('/api/shards/weapon-ranking', async (req, res) => {
 });
 
 app.put('/api/shards/:discordId', async (req, res) => {
-  const target = req.params.discordId;
-  if (req.user.id !== target && !userHas(req.user, 'loot.awards')) {
+  const target = String(req.params.discordId);
+  if (!canActFor(req.user, target, 'loot.awards')) {
     return res.status(403).json({ error: 'You can only edit your own shards.' });
   }
   if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
@@ -580,8 +580,8 @@ app.get('/api/loot', async (req, res) => {
 });
 
 app.put('/api/loot/:discordId', async (req, res) => {
-  const target = req.params.discordId;
-  if (req.user.id !== target && !userHas(req.user, 'loot.awards')) {
+  const target = String(req.params.discordId);
+  if (!canActFor(req.user, target, 'loot.awards')) {
     return res.status(403).json({ error: 'You can only edit your own wishlist.' });
   }
   if (!supabase || !lootCatalog) return res.status(503).json({ error: 'Database not configured.' });

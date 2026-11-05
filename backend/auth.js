@@ -276,7 +276,7 @@ async function requireAuth(req, res, next) {
 
 // Re-exported from permissions.js so routes can check a capability without
 // importing both modules; one implementation, including the legacy-session rule.
-const { userHas } = perms;
+const { userHas, canActFor } = perms;
 
 // Gate for the admin area. Resolves the capability the requested path needs and
 // checks it, rather than admitting anyone with the old blanket admin flag.
@@ -319,4 +319,4 @@ function requireAdmin(req, res, next) {
   });
 }
 
-module.exports = { router, requireAuth, requireAdmin, requireAdminArea, requirePermission, userHas };
+module.exports = { router, requireAuth, requireAdmin, requireAdminArea, requirePermission, userHas, canActFor };

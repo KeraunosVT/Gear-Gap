@@ -231,6 +231,17 @@ Every response carries helmet's headers, configured in [`backend/securityHeaders
 
 **If something stops loading after a change** (a new font, image host, or browser-side API call), the browser console names the directive that refused it, and that file is where it gets added. HSTS and `upgrade-insecure-requests` are sent only when `NODE_ENV=production`, so plain-HTTP local dev keeps working.
 
+### Who can reach the database
+
+**Only the service key.** Every query goes through the backend with `SUPABASE_SERVICE_KEY`; the browser never talks to Supabase. The market scraper uses the same key. The public anon key is meant to be shareable, and [`12_lock_down_anon.sql`](migrations/12_lock_down_anon.sql) makes sure it opens nothing:
+- Row-level security is on for every table.
+- `anon` and `authenticated` hold no privileges on tables, sequences or functions, including ones created later.
+- `security definer` functions have a fixed `search_path`.
+
+Before 12, several tables (including `permission_grants` and `audit_log`) had RLS off, and every function could be called by anyone holding the anon key. Five standing rows in `verify.sql` turn false if a later migration adds a table or function without the same treatment; re-running 12 fixes them. If the browser ever needs to read Supabase directly, grant that access deliberately, with a policy.
+
+**Members can change only their own records.** Every member route that takes a `:discordId` (builds, shards, loot wishlist, gear screenshots) goes through `canActFor(user, id, permission)` in [`permissions.js`](backend/permissions.js): your own record always, anyone else's only with that capability. LOA edits and cancellations check the same thing in `loa.js`. A late request can only be withdrawn by its owner, because the delete itself is scoped to their id. [`ownership.test.js`](backend/test/ownership.test.js) covers all three. It also fails if a new write route with `:discordId` in `server.js` ships without calling the check.
+
 ### When a page crashes
 
 Two error boundaries, in [`frontend/src/components/ErrorBoundary.jsx`](frontend/src/components/ErrorBoundary.jsx). React unmounts the entire tree when a render throws and nothing catches it — before these, one bad render blanked the whole site: no message, no nav, and no way back except knowing to reload.

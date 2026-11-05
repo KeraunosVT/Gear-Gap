@@ -172,6 +172,21 @@ function userHas(user, permission) {
   return heldBy(user).includes(permission);
 }
 
+// May `user` act on the record belonging to `targetId`? Their own, always; anyone
+// else's only with `permission`. The one rule behind every member route that
+// takes a :discordId — builds, shards, loot wishlist, gear screenshots — so it
+// is written once and tested, rather than retyped inline per route.
+//
+// Ids are compared as strings. Discord ids are strings everywhere today, but a
+// number slipping in on either side would make a strict compare quietly refuse
+// the owner — or, written the other way round, quietly admit a stranger.
+// No user or no target is a refusal.
+function canActFor(user, targetId, permission) {
+  if (!user || user.id == null || targetId == null || targetId === '') return false;
+  if (String(user.id) === String(targetId)) return true;
+  return Boolean(permission) && userHas(user, permission);
+}
+
 // Everything granted to any of this member's Discord roles, plus anything
 // granted to them personally.
 async function resolveFor({ roleIds = [], userId = null }) {
@@ -198,5 +213,6 @@ module.exports = {
   invalidate,
   heldBy,
   userHas,
+  canActFor,
   supabase,
 };

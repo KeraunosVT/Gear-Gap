@@ -279,6 +279,45 @@ select '11 · guild_config.scouting_channel_id',
         where table_schema = 'public' and table_name = 'guild_config' and column_name = 'scouting_channel_id') = 1
 union all
 
+-- ── 12_lock_down_anon ───────────────────────────────────────────────────────
+-- These are standing checks, not one-offs: a table or function added by a
+-- LATER migration without the same treatment turns its row false. Re-running
+-- 12 fixes it. Extension-owned objects are excluded, as in 12.
+select '12 · RLS on every public table',
+       not exists (
+         select 1 from pg_class c join pg_namespace n on n.oid = c.relnamespace
+         where n.nspname = 'public' and c.relkind in ('r', 'p') and not c.relrowsecurity
+           and not exists (select 1 from pg_depend d where d.objid = c.oid and d.deptype = 'e'))
+union all
+select '12 · anon/authenticated hold no table privileges',
+       not exists (
+         select 1 from information_schema.role_table_grants
+         where table_schema = 'public' and grantee in ('anon', 'authenticated'))
+union all
+select '12 · anon cannot run any public function',
+       not exists (
+         select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname = 'public'
+           and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')
+           and (has_function_privilege('anon', p.oid, 'EXECUTE')
+             or has_function_privilege('authenticated', p.oid, 'EXECUTE')))
+union all
+-- The other half: locking anon out must not lock the app out.
+select '12 · service_role can run every public function',
+       not exists (
+         select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname = 'public'
+           and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')
+           and not has_function_privilege('service_role', p.oid, 'EXECUTE'))
+union all
+select '12 · SECURITY DEFINER functions pin search_path',
+       not exists (
+         select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+         where n.nspname = 'public' and p.prosecdef
+           and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')
+           and not exists (select 1 from unnest(coalesce(p.proconfig, '{}')) cfg where cfg like 'search_path=%'))
+union all
+
 -- ── BASE SCHEMA ─────────────────────────────────────────────────────────────
 -- Predates tracked migrations, so no file of its own. The whole shard wishlist
 -- (weapons, need, priority, Last Updated) lives in this one column; anything
