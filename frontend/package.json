@@ -13,13 +13,13 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@vitejs/plugin-react": "^4.3.1",
-    "autoprefixer": "^10.4.20",
+    "autoprefixer": "^10.6.2",
     "axios": "^1.7.0",
     "lucide-react": "^0.441.0",
-    "postcss": "^8.4.47",
+    "postcss": "^8.5.32",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^7.17.0",
+    "react-router-dom": "^7.18.5",
     "tailwindcss": "^3.4.13",
     "vite": "^5.4.8"
   }
