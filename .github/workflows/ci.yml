@@ -35,5 +35,10 @@ jobs:
       - name: Install and build (same path as a deploy)
         run: npm ci
 
+      # Catches what the build doesn't: a component used but never imported
+      # compiles fine and crashes only when that branch renders.
+      - name: Lint
+        run: npm run lint
+
       - name: Backend tests
         run: npm test

@@ -85,12 +85,13 @@ For local dev with two separate dev servers, set `CORS_ORIGINS=http://localhost:
 ### Tests
 
 ```bash
-npm test     # from the repo root
+npm test       # from the repo root
+npm run lint   # ESLint over backend and frontend (eslint.config.js)
 ```
 
 `node:test`, which is built into Node — no dependency, no config, no runner to install. Lives in [`backend/test/`](backend/test/) and needs no database: everything is driven through a fake Supabase.
 
-[CI](.github/workflows/ci.yml) runs the same install a deploy does (`npm ci`, which builds the frontend) and then `npm test`, on every pull request and every push to `main`. [Dependabot](.github/dependabot.yml) opens weekly dependency PRs (minor and patch grouped per folder) and security fixes as soon as an advisory lands, so CI tests them before anything is merged. Needs Node 21+ to run locally: the quoted glob in `npm test` is expanded by `node --test` itself, which older versions don't do.
+[CI](.github/workflows/ci.yml) runs the same install a deploy does (`npm ci`, which builds the frontend), then `npm run lint` and `npm test`, on every pull request and every push to `main`. Lint is there for what the build lets through: a component used but never imported compiles fine and crashes only when that branch renders, and a hook called conditionally works until the condition flips. [Dependabot](.github/dependabot.yml) opens weekly dependency PRs (minor and patch grouped per folder) and security fixes as soon as an advisory lands, so CI tests them before anything is merged. Needs Node 21+ to run locally: the quoted glob in `npm test` is expanded by `node --test` itself, which older versions don't do.
 
 The suite is deliberately narrow. It covers the logic where a mistake produces a **plausible wrong answer** rather than an error — row-cap paging, and the guild-night comparisons. Rendering and routing aren't tested and don't need to be; a broken page is obvious the moment you look at it, while a truncated read is not.
 

@@ -47,7 +47,7 @@ const ROSTER_COLUMNS = [
 ];
 
 export default function MatchStats() {
-  const { user, can } = useAuth();
+  const { can } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [matches, setMatches] = useState([]);
   const [selectedMatchId, setSelectedMatchId] = useState(null);

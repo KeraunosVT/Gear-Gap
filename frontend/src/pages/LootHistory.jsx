@@ -20,7 +20,7 @@ const PRIO_STYLE = {
 };
 
 export default function LootHistory() {
-  const { user, can, canAny } = useAuth();
+  const { can, canAny } = useAuth();
   const [catalog, setCatalog] = useState(null);
   const [awards, setAwards] = useState([]);
   const [currencyAwards, setCurrencyAwards] = useState([]);

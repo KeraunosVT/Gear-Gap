@@ -21,7 +21,7 @@ const PRIO_ON = {
 };
 
 export default function LootTally() {
-  const { user, can } = useAuth();
+  const { can } = useAuth();
   const [catalog, setCatalog] = useState(null);
   const [counts, setCounts] = useState({});
   const [tally, setTally] = useState({});

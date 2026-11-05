@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Link, useSearchParams, useNavigate } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../auth';
 import weaponToClass from '../../../shared/weaponClasses.json';
@@ -43,9 +43,8 @@ const emptyRow = () => ({
 });
 
 export default function Admin() {
-  const { user, can } = useAuth();
+  const { can } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
-  const navigate = useNavigate();
 
   const [items, setItems] = useState([]); // {id,file,status:'idle'|'processing'|'done'|'failed',players,error,retryable}
   const [title, setTitle] = useState('');

@@ -39,7 +39,7 @@ const OTHER = '__other__';
 const POTENTIAL = '__potential__';
 
 export default function LootRequests() {
-  const { user, can } = useAuth();
+  const { can } = useAuth();
   const [members, setMembers] = useState([]);
   const [catalog, setCatalog] = useState([]);
   const [requests, setRequests] = useState([]);

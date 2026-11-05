@@ -106,7 +106,7 @@ function decodeFile(buffer) {
   } catch {
     text = CP1252.decode(buffer);
   }
-  return text.replace(/^﻿/, '');
+  return text.replace(/^\uFEFF/, '');
 }
 
 function repairMojibake(s) {

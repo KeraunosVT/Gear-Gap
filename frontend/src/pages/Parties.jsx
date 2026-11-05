@@ -245,7 +245,7 @@ function renderRosterImage(partyIds, items, partyNames, roles, byId, classMode, 
 }
 
 export default function Parties() {
-  const { user, can } = useAuth();
+  const { can } = useAuth();
 
   const [members, setMembers] = useState([]);
   const [extra, setExtra] = useState({});

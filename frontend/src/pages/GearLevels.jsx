@@ -36,7 +36,7 @@ const COLUMNS = [
 ];
 
 export default function GearLevels() {
-  const { user, can } = useAuth();
+  const { can } = useAuth();
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');

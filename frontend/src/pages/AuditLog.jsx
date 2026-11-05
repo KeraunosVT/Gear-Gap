@@ -19,7 +19,7 @@ const METHOD_STYLE = {
 };
 
 export default function AuditLog() {
-  const { user, can } = useAuth();
+  const { can } = useAuth();
   const [entries, setEntries] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -45,7 +45,6 @@ export default function AuditLog() {
       .catch((err) => setError(err.response?.data?.error || 'Could not load the audit log.'))
       .finally(() => setLoading(false));
   };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [page, discordId, feature, fromDate, toDate]);
 
   // Filter option lists derived from whatever's currently loaded, same idiom

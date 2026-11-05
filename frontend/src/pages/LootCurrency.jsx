@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../auth';
-import { X, Coins, UserPlus, Pencil, Check } from 'lucide-react';
+import { X, Coins, Pencil, Check } from 'lucide-react';
 import RestrictedGate from '../components/ui/RestrictedGate';
 import { PageShell } from '../components/ui/PageShell';
 import { useFlash } from '../components/ui/useFlash';
@@ -16,7 +16,7 @@ import CurrencyIcon from '../components/ui/CurrencyIcon';
 // the loot catalog/tally data LootTally itself needs, so it's fully
 // self-contained.
 export default function LootCurrency() {
-  const { user, can } = useAuth();
+  const { can } = useAuth();
   const [members, setMembers] = useState([]);
   const [currencyAwards, setCurrencyAwards] = useState([]);
   const [currencyBusy, setCurrencyBusy] = useState(false);

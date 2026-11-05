@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
-import { useAuth } from '../auth';
 import weaponToClass from '../../../shared/weaponClasses.json';
 import EXTRA_CLASSES from '../../../shared/extraClasses.json';
 import { Check } from 'lucide-react';
@@ -50,12 +49,12 @@ function ClassPicker({ title, hint, picks, setPicks }) {
 }
 
 export default function Classes() {
-  const { user } = useAuth();
   const [pvpClasses, setPvpClasses] = useState(['', '', '']);
   const [pveClasses, setPveClasses] = useState(['', '', '']);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   useEffect(() => {
     axios.get('/api/my-classes')
@@ -68,7 +67,7 @@ export default function Classes() {
   }, []);
 
   const save = async () => {
-    setSaving(true); setSaved(false);
+    setSaving(true); setSaved(false); setSaveError('');
     try {
       await axios.put('/api/my-classes', {
         pvp_classes: pvpClasses.filter(Boolean),
@@ -76,8 +75,11 @@ export default function Classes() {
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
-    } catch {}
-    finally { setSaving(false); }
+    } catch (err) {
+      // Used to be swallowed: the button went back to "Save" and the member
+      // reasonably assumed it had worked, so officers planned off old picks.
+      setSaveError(err.response?.data?.error || 'Could not save — try again.');
+    } finally { setSaving(false); }
   };
 
   return (
@@ -106,6 +108,7 @@ export default function Classes() {
                 <Check className="w-4 h-4" /> Saved
               </span>
             )}
+            {saveError && <span className="text-oxblood text-sm">{saveError}</span>}
           </div>
         </div>
       )}

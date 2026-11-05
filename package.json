@@ -5,6 +5,14 @@
     "start": "node backend/server.js",
     "_comment_test": "Glob rather than a bare directory: `node --test backend/test` fails to resolve on Windows, while the quoted pattern is globbed by Node itself and works everywhere. Needs no dependencies — node:test is built in.",
     "test": "node --test \"backend/test/*.test.js\"",
+    "lint": "eslint .",
     "postinstall": "rm -rf backend/node_modules frontend/node_modules && cd backend && npm install && cd ../frontend && npm install && npm run build"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.5",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^16.5.0"
   }
 }
