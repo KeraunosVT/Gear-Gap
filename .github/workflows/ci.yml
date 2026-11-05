@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # 22, not 18: `npm test` passes a quoted glob to `node --test`, and Node
       # only expands globs there from 21 on — below that it looks for a file
