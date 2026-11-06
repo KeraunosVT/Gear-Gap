@@ -610,6 +610,26 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
       return Boolean((data || []).length);
     },
 
+    // A War Games night's maps and rules, either or both. Free text, trimmed,
+    // and blank clears. Maps are one line (the site fills them from War
+    // Record's list, comma-separated); rules keep their line breaks.
+    async setWarDetails(id, { maps, rules } = {}) {
+      const update = { updated_at: new Date().toISOString() };
+      if (maps !== undefined) update.war_maps = String(maps ?? '').trim().replace(/\s+/g, ' ').slice(0, 300) || null;
+      if (rules !== undefined) {
+        update.war_rules = String(rules ?? '').replace(/\r\n?/g, '\n').trim().replace(/\n{3,}/g, '\n\n').slice(0, 1000) || null;
+      }
+      const { data, error } = await supabase.from('signup_events').update(update).eq('id', id).select('*').single();
+      if (error || !data) {
+        console.error('signups.setWarDetails error:', error?.message);
+        // A missing column is the likeliest error, and its fix is the migration.
+        throw httpError(error ? 500 : 404, error
+          ? 'Failed to save the maps and rules — has migration 13 been run?'
+          : 'That signup no longer exists.');
+      }
+      return data;
+    },
+
     // Occurrences with an opponent whose scouting post is due: starting within
     // `leadMinutes`, not yet posted. Unlike reminders the lead is one constant,
     // so the whole test is SQL. Closed counts — an officer closing signups
