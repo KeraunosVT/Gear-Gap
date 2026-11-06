@@ -187,6 +187,8 @@ export default function Signups() {
   const [formDate, setFormDate] = useState(todayInGuildTz);
   const [formEvent, setFormEvent] = useState('');
   const [formTitle, setFormTitle] = useState('');
+  // A one-off's start time. A scheduled event's comes from the schedule.
+  const [formTime, setFormTime] = useState('');
   const [formCapacity, setFormCapacity] = useState('');
   const [formReminder, setFormReminder] = useState('1440');
   const [opening, setOpening] = useState(false);
@@ -302,11 +304,12 @@ export default function Signups() {
         event_date: formDate,
         event_schedule_id: formEvent || null,
         title: formTitle.trim(),
+        event_time: formEvent ? null : formTime || null,
         capacity: formCapacity,
         reminder_minutes: formReminder,
       });
       flash(res.data.created ? t('signups.opened') : t('signups.alreadyOpen'));
-      setFormTitle(''); setFormCapacity('');
+      setFormTitle(''); setFormTime(''); setFormCapacity('');
       load();
     } catch (err) {
       flash(err.response?.data?.error || t('signups.openFailed'), false);
@@ -371,10 +374,23 @@ export default function Signups() {
             </label>
           </div>
 
+          {/* A one-off needs its own start time — without one it gets no
+              reminder, never closes on its own, and Discord has no countdown. */}
           {!formEvent && (
-            <input value={formTitle} onChange={(e) => setFormTitle(e.target.value)}
-              placeholder={t('signups.oneOffTitle')} className={`w-full mt-3 ${INPUT}`} />
+            <div className="flex gap-3 mt-3 flex-wrap">
+              <input value={formTitle} onChange={(e) => setFormTitle(e.target.value)}
+                placeholder={t('signups.oneOffTitle')} className={`flex-1 min-w-[12rem] ${INPUT}`} />
+              <label className="block w-40">
+                <span className="sr-only">{t('cal.timeOptional')}</span>
+                <input type="time" value={formTime} onChange={(e) => setFormTime(e.target.value)}
+                  title={t('cal.timeOptional')} className={`w-full ${INPUT}`} />
+              </label>
+            </div>
           )}
+          {!formEvent && isAfterMidnight(formTime) && (
+            <p className="text-xs text-ash/70 mt-1.5">{t('cal.afterMidnightNote')}</p>
+          )}
+          {!formEvent && !formTime && <p className="text-xs text-ash/70 mt-1.5">{t('signups.noTimeHint')}</p>}
 
           <div className="mt-4">
             <Button type="submit" size="none" disabled={opening} icon={<Megaphone className="w-4 h-4" />}
@@ -453,6 +469,9 @@ function SignupCard({
   useEffect(() => { setOpponent(row.opponent_guild ?? ''); }, [row.opponent_guild]);
   const opponentChanged = opponent.trim() !== (row.opponent_guild ?? '');
   const isWarGames = categoryOf(row.title, row.category).key === 'war_games';
+  const savedTime = row.event_time ? String(row.event_time).slice(0, 5) : '';
+  const [startTime, setStartTime] = useState(savedTime);
+  useEffect(() => { setStartTime(savedTime); }, [savedTime]);
 
   const closed = row.status !== 'open';
   const full = row.capacity != null && row.going_count >= row.capacity;
@@ -621,6 +640,29 @@ function SignupCard({
                   </div>
 
                   {isWarGames && <WarDetailsEditor row={row} working={working} onPatch={onPatch} />}
+
+                  {/* Start time. A one-off's is its own; a weekly night's comes
+                      from the schedule, so it's changed there for every week. */}
+                  {row.event_schedule_id ? (
+                    <p className="text-xs text-ash/70 pt-1">{t('signups.weeklyTimeHint')}</p>
+                  ) : (
+                    <div>
+                      <div className="flex items-end gap-2 flex-wrap pt-1">
+                        <label className="block">
+                          <span className="eyebrow text-[10px] text-ash/75 block mb-1.5">{t('signups.startTime')}</span>
+                          <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)}
+                            className={`w-40 ${INPUT} py-2`} />
+                        </label>
+                        <Button variant="secondary" size="sm" disabled={working || startTime === savedTime}
+                          onClick={() => onPatch({ event_time: startTime || null },
+                            startTime ? t('signups.timeSaved', { time: fmtTimeEst(startTime) }) : t('signups.timeCleared'))}>
+                          {t('signups.saveTime')}
+                        </Button>
+                      </div>
+                      {isAfterMidnight(startTime) && <p className="text-xs text-ash/70 mt-1.5">{t('cal.afterMidnightNote')}</p>}
+                      {!savedTime && <p className="text-xs text-ash/70 mt-1.5">{t('signups.noTimeHint')}</p>}
+                    </div>
+                  )}
 
                   <div className="flex items-end gap-2 flex-wrap pt-1">
                     <label className="block">
