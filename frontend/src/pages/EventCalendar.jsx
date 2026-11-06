@@ -12,6 +12,7 @@ import {
   NightCard, placeTime, standing, timeLeft, STANDING_ICON, STANDING_LABEL,
 } from '../components/AttendanceNight';
 import { CATEGORIES, OTHER, categoryOf } from '../eventCategories';
+import WarDetails from '../components/WarDetails';
 
 import {
   fmtTimeEst, todayInGuildTz, eventsForGuildDay, isAfterMidnight, daySlot, getGuildTz,
@@ -937,6 +938,8 @@ function EventDetail({
           <Ban className="w-4 h-4 shrink-0 mt-px" /> {t('cal.cancelledNote')}
         </p>
       )}
+      {/* A War Games night's maps and rules, once an officer has set them. */}
+      <WarDetails row={row.occ} className="mt-4" />
 
       {/* The looking-back half: where you stand on a night attendance was
           taken for, and the late request if it missed you. */}

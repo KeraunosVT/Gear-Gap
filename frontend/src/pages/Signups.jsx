@@ -4,6 +4,8 @@ import { useAuth } from '../auth';
 import {
   ClipboardList, Check, X, Users, Megaphone, Bell, Trash2, Lock, ChevronDown, Loader2, Swords, Send,
 } from 'lucide-react';
+import { categoryOf } from '../eventCategories';
+import WarDetails from '../components/WarDetails';
 
 import { fmtTimeEst, todayInGuildTz, eventsForGuildDay, isAfterMidnight } from '../timeUtils';
 import Tabs from '../components/ui/Tabs';
@@ -57,6 +59,69 @@ const REMINDER_OPTIONS = [
 ];
 
 const INPUT = 'bg-hall border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass';
+
+// Maps are stored as the comma-separated text the officer sees, so ticking a
+// map in the list and typing it are the same edit.
+const splitMaps = (text) => String(text || '').split(',').map((m) => m.trim()).filter(Boolean);
+
+// A War Games night's maps and rules, for officers. The chips are War Record's
+// map list; ticking one adds it to the text box, unticking takes it out, and
+// anything typed by hand stays as typed.
+function WarDetailsEditor({ row, working, onPatch }) {
+  const { t } = useT();
+  const [maps, setMaps] = useState(row.war_maps ?? '');
+  const [rules, setRules] = useState(row.war_rules ?? '');
+  useEffect(() => { setMaps(row.war_maps ?? ''); }, [row.war_maps]);
+  useEffect(() => { setRules(row.war_rules ?? ''); }, [row.war_rules]);
+  const [known, setKnown] = useState(null);
+  useEffect(() => {
+    axios.get('/api/maps').then((res) => setKnown((res.data.maps || []).map((m) => m.name))).catch(() => setKnown([]));
+  }, []);
+
+  const picked = splitMaps(maps);
+  const isPicked = (name) => picked.some((m) => m.toLowerCase() === name.toLowerCase());
+  const toggle = (name) => setMaps((isPicked(name)
+    ? picked.filter((m) => m.toLowerCase() !== name.toLowerCase())
+    : [...picked, name]).join(', '));
+  const changed = maps.trim() !== (row.war_maps ?? '') || rules.trim() !== (row.war_rules ?? '');
+
+  return (
+    <div className="space-y-3 pt-1">
+      <label className="block">
+        <span className="eyebrow text-[10px] text-ash/75 block mb-1.5">{t('signups.maps')}</span>
+        {known === null ? (
+          <Loader2 className="w-4 h-4 text-brass animate-spin mb-2" />
+        ) : known.length === 0 ? (
+          <p className="text-xs text-ash/70 mb-2">{t('signups.noMapsYet')}</p>
+        ) : (
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {known.map((name) => (
+              <button
+                key={name} type="button" onClick={() => toggle(name)} aria-pressed={isPicked(name)}
+                className={`text-xs rounded-full px-2.5 py-1 border transition-colors ${isPicked(name) ? 'border-brass bg-panelup text-brass' : 'border-line text-ash hover:text-bone'}`}
+              >
+                {isPicked(name) && <Check className="w-3 h-3 inline mr-1 -mt-px" />}{name}
+              </button>
+            ))}
+          </div>
+        )}
+        <input value={maps} onChange={(e) => setMaps(e.target.value)}
+          placeholder={t('signups.mapsPlaceholder')} className={`w-full ${INPUT} py-2`} />
+      </label>
+      <label className="block">
+        <span className="eyebrow text-[10px] text-ash/75 block mb-1.5">{t('signups.rules')}</span>
+        <textarea value={rules} onChange={(e) => setRules(e.target.value)} rows={4}
+          placeholder={t('signups.rulesPlaceholder')} className={`w-full ${INPUT} py-2 resize-y`} />
+      </label>
+      <div className="flex justify-end">
+        <Button variant="secondary" size="sm" disabled={working || !changed}
+          onClick={() => onPatch({ war_maps: maps.trim() || null, war_rules: rules.trim() || null }, t('signups.warDetailsSaved'))}>
+          {t('signups.saveWarDetails')}
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 // The night, spelled out. event_date is the guild night rather than the
 // calendar day, so an after-midnight event reads "Sat night" even though its
@@ -387,6 +452,7 @@ function SignupCard({
   const [opponent, setOpponent] = useState(row.opponent_guild ?? '');
   useEffect(() => { setOpponent(row.opponent_guild ?? ''); }, [row.opponent_guild]);
   const opponentChanged = opponent.trim() !== (row.opponent_guild ?? '');
+  const isWarGames = categoryOf(row.title, row.category).key === 'war_games';
 
   const closed = row.status !== 'open';
   const full = row.capacity != null && row.going_count >= row.capacity;
@@ -410,6 +476,7 @@ function SignupCard({
               <Swords className="w-3.5 h-3.5" /> {t('signups.vs', { guild: row.opponent_guild })}
             </div>
           )}
+          <WarDetails row={row} className="mt-2" />
         </div>
 
         <div className="text-right shrink-0">
@@ -552,6 +619,8 @@ function SignupCard({
                     {row.opponent_guild && row.scouting_sent_at ? t('signups.scoutSent') : t('signups.scoutAuto')}
                   </p>
                   </div>
+
+                  {isWarGames && <WarDetailsEditor row={row} working={working} onPatch={onPatch} />}
 
                   <div className="flex items-end gap-2 flex-wrap pt-1">
                     <label className="block">
