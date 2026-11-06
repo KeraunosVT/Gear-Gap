@@ -1305,6 +1305,7 @@ function signupEmbed({ event, going, waitlist }) {
   const waiting = waitlist.length ? ` · ${waitlist.length} waiting` : '';
   const closed = event.status !== 'open';
   const cancelled = event.status === 'cancelled';
+  const earlyClose = createEventSignups.closeEarlyMinutes(event) ? createEventSignups.closesAt(event) : null;
 
   // Grouped rather than one flat list, so the shape of the raid reads at a
   // glance — "12 going" says nothing about whether it has a tank.
@@ -1338,7 +1339,9 @@ function signupEmbed({ event, going, waitlist }) {
       + (event.opponent_guild ? `\n⚔️ vs **${event.opponent_guild.replace(/([\\*_`~|>])/g, '\\$1')}**` : '')
       + `\n**${going.length}${cap}** going${waiting}`
       + `\n${ROLE_COLUMNS.map((r) => `${ROLE_EMOJI[r]} ${byRole[r].length}`).join('   ')}`
-      + (cancelled ? '\n\n**This event has been cancelled.**' : closed ? '\n\n*Signups are closed.*' : ''),
+      + (cancelled ? '\n\n**This event has been cancelled.**' : closed ? '\n\n*Signups are closed.*'
+        // An early close is said up front, so nobody plans on signing up late.
+        : earlyClose ? `\n\n⏰ Signups close <t:${Math.floor(earlyClose.getTime() / 1000)}:R>.` : ''),
     // Grey for cancelled, so it reads as off even before the title is read.
     color: cancelled ? 0x6b7280 : 0xc9973a,
     fields,
