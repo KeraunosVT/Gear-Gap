@@ -34,6 +34,7 @@ const createDepartedRequests = require('./departedRequests');
 const createMemberTenure = require('./memberTenure');
 const { countsFor } = createMemberTenure;
 const createBuilds = require('./builds');
+const createTransferCooldowns = require('./transferCooldowns');
 
 const gearUpload = multer({
   storage: multer.memoryStorage(),
@@ -118,6 +119,7 @@ const gearIlvl = supabase ? createGearIlvl(supabase) : null;
 const identities = supabase ? createIdentities(supabase) : null;
 const loa = supabase ? createLoa(supabase, identities) : null;
 const builds = supabase ? createBuilds(supabase, identities) : null;
+const transferCooldowns = supabase ? createTransferCooldowns(supabase, identities) : null;
 // Takes loa so "is this person out?" has one answer across signups, the party
 // builder and the attendance breakdown.
 const signups = supabase ? createEventSignups(supabase, identities, loa) : null;
@@ -284,6 +286,48 @@ app.post('/api/gear-ilvl', gearSubmitLimiter, gearUpload.single('image'), async 
   } catch (err) {
     console.error('Gear ilvl submit error:', err.message);
     res.status(500).json({ error: err.message || 'Could not read that screenshot.' });
+  }
+});
+
+// ── MEMBERS AREA: Server transfer cooldowns ──────────────────────────────────
+// Everyone sees the whole list; each member sets and clears only their own.
+// The write routes take no member id at all — the row is always req.user's —
+// so there is nothing for ownership to check.
+app.get('/api/transfer-cooldowns', async (req, res) => {
+  if (!transferCooldowns) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    const [rows, members] = await Promise.all([
+      transferCooldowns.list(),
+      // Current members only, so someone who left doesn't linger on the list.
+      // If Discord can't be reached, everyone is shown rather than no one.
+      listMembers().then((ms) => new Set(ms.map((m) => String(m.id)))).catch(() => null),
+    ]);
+    res.json({
+      cooldowns: members ? rows.filter((r) => members.has(String(r.discord_id))) : rows,
+      max_days: createTransferCooldowns.MAX_DAYS,
+    });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+app.put('/api/transfer-cooldowns/mine', async (req, res) => {
+  if (!transferCooldowns) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    const { days, hours } = req.body || {};
+    res.json({ cooldown: await transferCooldowns.setMine(req.user.id, req.user.username, { days, hours }) });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/transfer-cooldowns/mine', async (req, res) => {
+  if (!transferCooldowns) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    await transferCooldowns.clearMine(req.user.id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
   }
 });
 
