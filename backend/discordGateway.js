@@ -1515,29 +1515,62 @@ async function handleSignupButton(interaction) {
   }
 }
 
-// DMs everyone who hasn't responded and isn't already on LOA. Claims the send
-// first, so the minute timer and a manual "remind now" can't both fire.
-async function sendSignupReminder(signupEventId) {
-  if (!ready || !client || !signups) return;
+// Signups with a reminder currently being DMed from this process. Stops a
+// double-clicked "Remind" button, or one pressed while the scheduled send is
+// mid-batch, from DMing everyone twice.
+const remindersInFlight = new Set();
+
+const gatewayError = (status, message) => Object.assign(new Error(message), { status });
+
+// DMs everyone who hasn't responded and isn't already on LOA.
+//
+// The scheduled send (manual = false) goes through claimReminder, so it fires
+// once per occurrence however many sweeps or instances race for it. The
+// officer's "Remind" button (manual = true) skips the claim, because it's a
+// deliberate repeat: it used to share the claim, which made it do nothing
+// once the scheduled reminder had gone out. It still marks the reminder sent,
+// so a scheduled one that hasn't fired yet won't follow it.
+//
+// Returns { count, done }: count is how many members are being DMed, and done
+// settles when the last DM has gone (the route doesn't wait for it, the sweep
+// does). count is 0 when nobody needs a reminder or the claim was lost.
+async function sendSignupReminder(signupEventId, { manual = false } = {}) {
+  if (!ready || !client || !signups) throw gatewayError(503, "The Discord bot isn't connected right now.");
+  const key = String(signupEventId);
+  if (remindersInFlight.has(key)) {
+    if (manual) throw gatewayError(409, 'A reminder for this signup is already going out.');
+    return { count: 0, done: Promise.resolve() };
+  }
+  remindersInFlight.add(key);
   try {
-    if (!(await signups.claimReminder(signupEventId))) return;
-    const roster = await listMembers().catch(() => []);
+    // The roster comes before the claim: if Discord is down, the scheduled
+    // send stays unclaimed and the next sweep tries again, rather than
+    // spending its one shot on an empty list.
+    const roster = await listMembers();
+    if (manual) await signups.markReminderSent(signupEventId);
+    else if (!(await signups.claimReminder(signupEventId))) {
+      remindersInFlight.delete(key);
+      return { count: 0, done: Promise.resolve() };
+    }
     const { event, members } = await signups.nonResponders(signupEventId, roster);
-    if (!members.length) return;
 
     const text = `📋 **${event.title}** starts <t:${signupUnix(event)}:R> and we haven't heard from you.`
       + '\nHit **I\'m in** on the signup post if you\'re coming, or file an LOA with `/loa` if you\'re not.';
-    for (const m of members) {
-      try {
-        const user = await client.users.fetch(m.id);
-        await user.send(text);
-      } catch (err) {
-        console.error(`Signup reminder DM error for ${m.id}:`, err.message);
+    const done = (async () => {
+      for (const m of members) {
+        try {
+          const user = await client.users.fetch(m.id);
+          await user.send(text);
+        } catch (err) {
+          console.error(`Signup reminder DM error for ${m.id}:`, err.message);
+        }
+        await new Promise((r) => setTimeout(r, DM_PACING_MS));
       }
-      await new Promise((r) => setTimeout(r, DM_PACING_MS));
-    }
+    })().finally(() => remindersInFlight.delete(key));
+    return { count: members.length, done };
   } catch (err) {
-    console.error('Signup reminder error:', err.message);
+    remindersInFlight.delete(key);
+    throw err;
   }
 }
 
@@ -1570,7 +1603,14 @@ function startSignupSweep() {
   if (!signups || sweepTimer) return;
   sweepTimer = setInterval(async () => {
     try {
-      for (const event of await signups.dueForReminder()) await sendSignupReminder(event.id);
+      // Per event, so one failed send doesn't skip the rest of the tick.
+      for (const event of await signups.dueForReminder()) {
+        try {
+          await (await sendSignupReminder(event.id)).done;
+        } catch (err) {
+          console.error(`Signup reminder error for ${event.id}:`, err.message);
+        }
+      }
       // Skipped outright with no Scouting channel, so a guild that never sets
       // one doesn't pay for the query every minute.
       if (guildConfig.scoutingChannelId()) {

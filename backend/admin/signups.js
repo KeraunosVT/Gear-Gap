@@ -148,10 +148,12 @@ module.exports = function registerSignups(router, ctx) {
     if (!signups) return res.status(503).json({ error: 'Database not configured.' });
     try {
       await signups.get(req.params.id);
-      res.json({ ok: true });
-      // Goes through the same claim as the timed sweep, so firing this while a
-      // scheduled reminder is going out can't double-DM anyone.
-      gateway.sendSignupReminder(req.params.id);
+      if (!gateway) return res.status(503).json({ error: "The Discord bot isn't connected right now." });
+      // Answers once the recipients are known; the paced DMs carry on in the
+      // background. `count` lets the page say "nobody to remind" rather than
+      // claiming reminders went out when none did.
+      const { count } = await gateway.sendSignupReminder(req.params.id, { manual: true });
+      res.json({ ok: true, count });
     } catch (err) {
       res.status(err.status || 500).json({ error: err.message });
     }

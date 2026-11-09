@@ -343,7 +343,11 @@ export default function Signups() {
                 await refresh(row.id);
               }, okMsg)}
               onAnnounce={() => run(`ann:${row.id}`, () => axios.post(`/api/admin/signups/${row.id}/announce`), t('signups.reposted'))}
-              onRemind={() => run(`rem:${row.id}`, () => axios.post(`/api/admin/signups/${row.id}/remind`), t('signups.reminding'))}
+              onRemind={() => run(`rem:${row.id}`, async () => {
+                const res = await axios.post(`/api/admin/signups/${row.id}/remind`);
+                const count = res.data?.count ?? 0;
+                flash(count ? t('signups.reminding', { count }) : t('signups.remindNobody'));
+              })}
               onScout={() => setScoutFor(row)}
               onDelete={() => run(`del:${row.id}`, async () => {
                 await axios.delete(`/api/admin/signups/${row.id}`);

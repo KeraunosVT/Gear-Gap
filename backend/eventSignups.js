@@ -535,6 +535,19 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
       return Boolean((data || []).length);
     },
 
+    // The manual "Remind" button's version: no compare-and-set, since an
+    // officer repeating a reminder is the point. Recording it still stops a
+    // scheduled reminder that hasn't fired yet from following straight after.
+    async markReminderSent(id) {
+      const { error } = await supabase.from('signup_events')
+        .update({ reminder_sent_at: new Date().toISOString() })
+        .eq('id', id);
+      if (error) {
+        console.error('signups.markReminderSent error:', error.message);
+        throw httpError(500, 'Failed to record the reminder.');
+      }
+    },
+
     // Who this night is against — an enemy guild's name as the Feuds page
     // shows it, or null. Free text rather than a key: there is no enemy guild
     // table, only names on scoreboards, and a first meeting has no record yet.
