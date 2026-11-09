@@ -29,6 +29,43 @@ const REMINDER_LOOKAHEAD_DAYS = 7;
 // can't reach a week whose buttons this would refuse.
 const MEMBER_OPEN_HORIZON_DAYS = 30;
 
+// Event types whose signups close before the start, in minutes. Everything
+// else closes when it starts. War Games close three hours early so the roster
+// can be set while there's still time to change it.
+const CLOSE_EARLY_MINUTES = { war_games: 180 };
+const MAX_CLOSE_EARLY_MINUTES = Math.max(0, ...Object.values(CLOSE_EARLY_MINUTES));
+// An event with no type picked is typed by its name, as the calendar does.
+// Mirrors the war_games pattern in frontend/src/eventCategories.js; the
+// signupCutoff test holds the two in step.
+const TYPE_BY_NAME = [['war_games', /war\s*games?|wargame/i]];
+
+// How many minutes before its start an occurrence's signups close: its stored
+// type, else its name. 0 for most events.
+function closeEarlyMinutes(row) {
+  const key = categoryKey(row?.category) || (TYPE_BY_NAME.find(([, re]) => re.test(String(row?.title || ''))) || [])[0];
+  return CLOSE_EARLY_MINUTES[key] || 0;
+}
+
+// The instant signups close, or null when the occurrence has no start time
+// (those are only ever closed by hand).
+function closesAt(row) {
+  if (!row?.starts_at) return null;
+  return new Date(Date.parse(row.starts_at) - closeEarlyMinutes(row) * 60_000);
+}
+
+const pastCutoff = (row, now = Date.now()) => {
+  const at = closesAt(row);
+  return Boolean(at) && at.getTime() <= now;
+};
+
+// "3 hours" — said whenever a join is refused for closing early, so the
+// member knows it wasn't a fault.
+const leadText = (minutes) => (minutes % 60 === 0
+  ? `${minutes / 60} hour${minutes === 60 ? '' : 's'}`
+  : `${minutes} minutes`);
+const closedEarlyError = (row) => httpError(409,
+  `Signups for ${row.title} closed ${leadText(closeEarlyMinutes(row))} before it starts.`);
+
 function httpError(status, message) {
   const err = new Error(message);
   err.status = status;
@@ -233,7 +270,7 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
       if (!isValidDate(eventDate)) throw httpError(400, 'Date must be in YYYY-MM-DD format.');
 
       const { data: ev } = await supabase.from('event_schedule')
-        .select('id, name, event_time').eq('id', eventScheduleId).single();
+        .select('id, name, event_time, category').eq('id', eventScheduleId).single();
       if (!ev) throw httpError(400, 'That scheduled event no longer exists.');
       // No time means resolveStartsAt can't place it, so neither guard below
       // can be evaluated — refuse rather than open something unbounded.
@@ -242,6 +279,10 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
       const startsAt = resolveStartsAt(eventDate, ev.event_time);
       if (!startsAt) throw httpError(400, 'Could not resolve that date and time.');
       if (startsAt.getTime() <= Date.now()) throw httpError(409, 'That event has already started.');
+      // The same cutoff the sweep closes by, checked before opening so a late
+      // tap doesn't leave an empty occurrence behind.
+      const early = { title: ev.name, category: ev.category, starts_at: startsAt.toISOString() };
+      if (pastCutoff(early)) throw closedEarlyError(early);
       if (startsAt.getTime() - Date.now() > MEMBER_OPEN_HORIZON_DAYS * 86_400_000) {
         throw httpError(400, `Signups can only be opened up to ${MEMBER_OPEN_HORIZON_DAYS} days ahead.`);
       }
@@ -399,6 +440,13 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
     },
 
     async join({ id, discordId, displayName, addedBy = null }) {
+      // Signups that close early are refused from the cutoff on, not from
+      // whenever the sweep next runs — it ticks once a minute. A missing row is
+      // left to the RPC, which already says so.
+      const { data: ev } = await supabase.from('signup_events')
+        .select('status, title, category, starts_at').eq('id', id).maybeSingle();
+      if (ev && ev.status === 'open' && closeEarlyMinutes(ev) && pastCutoff(ev)) throw closedEarlyError(ev);
+
       const name = await resolveName(discordId, displayName);
       const { data, error } = await supabase.rpc('signup_join', {
         p_event_id: id, p_discord_id: String(discordId), p_display_name: name, p_added_by: addedBy || null,
@@ -575,6 +623,26 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
       return Boolean((data || []).length);
     },
 
+    // A War Games night's maps and rules, either or both. Free text, trimmed,
+    // and blank clears. Maps are one line (the site fills them from War
+    // Record's list, comma-separated); rules keep their line breaks.
+    async setWarDetails(id, { maps, rules } = {}) {
+      const update = { updated_at: new Date().toISOString() };
+      if (maps !== undefined) update.war_maps = String(maps ?? '').trim().replace(/\s+/g, ' ').slice(0, 300) || null;
+      if (rules !== undefined) {
+        update.war_rules = String(rules ?? '').replace(/\r\n?/g, '\n').trim().replace(/\n{3,}/g, '\n\n').slice(0, 1000) || null;
+      }
+      const { data, error } = await supabase.from('signup_events').update(update).eq('id', id).select('*').single();
+      if (error || !data) {
+        console.error('signups.setWarDetails error:', error?.message);
+        // A missing column is the likeliest error, and its fix is the migration.
+        throw httpError(error ? 500 : 404, error
+          ? 'Failed to save the maps and rules — has migration 13 been run?'
+          : 'That signup no longer exists.');
+      }
+      return data;
+    },
+
     // Occurrences with an opponent whose scouting post is due: starting within
     // `leadMinutes`, not yet posted. Unlike reminders the lead is one constant,
     // so the whole test is SQL. Closed counts — an officer closing signups
@@ -614,13 +682,17 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
       return (data || []).filter((e) => Date.parse(e.starts_at) - now <= e.reminder_minutes * 60_000);
     },
 
+    // Open occurrences whose signups should now be closed: at the start, or
+    // earlier for a type in CLOSE_EARLY_MINUTES. The SQL takes everything
+    // starting within the longest early close; the per-row cutoff is JS.
     async dueToClose() {
+      const now = Date.now();
       const { data, error } = await supabase.from('signup_events').select('*')
         .eq('status', 'open')
         .not('starts_at', 'is', null)
-        .lte('starts_at', new Date().toISOString());
+        .lte('starts_at', new Date(now + MAX_CLOSE_EARLY_MINUTES * 60_000).toISOString());
       if (error) { console.error('signups.dueToClose error:', error.message); return []; }
-      return data || [];
+      return (data || []).filter((row) => pastCutoff(row, now));
     },
 
     // The party builder's feed: who committed to this occasion.
@@ -683,6 +755,8 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
 
 // For the schedule routes in admin/schedule.js, which take the same field.
 module.exports.categoryKey = categoryKey;
+module.exports.closeEarlyMinutes = closeEarlyMinutes;
+module.exports.closesAt = closesAt;
 
 // LOA reasons are officer-only everywhere else (loa.all strips them for
 // non-admins), so they're stripped here too unless the caller proved the

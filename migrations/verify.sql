@@ -279,6 +279,20 @@ select '11 · guild_config.scouting_channel_id',
         where table_schema = 'public' and table_name = 'guild_config' and column_name = 'scouting_channel_id') = 1
 union all
 
+-- ── 13_war_games_details ────────────────────────────────────────────────────
+select '13 · signup_events.war_maps, war_rules',
+       (select count(*) from information_schema.columns
+        where table_schema = 'public' and table_name = 'signup_events'
+          and column_name in ('war_maps', 'war_rules')) = 2
+union all
+
+-- ── 14_transfer_cooldowns ───────────────────────────────────────────────────
+select '14 · transfer_cooldowns table',
+       (select count(*) from information_schema.columns
+        where table_schema = 'public' and table_name = 'transfer_cooldowns'
+          and column_name in ('discord_id', 'display_name', 'ends_at', 'updated_at')) = 4
+union all
+
 -- ── 12_lock_down_anon ───────────────────────────────────────────────────────
 -- These are standing checks, not one-offs: a table or function added by a
 -- LATER migration without the same treatment turns its row false. Re-running

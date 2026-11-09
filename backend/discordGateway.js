@@ -1305,6 +1305,7 @@ function signupEmbed({ event, going, waitlist }) {
   const waiting = waitlist.length ? ` · ${waitlist.length} waiting` : '';
   const closed = event.status !== 'open';
   const cancelled = event.status === 'cancelled';
+  const earlyClose = createEventSignups.closeEarlyMinutes(event) ? createEventSignups.closesAt(event) : null;
 
   // Grouped rather than one flat list, so the shape of the raid reads at a
   // glance — "12 going" says nothing about whether it has a tank.
@@ -1325,6 +1326,9 @@ function signupEmbed({ event, going, waitlist }) {
       inline: true,
     });
   }
+  // Full width, below the roster: rules are read once, the roster on every
+  // update. Officer-written, so their own formatting is kept.
+  if (event.war_rules) fields.push({ name: '📜 Rules / Limits', value: event.war_rules.slice(0, 1024) });
   if (waitlist.length) {
     // Full width, and keeps its emoji: a waitlist is read in order, not by role.
     fields.push({ name: `⏳ Waitlist (${waitlist.length})`, value: nameLines(waitlist) });
@@ -1336,9 +1340,12 @@ function signupEmbed({ event, going, waitlist }) {
       // Who it's against, when an officer has said. The PATCH that sets it
       // re-renders this post, so it appears without a re-announce.
       + (event.opponent_guild ? `\n⚔️ vs **${event.opponent_guild.replace(/([\\*_`~|>])/g, '\\$1')}**` : '')
+      + (event.war_maps ? `\n🗺️ **Maps:** ${event.war_maps.replace(/([\\*_`~|>])/g, '\\$1')}` : '')
       + `\n**${going.length}${cap}** going${waiting}`
       + `\n${ROLE_COLUMNS.map((r) => `${ROLE_EMOJI[r]} ${byRole[r].length}`).join('   ')}`
-      + (cancelled ? '\n\n**This event has been cancelled.**' : closed ? '\n\n*Signups are closed.*' : ''),
+      + (cancelled ? '\n\n**This event has been cancelled.**' : closed ? '\n\n*Signups are closed.*'
+        // An early close is said up front, so nobody plans on signing up late.
+        : earlyClose ? `\n\n⏰ Signups close <t:${Math.floor(earlyClose.getTime() / 1000)}:R>.` : ''),
     // Grey for cancelled, so it reads as off even before the title is read.
     color: cancelled ? 0x6b7280 : 0xc9973a,
     fields,

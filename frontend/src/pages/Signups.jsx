@@ -4,6 +4,8 @@ import { useAuth } from '../auth';
 import {
   ClipboardList, Check, X, Users, Megaphone, Bell, Trash2, Lock, ChevronDown, Loader2, Swords, Send,
 } from 'lucide-react';
+import { categoryOf } from '../eventCategories';
+import WarDetails from '../components/WarDetails';
 
 import { fmtTimeEst, todayInGuildTz, eventsForGuildDay, isAfterMidnight } from '../timeUtils';
 import Tabs from '../components/ui/Tabs';
@@ -57,6 +59,69 @@ const REMINDER_OPTIONS = [
 ];
 
 const INPUT = 'bg-hall border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass';
+
+// Maps are stored as the comma-separated text the officer sees, so ticking a
+// map in the list and typing it are the same edit.
+const splitMaps = (text) => String(text || '').split(',').map((m) => m.trim()).filter(Boolean);
+
+// A War Games night's maps and rules, for officers. The chips are War Record's
+// map list; ticking one adds it to the text box, unticking takes it out, and
+// anything typed by hand stays as typed.
+function WarDetailsEditor({ row, working, onPatch }) {
+  const { t } = useT();
+  const [maps, setMaps] = useState(row.war_maps ?? '');
+  const [rules, setRules] = useState(row.war_rules ?? '');
+  useEffect(() => { setMaps(row.war_maps ?? ''); }, [row.war_maps]);
+  useEffect(() => { setRules(row.war_rules ?? ''); }, [row.war_rules]);
+  const [known, setKnown] = useState(null);
+  useEffect(() => {
+    axios.get('/api/maps').then((res) => setKnown((res.data.maps || []).map((m) => m.name))).catch(() => setKnown([]));
+  }, []);
+
+  const picked = splitMaps(maps);
+  const isPicked = (name) => picked.some((m) => m.toLowerCase() === name.toLowerCase());
+  const toggle = (name) => setMaps((isPicked(name)
+    ? picked.filter((m) => m.toLowerCase() !== name.toLowerCase())
+    : [...picked, name]).join(', '));
+  const changed = maps.trim() !== (row.war_maps ?? '') || rules.trim() !== (row.war_rules ?? '');
+
+  return (
+    <div className="space-y-3 pt-1">
+      <label className="block">
+        <span className="eyebrow text-[10px] text-ash/75 block mb-1.5">{t('signups.maps')}</span>
+        {known === null ? (
+          <Loader2 className="w-4 h-4 text-brass animate-spin mb-2" />
+        ) : known.length === 0 ? (
+          <p className="text-xs text-ash/70 mb-2">{t('signups.noMapsYet')}</p>
+        ) : (
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {known.map((name) => (
+              <button
+                key={name} type="button" onClick={() => toggle(name)} aria-pressed={isPicked(name)}
+                className={`text-xs rounded-full px-2.5 py-1 border transition-colors ${isPicked(name) ? 'border-brass bg-panelup text-brass' : 'border-line text-ash hover:text-bone'}`}
+              >
+                {isPicked(name) && <Check className="w-3 h-3 inline mr-1 -mt-px" />}{name}
+              </button>
+            ))}
+          </div>
+        )}
+        <input value={maps} onChange={(e) => setMaps(e.target.value)}
+          placeholder={t('signups.mapsPlaceholder')} className={`w-full ${INPUT} py-2`} />
+      </label>
+      <label className="block">
+        <span className="eyebrow text-[10px] text-ash/75 block mb-1.5">{t('signups.rules')}</span>
+        <textarea value={rules} onChange={(e) => setRules(e.target.value)} rows={4}
+          placeholder={t('signups.rulesPlaceholder')} className={`w-full ${INPUT} py-2 resize-y`} />
+      </label>
+      <div className="flex justify-end">
+        <Button variant="secondary" size="sm" disabled={working || !changed}
+          onClick={() => onPatch({ war_maps: maps.trim() || null, war_rules: rules.trim() || null }, t('signups.warDetailsSaved'))}>
+          {t('signups.saveWarDetails')}
+        </Button>
+      </div>
+    </div>
+  );
+}
 
 // The night, spelled out. event_date is the guild night rather than the
 // calendar day, so an after-midnight event reads "Sat night" even though its
@@ -122,6 +187,8 @@ export default function Signups() {
   const [formDate, setFormDate] = useState(todayInGuildTz);
   const [formEvent, setFormEvent] = useState('');
   const [formTitle, setFormTitle] = useState('');
+  // A one-off's start time. A scheduled event's comes from the schedule.
+  const [formTime, setFormTime] = useState('');
   const [formCapacity, setFormCapacity] = useState('');
   const [formReminder, setFormReminder] = useState('1440');
   const [opening, setOpening] = useState(false);
@@ -237,11 +304,12 @@ export default function Signups() {
         event_date: formDate,
         event_schedule_id: formEvent || null,
         title: formTitle.trim(),
+        event_time: formEvent ? null : formTime || null,
         capacity: formCapacity,
         reminder_minutes: formReminder,
       });
       flash(res.data.created ? t('signups.opened') : t('signups.alreadyOpen'));
-      setFormTitle(''); setFormCapacity('');
+      setFormTitle(''); setFormTime(''); setFormCapacity('');
       load();
     } catch (err) {
       flash(err.response?.data?.error || t('signups.openFailed'), false);
@@ -306,10 +374,23 @@ export default function Signups() {
             </label>
           </div>
 
+          {/* A one-off needs its own start time — without one it gets no
+              reminder, never closes on its own, and Discord has no countdown. */}
           {!formEvent && (
-            <input value={formTitle} onChange={(e) => setFormTitle(e.target.value)}
-              placeholder={t('signups.oneOffTitle')} className={`w-full mt-3 ${INPUT}`} />
+            <div className="flex gap-3 mt-3 flex-wrap">
+              <input value={formTitle} onChange={(e) => setFormTitle(e.target.value)}
+                placeholder={t('signups.oneOffTitle')} className={`flex-1 min-w-[12rem] ${INPUT}`} />
+              <label className="block w-40">
+                <span className="sr-only">{t('cal.timeOptional')}</span>
+                <input type="time" value={formTime} onChange={(e) => setFormTime(e.target.value)}
+                  title={t('cal.timeOptional')} className={`w-full ${INPUT}`} />
+              </label>
+            </div>
           )}
+          {!formEvent && isAfterMidnight(formTime) && (
+            <p className="text-xs text-ash/70 mt-1.5">{t('cal.afterMidnightNote')}</p>
+          )}
+          {!formEvent && !formTime && <p className="text-xs text-ash/70 mt-1.5">{t('signups.noTimeHint')}</p>}
 
           <div className="mt-4">
             <Button type="submit" size="none" disabled={opening} icon={<Megaphone className="w-4 h-4" />}
@@ -391,6 +472,10 @@ function SignupCard({
   const [opponent, setOpponent] = useState(row.opponent_guild ?? '');
   useEffect(() => { setOpponent(row.opponent_guild ?? ''); }, [row.opponent_guild]);
   const opponentChanged = opponent.trim() !== (row.opponent_guild ?? '');
+  const isWarGames = categoryOf(row.title, row.category).key === 'war_games';
+  const savedTime = row.event_time ? String(row.event_time).slice(0, 5) : '';
+  const [startTime, setStartTime] = useState(savedTime);
+  useEffect(() => { setStartTime(savedTime); }, [savedTime]);
 
   const closed = row.status !== 'open';
   const full = row.capacity != null && row.going_count >= row.capacity;
@@ -414,6 +499,7 @@ function SignupCard({
               <Swords className="w-3.5 h-3.5" /> {t('signups.vs', { guild: row.opponent_guild })}
             </div>
           )}
+          <WarDetails row={row} className="mt-2" />
         </div>
 
         <div className="text-right shrink-0">
@@ -556,6 +642,31 @@ function SignupCard({
                     {row.opponent_guild && row.scouting_sent_at ? t('signups.scoutSent') : t('signups.scoutAuto')}
                   </p>
                   </div>
+
+                  {isWarGames && <WarDetailsEditor row={row} working={working} onPatch={onPatch} />}
+
+                  {/* Start time. A one-off's is its own; a weekly night's comes
+                      from the schedule, so it's changed there for every week. */}
+                  {row.event_schedule_id ? (
+                    <p className="text-xs text-ash/70 pt-1">{t('signups.weeklyTimeHint')}</p>
+                  ) : (
+                    <div>
+                      <div className="flex items-end gap-2 flex-wrap pt-1">
+                        <label className="block">
+                          <span className="eyebrow text-[10px] text-ash/75 block mb-1.5">{t('signups.startTime')}</span>
+                          <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)}
+                            className={`w-40 ${INPUT} py-2`} />
+                        </label>
+                        <Button variant="secondary" size="sm" disabled={working || startTime === savedTime}
+                          onClick={() => onPatch({ event_time: startTime || null },
+                            startTime ? t('signups.timeSaved', { time: fmtTimeEst(startTime) }) : t('signups.timeCleared'))}>
+                          {t('signups.saveTime')}
+                        </Button>
+                      </div>
+                      {isAfterMidnight(startTime) && <p className="text-xs text-ash/70 mt-1.5">{t('cal.afterMidnightNote')}</p>}
+                      {!savedTime && <p className="text-xs text-ash/70 mt-1.5">{t('signups.noTimeHint')}</p>}
+                    </div>
+                  )}
 
                   <div className="flex items-end gap-2 flex-wrap pt-1">
                     <label className="block">

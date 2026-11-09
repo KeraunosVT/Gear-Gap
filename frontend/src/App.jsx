@@ -35,6 +35,7 @@ import EventAttendance from './pages/EventAttendance';
 import EventCalendar from './pages/EventCalendar';
 import Classes from './pages/Classes';
 import GearLevel from './pages/GearLevel';
+import TransferCooldown from './pages/TransferCooldown';
 import Builds from './pages/Builds';
 import MemberBuild from './pages/MemberBuild';
 import GearLevels from './pages/GearLevels';
@@ -113,6 +114,7 @@ function Gate() {
           <Route path="/attendance/:id" element={<EventAttendance />} />
           <Route path="/classes" element={<Classes />} />
           <Route path="/gear" element={<GearLevel />} />
+          <Route path="/transfer-cooldown" element={<TransferCooldown />} />
           <Route path="/builds" element={<Builds />} />
           <Route path="/builds/:discordId" element={<MemberBuild />} />
           <Route path="/admin" element={<Admin />} />
