@@ -3,7 +3,7 @@
 // REST API does not expose), and handles the guild's slash commands.
 const {
   Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, MessageFlags, ChannelType,
-  ActionRowBuilder, ButtonBuilder, ButtonStyle,
+  ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle,
 } = require('discord.js');
 const createEliteTimers = require('./eliteTimers');
 const createLoa = require('./loa');
@@ -275,6 +275,11 @@ async function handleInteraction(interaction) {
   if (interaction.isButton()) {
     if (interaction.customId.startsWith('et:')) return handleEliteButton(interaction);
     return handleSignupButton(interaction);
+  }
+  // The only modal is the signup post's LOA reason box.
+  if (interaction.isModalSubmit()) {
+    if (interaction.customId.startsWith('sg:loaform:')) return handleSignupLoaForm(interaction);
+    return;
   }
   if (!interaction.isChatInputCommand()) return;
   if (interaction.commandName === 'elitetimer') return handleReport(interaction);
@@ -1361,8 +1366,77 @@ function signupButtons(id, closed) {
     // "Withdraw", not "Can't make it" — the latter reads as declaring absence,
     // which signups never record. This just takes your name back off the list.
     new ButtonBuilder().setCustomId(`sg:leave:${id}`).setLabel('Withdraw').setStyle(ButtonStyle.Secondary),
+    // This one does declare absence: it files a real LOA for this event.
+    new ButtonBuilder().setCustomId(`sg:loa:${id}`).setLabel('LOA').setStyle(ButtonStyle.Danger),
     new ButtonBuilder().setCustomId(`sg:who:${id}`).setLabel("Who's coming?").setStyle(ButtonStyle.Secondary),
   )];
+}
+
+// The LOA button's pop-up: just the reason, since the post already says which
+// event and night it's for. Discord caps a modal title at 45 characters.
+function signupLoaModal(id, title) {
+  const heading = `LOA: ${title || 'this event'}`;
+  return new ModalBuilder()
+    .setCustomId(`sg:loaform:${id}`)
+    .setTitle(heading.length > 45 ? `${heading.slice(0, 44)}…` : heading)
+    .addComponents(new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId('reason')
+        .setLabel("Reason (officers only see this)")
+        .setStyle(TextInputStyle.Paragraph)
+        .setRequired(true)
+        .setMaxLength(500)
+        .setPlaceholder('e.g. Working late'),
+    ));
+}
+
+// Files the LOA the way the website's Event Calendar does: against the weekly
+// event when the signup is one of its nights, against the signup itself when
+// it's a one-off. Then takes them off the list. That happens after the LOA has
+// saved, so a failure can't leave someone neither signed up nor on LOA.
+async function handleSignupLoaForm(interaction) {
+  const id = interaction.customId.slice('sg:loaform:'.length);
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  if (!loa || !signups) return interaction.editReply('LOA tracking is not configured right now.');
+
+  try {
+    const { event } = await signups.detail(id);
+    if (event.status === 'cancelled') return interaction.editReply('This event was cancelled, so there\'s nothing to file an LOA for.');
+
+    const already = await loa.unavailableOn({ date: event.event_date, eventScheduleId: event.event_schedule_id, signupEventId: event.id })
+      .catch(() => []);
+    if (already.some((e) => e.discord_id === interaction.user.id)) {
+      return interaction.editReply('You already have an LOA on file for this one. See it or cancel it with `/loa cancel`.');
+    }
+
+    const saved = await loa.submitEvent({
+      discordId: interaction.user.id,
+      displayName: displayNameFor(interaction.user),
+      eventDate: event.event_date,
+      eventScheduleId: event.event_schedule_id || null,
+      signupEventId: event.event_schedule_id ? null : event.id,
+      reason: interaction.fields.getTextInputValue('reason'),
+    });
+
+    const left = await signups.withdraw({ id, discordId: interaction.user.id }).catch((err) => {
+      console.error(`Signup withdraw after LOA failed for ${interaction.user.id}:`, err.message);
+      return null;
+    });
+    if (left?.removed) {
+      refreshSignupMessage(id);
+      if (left.promoted) notifySignupPromotion(left.promoted, id);
+    }
+
+    await interaction.editReply(`Recorded ✅. LOA submitted for **${event.title}** (<t:${signupUnix(event)}:F>).`
+      + (left?.removed ? '\nYour name is off the signup list too.' : ''));
+    const messageId = await announceLoaEntry({
+      type: 'event', displayName: saved.displayName, eventName: saved.eventName, eventDate: event.event_date,
+      startTime: saved.startTime, endTime: saved.endTime,
+    });
+    if (messageId) await loa.setMessageId(saved.id, messageId);
+  } catch (err) {
+    await interaction.editReply(err.message || 'Something went wrong submitting that LOA.');
+  }
 }
 
 async function signupChannel(channelId) {
@@ -1452,6 +1526,17 @@ async function handleSignupButton(interaction) {
   if (!interaction.customId.startsWith('sg:')) return;
   const [, action, id] = interaction.customId.split(':');
   if (!id) return;
+
+  // A modal has to be the interaction's first response, so this one can't be
+  // deferred like the rest. The title lookup is for the pop-up heading only.
+  if (action === 'loa') {
+    if (!loa || !signups) {
+      return interaction.reply({ content: 'LOA tracking is not configured right now.', flags: MessageFlags.Ephemeral });
+    }
+    const title = interaction.message?.embeds?.[0]?.title || '';
+    return interaction.showModal(signupLoaModal(id, title));
+  }
+
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
   if (!signups) return interaction.editReply('Signups are not available right now.');
@@ -1562,7 +1647,7 @@ async function sendSignupReminder(signupEventId, { manual = false } = {}) {
     const { event, members } = await signups.nonResponders(signupEventId, roster);
 
     const text = `📋 **${event.title}** starts <t:${signupUnix(event)}:R> and we haven't heard from you.`
-      + '\nHit **I\'m in** on the signup post if you\'re coming, or file an LOA with `/loa` if you\'re not.';
+      + '\nHit **I\'m in** on the signup post if you\'re coming, or **LOA** there if you\'re not.';
     const done = (async () => {
       for (const m of members) {
         try {
