@@ -9,6 +9,7 @@ import EmptyState from '../components/ui/EmptyState';
 import { Table, Thead, SortableTh, Tr } from '../components/ui/Table';
 import Modal from '../components/ui/Modal';
 import { fmtDatetime } from '../timeUtils';
+import ErrorBanner from '../components/ui/ErrorBanner';
 
 const MAX_LEVEL = 80;
 const isMaxed = (e) => e.weapon === MAX_LEVEL && e.armor === MAX_LEVEL && e.accessory === MAX_LEVEL;
@@ -251,7 +252,7 @@ export default function GearLevels() {
           {shotLoading ? (
             <p className="text-ash text-sm">Loading…</p>
           ) : shotError ? (
-            <p className="text-bone text-sm px-4 py-2.5 rounded-lg border border-oxblood/50 bg-oxblooddeep/20">{shotError}</p>
+            <ErrorBanner compact className="">{shotError}</ErrorBanner>
           ) : !shot ? (
             <p className="text-ash text-sm">No gear screenshot on file.</p>
           ) : (

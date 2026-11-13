@@ -12,6 +12,7 @@ import Button from '../components/ui/Button';
 import Toast from '../components/ui/Toast';
 import { useFlash } from '../components/ui/useFlash';
 import EmptyState from '../components/ui/EmptyState';
+import ErrorBanner from '../components/ui/ErrorBanner';
 
 // ── ONE NIGHT, IN FULL ──────────────────────────────────────────────────────
 // Every member gets a row and exactly one status. Anyone who never answered at
@@ -248,7 +249,7 @@ export default function EventAttendance() {
   if (error) {
     return (
       <PageShell maxWidth="max-w-[1400px]">
-        <div className="px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>
+        <ErrorBanner className="">{error}</ErrorBanner>
         <Link to="/attendance/calendar" className="inline-flex items-center gap-2 text-sm text-brass hover:text-brassbright mt-4">
           <ArrowLeft className="w-4 h-4" /> Back to the Event Calendar
         </Link>

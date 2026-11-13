@@ -8,6 +8,7 @@ import Button from '../components/ui/Button';
 import Toast from '../components/ui/Toast';
 import { useFlash } from '../components/ui/useFlash';
 import { TIMEZONE_OPTIONS } from '../timeUtils';
+import ErrorBanner from '../components/ui/ErrorBanner';
 
 // ── WHAT THIS PAGE IS ───────────────────────────────────────────────────────
 // The guild_config row: everything that used to be a DISCORD_* environment
@@ -195,7 +196,7 @@ export default function GuildSettings() {
   if (!form) {
     return (
       <PageShell maxWidth="max-w-3xl">
-        <div className="px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error || 'No settings available.'}</div>
+        <ErrorBanner className="">{error || 'No settings available.'}</ErrorBanner>
       </PageShell>
     );
   }
@@ -208,7 +209,7 @@ export default function GuildSettings() {
       </p>
 
       <Toast msg={msg} />
-      {error && <div className="mb-6 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
+      <ErrorBanner>{error}</ErrorBanner>
 
       {/* Said once, at the top, because it changes how every picker below should
           be read: an empty dropdown means "can't see", not "none exist", and

@@ -6,6 +6,7 @@ import RestrictedGate from '../components/ui/RestrictedGate';
 import { PageShell } from '../components/ui/PageShell';
 import { useFlash } from '../components/ui/useFlash';
 import Toast from '../components/ui/Toast';
+import ErrorBanner from '../components/ui/ErrorBanner';
 
 // Grants attach to a Discord role or to one person. Roles are the default tab
 // because they self-maintain — strip the role in Discord and the access goes
@@ -124,7 +125,7 @@ export default function Permissions() {
   return (
     <PageShell maxWidth="max-w-none">
       <Toast msg={msg} />
-      {error && <div className="mb-6 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
+      <ErrorBanner>{error}</ErrorBanner>
 
       <p className="text-sm text-ash mb-5">
         Grant admin capabilities to a Discord role or to one person. Roles are usually the right choice — remove the

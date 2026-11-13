@@ -11,6 +11,7 @@ import RestrictedGate from '../components/ui/RestrictedGate';
 import Tabs from '../components/ui/Tabs';
 import Modal from '../components/ui/Modal';
 import { Table, Thead, SortableTh, Tr } from '../components/ui/Table';
+import ErrorBanner from '../components/ui/ErrorBanner';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 // One-offs sit in the event picker beside the weekly events as `signup:<id>`,
@@ -543,7 +544,7 @@ export default function Attendance() {
       {msg && (
         <div className={`mb-6 px-5 py-3 rounded-lg border text-sm ${msg.ok ? 'border-brass/40 bg-panel text-bone' : 'border-oxblood/50 bg-oxblooddeep/20 text-bone'}`}>{msg.text}</div>
       )}
-      {error && <div className="mb-6 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
+      <ErrorBanner>{error}</ErrorBanner>
 
       {/* ── Capture ───────────────────────────────────────────────────
           One row across the top. Logging a night is the only thing on this

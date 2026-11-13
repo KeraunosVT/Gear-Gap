@@ -7,6 +7,7 @@ import { UploadCloud, Plus, Trash2, X, Image as ImageIcon, FileSpreadsheet, Load
 import RestrictedGate from '../components/ui/RestrictedGate';
 import { PageShell } from '../components/ui/PageShell';
 import { Table, Thead } from '../components/ui/Table';
+import ErrorBanner from '../components/ui/ErrorBanner';
 
 const WEAPONS = ['SnS', 'Greatsword', 'Dagger', 'Crossbow', 'Longbow', 'Staff', 'Wand', 'Spear', 'Orb', 'Gauntlet'];
 const STAT_COLS = ['kills', 'assists', 'damage_dealt', 'damage_taken', 'healing'];
@@ -285,9 +286,7 @@ export default function Admin() {
         </div>
       )}
 
-      {error && (
-        <div className="mb-6 px-4 py-3 border border-oxblood/50 bg-oxblooddeep/20 rounded-lg text-bone">{error}</div>
-      )}
+      <ErrorBanner>{error}</ErrorBanner>
 
       {loadingEdit && (
         <div className="py-20 text-center text-ash flex items-center justify-center gap-2">

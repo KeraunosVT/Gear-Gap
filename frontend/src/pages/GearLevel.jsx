@@ -8,6 +8,7 @@ import StatTile from '../components/ui/StatTile';
 import Tabs from '../components/ui/Tabs';
 import { useFlash } from '../components/ui/useFlash';
 import Toast from '../components/ui/Toast';
+import ErrorBanner from '../components/ui/ErrorBanner';
 
 // ── TWO UPLOADS, ONE OF WHICH IS READ ───────────────────────────────────────
 // The Watermark Upload is the in-game "Equipment Level" popup — four numbers
@@ -97,7 +98,7 @@ export default function GearLevel() {
       </p>
 
       <Toast msg={msg} />
-      {error && <div className="mb-6 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
+      <ErrorBanner>{error}</ErrorBanner>
 
       {loading ? (
         <div className="py-16 text-center text-ash">Loading…</div>

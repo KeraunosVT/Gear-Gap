@@ -20,6 +20,7 @@ import Tabs from '../components/ui/Tabs';
 import { PageShell } from '../components/ui/PageShell';
 import EmptyState from '../components/ui/EmptyState';
 import { BUILD_TEXT, BUILD_BORDER, BUILD_CHIP_ON } from '../buildColors';
+import ErrorBanner from '../components/ui/ErrorBanner';
 
 // A member's wishlist is a list of weapons, each carrying how many of its shard
 // they still need; per-shard totals are the sum over those plus `unlinked`
@@ -301,9 +302,7 @@ export default function Shards() {
         <button onClick={load} className="inline-flex items-center gap-2 text-sm text-ash hover:text-brass shrink-0"><RefreshCw className="w-4 h-4" /> Refresh</button>
       </div>
 
-      {error && (
-        <div className="mb-6 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>
-      )}
+      <ErrorBanner>{error}</ErrorBanner>
 
       {!loading && guildTotals.length > 0 && (
         <div className="panel rounded-lg px-4 py-3 mb-5 flex flex-wrap items-center gap-2">

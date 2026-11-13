@@ -14,6 +14,7 @@ import { PageShell } from '../components/ui/PageShell';
 import { todayInGuildTz, fmtTimeEst, eventsForGuildDay, isAfterMidnight } from '../timeUtils';
 import { Save, Trash2, Send, Plus, Copy, RefreshCw, Users, CalendarOff, CalendarDays, CalendarCheck, ClipboardList, X } from 'lucide-react';
 import { BUILD_CHIP_ON } from '../buildColors';
+import ErrorBanner from '../components/ui/ErrorBanner';
 
 const ROLES = ['Tank', 'DPS', 'Healer'];
 const DAY_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -1046,7 +1047,7 @@ export default function Parties() {
 
       {/* Live conflict prompt: members definitely out, still on the board. */}
       {loaConflicts.full.length > 0 && !dismissedBars.has('loaConflict') && (
-        <div className="mb-3 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-sm flex items-center justify-between gap-4">
+        <ErrorBanner className="mb-3 flex items-center justify-between gap-4">
           <div className="flex items-center gap-2 text-bone">
             <CalendarOff className="w-4 h-4 text-oxblood shrink-0" />
             {loaConflicts.fullInParties.length > 0 ? (
@@ -1069,7 +1070,7 @@ export default function Parties() {
           <button onClick={() => dismissBar('loaConflict')} className="p-1 text-ash hover:text-bone shrink-0" title="Dismiss">
             <X className="w-4 h-4" />
           </button>
-        </div>
+        </ErrorBanner>
       )}
 
       {/* Time-scoped absences that may or may not collide with what's being
@@ -1103,9 +1104,9 @@ export default function Parties() {
             {loadingMembers ? (
               <div className="panel rounded-lg p-6 text-ash text-sm text-center">Loading members…</div>
             ) : membersError ? (
-              <div className="panel rounded-lg p-4 text-sm text-bone border border-oxblood/40 bg-oxblooddeep/20">
+              <ErrorBanner className="">
                 {membersError}<button onClick={loadMembers} className="block mt-2 text-brass hover:text-brassbright">Retry</button>
-              </div>
+              </ErrorBanner>
             ) : (
               <div className="grid grid-cols-1 gap-4">
                 {POOL_META.filter(({ key }) => activeId || items[key].length > 0).map(({ key, label, dot }) => (

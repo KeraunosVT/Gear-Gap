@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import axios from 'axios';
 import { ExternalLink } from 'lucide-react';
 import Modal from './ui/Modal';
+import ErrorBanner from './ui/ErrorBanner';
 
 // ── WHERE ELSE HAS THIS NAME PLAYED ─────────────────────────────────────────
 // The question you ask standing on an enemy roster: have we seen this one
@@ -55,7 +56,7 @@ export default function PlayerGuildHistory({ name, onClose }) {
       )}
 
       {error ? (
-        <p className="text-bone text-sm px-4 py-2.5 rounded-lg border border-oxblood/50 bg-oxblooddeep/20">{error}</p>
+        <ErrorBanner compact className="">{error}</ErrorBanner>
       ) : !data ? (
         <p className="text-ash text-sm">Looking…</p>
       ) : data.guilds.length === 0 ? (

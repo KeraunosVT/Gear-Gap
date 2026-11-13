@@ -2,6 +2,7 @@ import { useAuth } from '../auth';
 import Sigil from '../components/Sigil';
 import { useGuild } from '../guild';
 import { useT } from '../i18n';
+import ErrorBanner from '../components/ui/ErrorBanner';
 
 function gateMessage(house, t) {
   const params = new URLSearchParams(window.location.search);
@@ -45,11 +46,7 @@ export default function Login() {
         {t('login.intro')}
       </p>
 
-      {message && (
-        <div className="rise rise-2 mt-6 max-w-md px-5 py-3 border border-oxblood/50 bg-oxblooddeep/20 rounded-lg text-sm text-bone">
-          {message}
-        </div>
-      )}
+      <ErrorBanner className="rise rise-2 mt-6 max-w-md">{message}</ErrorBanner>
 
       <div className="rise rise-3 mt-9 flex flex-wrap items-start justify-center gap-3">
         <div className="flex flex-col items-center gap-1.5">

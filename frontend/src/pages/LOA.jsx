@@ -11,6 +11,7 @@ import { PageShell } from '../components/ui/PageShell';
 import { useFlash } from '../components/ui/useFlash';
 import Toast from '../components/ui/Toast';
 import { useT, fmtDay, weekdayName } from '../i18n';
+import ErrorBanner from '../components/ui/ErrorBanner';
 
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -593,7 +594,7 @@ export default function LOA() {
 
       <Toast msg={msg} />
 
-      {error && <div className="mb-6 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
+      <ErrorBanner>{error}</ErrorBanner>
 
       {loading ? (
         <div className="py-20 text-center text-ash">{t('common.loading')}</div>

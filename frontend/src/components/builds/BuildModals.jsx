@@ -5,6 +5,7 @@ import Modal from '../ui/Modal';
 import BuildReview, { toInputs, fromInputs } from './BuildReview';
 import { KINDS, KIND_LABEL, KIND_CHIP, BUILD_CLASSES, uploadWarnings } from '../../buildStats';
 import { fmtWhen } from './BuildHistory';
+import ErrorBanner from '../ui/ErrorBanner';
 
 const MAX_IMAGES = 10;
 
@@ -158,7 +159,7 @@ export function UploadBuildModal({ discordId, initialKind, builds, onClose, onSa
             </div>
           )}
 
-          {error && <div className="px-4 py-2.5 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
+          <ErrorBanner compact className="">{error}</ErrorBanner>
 
           <div className="flex items-center justify-between gap-3 flex-wrap">
             <span className="text-xs text-ash">
@@ -197,7 +198,7 @@ export function UploadBuildModal({ discordId, initialKind, builds, onClose, onSa
 
           <BuildReview inputs={edit.inputs} flags={edit.flags} onInput={edit.onInput} onConfirm={edit.onConfirm} />
 
-          {error && <div className="px-4 py-2.5 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
+          <ErrorBanner compact className="">{error}</ErrorBanner>
 
           <div className="flex items-center justify-between gap-3 flex-wrap sticky bottom-0 bg-panel pt-3 border-t border-line">
             <button type="button" onClick={() => setStep('pick')} disabled={busy} className="text-sm text-ash hover:text-bone">Back</button>
@@ -240,7 +241,7 @@ export function FixBuildModal({ discordId, kind, build, memberName, onClose, onS
       <Header title={`Fix values · ${memberName}'s ${KIND_LABEL[kind]} build`} onClose={busy ? () => {} : onClose} />
       <div className="mb-5"><ClassSelect value={buildClass} onChange={setBuildClass} disabled={busy} /></div>
       <BuildReview inputs={edit.inputs} flags={edit.flags} onInput={edit.onInput} onConfirm={edit.onConfirm} />
-      {error && <div className="mt-4 px-4 py-2.5 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
+      <ErrorBanner compact className="mt-4">{error}</ErrorBanner>
       <div className="flex items-center justify-end gap-3 flex-wrap sticky bottom-0 bg-panel pt-3 mt-5 border-t border-line">
         {invalid.length > 0 && <span className="text-xs text-oxblood">{invalid.length} value{invalid.length === 1 ? ' isn\'t a number' : 's aren\'t numbers'}</span>}
         {!buildClass && <span className="text-xs text-oxblood">Pick a class first</span>}
