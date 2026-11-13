@@ -6,6 +6,7 @@ import RestrictedGate from '../components/ui/RestrictedGate';
 import { PageShell } from '../components/ui/PageShell';
 import { useFlash } from '../components/ui/useFlash';
 import Toast from '../components/ui/Toast';
+import ErrorBanner from '../components/ui/ErrorBanner';
 import { fmtDatetime } from '../timeUtils';
 import { CURRENCY_TYPES, CURRENCY_LABEL } from '../currencies';
 import CurrencyIcon from '../components/ui/CurrencyIcon';
@@ -84,7 +85,7 @@ export default function LootCurrency() {
 
   return (
     <PageShell>
-      {error && <div className="mb-6 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
+      <ErrorBanner>{error}</ErrorBanner>
       <Toast msg={msg} />
 
       <div className="panel rounded-lg p-6 space-y-6">

@@ -11,14 +11,8 @@ import { PageShell } from '../components/ui/PageShell';
 import { useFlash } from '../components/ui/useFlash';
 import Toast from '../components/ui/Toast';
 
-const PRIO_SHORT = { 'PvP': 'PvP', 'Second Build': '2nd', 'PvE': 'PvE' };
-const PRIO_DOT = { 'PvP': 'bg-oxblood', 'Second Build': 'bg-brass', 'PvE': 'bg-emerald-500' };
-const PRIO_TEXT = { 'PvP': 'text-oxblood', 'Second Build': 'text-brass', 'PvE': 'text-emerald-400' };
-const PRIO_ON = {
-  'PvP': 'bg-oxblood text-bone border-transparent',
-  'Second Build': 'bg-brass text-ink border-transparent',
-  'PvE': 'bg-emerald-500 text-ink border-transparent',
-};
+import ErrorBanner from '../components/ui/ErrorBanner';
+import { BUILD_SHORT as PRIO_SHORT, BUILD_DOT as PRIO_DOT, BUILD_TEXT as PRIO_TEXT, BUILD_CHIP_ON as PRIO_ON } from '../lootBuilds';
 
 export default function LootTally() {
   const { can } = useAuth();
@@ -172,7 +166,7 @@ export default function LootTally() {
 
   return (
     <PageShell>
-      {error && <div className="mb-6 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
+      <ErrorBanner>{error}</ErrorBanner>
       <Toast msg={msg} />
 
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-8">

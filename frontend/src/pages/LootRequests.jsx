@@ -6,6 +6,7 @@ import RestrictedGate from '../components/ui/RestrictedGate';
 import { PageShell } from '../components/ui/PageShell';
 import { useFlash } from '../components/ui/useFlash';
 import Toast from '../components/ui/Toast';
+import ErrorBanner from '../components/ui/ErrorBanner';
 import { fmtDatetime } from '../timeUtils';
 import CurrencyIcon from '../components/ui/CurrencyIcon';
 
@@ -274,7 +275,7 @@ export default function LootRequests() {
 
   return (
     <PageShell maxWidth="max-w-none" paddingX="px-2">
-      {error && <div className="mb-6 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
+      <ErrorBanner>{error}</ErrorBanner>
       <Toast msg={msg} />
 
       <p className="text-sm text-ash mb-5">

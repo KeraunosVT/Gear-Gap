@@ -5,13 +5,8 @@ import { Users, Check, Loader2, ChevronDown, Gavel } from 'lucide-react';
 import ItemTooltip, { gradeStyle } from '../components/ItemTooltip';
 import { PageShell } from '../components/ui/PageShell';
 import EmptyState from '../components/ui/EmptyState';
-
-const PRIO_SHORT = { 'PvP': 'PvP', 'Second Build': '2nd', 'PvE': 'PvE' };
-const PRIO_STYLE = {
-  'PvP':          { on: 'bg-oxblood text-bone border-transparent',     off: 'border-line text-ash hover:text-bone' },
-  'Second Build': { on: 'bg-brass text-ink border-transparent',        off: 'border-line text-ash hover:text-bone' },
-  'PvE':          { on: 'bg-emerald-500 text-ink border-transparent',  off: 'border-line text-ash hover:text-bone' },
-};
+import ErrorBanner from '../components/ui/ErrorBanner';
+import { BUILD_SHORT, BUILD_CHIP_ON, BUILD_CHIP_OFF } from '../lootBuilds';
 
 export default function Loot() {
   const { user } = useAuth();
@@ -92,7 +87,7 @@ export default function Loot() {
         </div>
       </div>
 
-      {error && <div className="mb-6 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
+      <ErrorBanner>{error}</ErrorBanner>
 
       {loading ? (
         <EmptyState>Reading the ledger…</EmptyState>
@@ -140,19 +135,18 @@ export default function Loot() {
                         ) : (
                         <div className="flex gap-1.5 shrink-0">
                           {priorities.map((p) => {
-                            const st = PRIO_STYLE[p];
-                            const active = mine === p;
+                                                        const active = mine === p;
                             const locked = lockedBuilds.includes(p);
                             return (
                               <button
                                 key={p} onClick={() => !locked && toggle(item.key, p)} disabled={locked}
                                 title={locked ? `${p} — already Loot Counciled` : p}
                                 className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-colors ${
-                                  locked ? 'border-brass/40 text-brass/70 opacity-70 cursor-default' : active ? st.on : st.off
+                                  locked ? 'border-brass/40 text-brass/70 opacity-70 cursor-default' : active ? BUILD_CHIP_ON[p] : BUILD_CHIP_OFF
                                 }`}
                               >
                                 {locked && <Gavel className="w-2.5 h-2.5" />}
-                                {PRIO_SHORT[p]}
+                                {BUILD_SHORT[p]}
                               </button>
                             );
                           })}
@@ -165,7 +159,7 @@ export default function Loot() {
                           <div className="flex flex-wrap gap-2">
                             {(tally[item.key] || []).map((w, idx) => (
                               <span key={idx} className="text-xs bg-hall border border-line rounded-full px-3 py-1 text-ash">
-                                {w.name} <span className="text-brass">· {PRIO_SHORT[w.priority] || w.priority}</span>
+                                {w.name} <span className="text-brass">· {BUILD_SHORT[w.priority] || w.priority}</span>
                               </span>
                             ))}
                           </div>
@@ -186,8 +180,8 @@ export default function Loot() {
 function Legend() {
   return (
     <div className="hidden md:flex items-center gap-2 text-[11px]">
-      {Object.entries(PRIO_SHORT).map(([full, short]) => (
-        <span key={full} className={`px-2 py-0.5 rounded-full border ${PRIO_STYLE[full].on}`}>{short} = {full}</span>
+      {Object.entries(BUILD_SHORT).map(([full, short]) => (
+        <span key={full} className={`px-2 py-0.5 rounded-full border ${BUILD_CHIP_ON[full]}`}>{short} = {full}</span>
       ))}
     </div>
   );

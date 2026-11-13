@@ -12,12 +12,8 @@ import CurrencyIcon from '../components/ui/CurrencyIcon';
 
 const KIND_FILTERS = [{ key: 'all', label: 'All' }, { key: 'item', label: 'Gear' }, { key: 'currency', label: 'Lucent & Shards' }];
 
-const PRIO_SHORT = { 'PvP': 'PvP', 'Second Build': '2nd', 'PvE': 'PvE' };
-const PRIO_STYLE = {
-  'PvP':          { on: 'bg-oxblood text-bone border-transparent',     off: 'border-line text-ash hover:text-bone' },
-  'Second Build': { on: 'bg-brass text-ink border-transparent',        off: 'border-line text-ash hover:text-bone' },
-  'PvE':          { on: 'bg-emerald-500 text-ink border-transparent',  off: 'border-line text-ash hover:text-bone' },
-};
+import ErrorBanner from '../components/ui/ErrorBanner';
+import { BUILD_SHORT as PRIO_SHORT, BUILD_CHIP_ON, BUILD_CHIP_OFF } from '../lootBuilds';
 
 export default function LootHistory() {
   const { can, canAny } = useAuth();
@@ -108,7 +104,7 @@ export default function LootHistory() {
 
   return (
     <PageShell maxWidth="max-w-4xl">
-      {error && <div className="mb-6 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
+      <ErrorBanner>{error}</ErrorBanner>
 
       <div className="panel rounded-lg p-4 mb-6 space-y-3">
         {/* Each importer is gated on the capability its own endpoint checks, so
@@ -208,13 +204,12 @@ export default function LootHistory() {
                     a different place depending on the row type. */}
                 <div className="flex gap-1 shrink-0 w-32 justify-end" title={a.kind === 'item' ? 'Build this was awarded for' : undefined}>
                   {a.kind === 'item' ? (catalog?.priorities || []).map((p) => {
-                    const st = PRIO_STYLE[p];
-                    const active = a.priority === p;
+                                        const active = a.priority === p;
                     return (
                       <button
                         key={p} title={p} disabled={savingBuild === a.id}
                         onClick={() => setBuild(a.id, active ? null : p)}
-                        className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border transition-colors disabled:opacity-40 ${active ? st.on : st.off}`}
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-semibold border transition-colors disabled:opacity-40 ${active ? BUILD_CHIP_ON[p] : BUILD_CHIP_OFF}`}
                       >
                         {PRIO_SHORT[p]}
                       </button>

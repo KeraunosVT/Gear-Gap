@@ -8,6 +8,7 @@ import ErrorState from '../components/ui/ErrorState';
 import EmptyState from '../components/ui/EmptyState';
 import { Table, Thead, SortableTh, Tr } from '../components/ui/Table';
 import CurrencyIcon from '../components/ui/CurrencyIcon';
+import { BUILD_TEXT as BUILD_TONE, BUILD_SHORT } from '../lootBuilds';
 
 // ── THE ARGUMENT, AS A COLUMN SORT ──────────────────────────────────────────
 // Attendance, gear awarded and currency granted were all stored and never
@@ -25,9 +26,6 @@ const WINDOWS = [
   { key: 'all', label: 'All time' },
 ];
 
-// Same three colours the tally and the party board use for builds.
-const BUILD_TONE = { 'PvP': 'text-oxblood', 'Second Build': 'text-brass', 'PvE': 'text-emerald-400' };
-const BUILD_SHORT = { 'PvP': 'PvP', 'Second Build': '2nd', 'PvE': 'PvE' };
 
 const fmt = (n) => (n || 0).toLocaleString();
 

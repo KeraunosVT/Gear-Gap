@@ -13,6 +13,7 @@ import RestrictedGate from '../components/ui/RestrictedGate';
 import { PageShell } from '../components/ui/PageShell';
 import { useFlash } from '../components/ui/useFlash';
 import Toast from '../components/ui/Toast';
+import ErrorBanner from '../components/ui/ErrorBanner';
 
 // Split out of LootTally.jsx's "Manage items" toggle panel so it's a real,
 // linkable page under the Loot Council sidebar dropdown instead of a
@@ -68,7 +69,7 @@ export default function LootItems() {
 
   return (
     <PageShell>
-      {error && <div className="mb-6 px-5 py-3 rounded-lg border border-oxblood/50 bg-oxblooddeep/20 text-bone text-sm">{error}</div>}
+      <ErrorBanner>{error}</ErrorBanner>
       <Toast msg={msg} />
 
       {catalog && (
