@@ -1,7 +1,14 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useAuth } from '../auth';
-import { Plus, Pencil, Trash2, Upload, X } from 'lucide-react';
+import { Plus, Pencil, Trash2, Upload, X, GripVertical } from 'lucide-react';
+import {
+  DndContext, PointerSensor, KeyboardSensor, useSensor, useSensors, closestCenter,
+} from '@dnd-kit/core';
+import {
+  SortableContext, useSortable, arrayMove, verticalListSortingStrategy, sortableKeyboardCoordinates,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import RestrictedGate from '../components/ui/RestrictedGate';
 import { PageShell } from '../components/ui/PageShell';
 import { useFlash } from '../components/ui/useFlash';
@@ -36,6 +43,24 @@ export default function LootItems() {
       .catch((err) => setError(err.response?.data?.error || 'Could not load the catalog.'));
   };
   useEffect(() => { load(); }, []);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+  // Optimistic: the list moves at once and snaps back if the save fails.
+  const onCategoryDragEnd = ({ active, over }) => {
+    if (!over || active.id === over.id) return;
+    const before = catalog;
+    const keys = catalog.categories.map((c) => c.key);
+    const categories = arrayMove(catalog.categories, keys.indexOf(active.id), keys.indexOf(over.id));
+    setCatalog({ ...catalog, categories });
+    axios.put('/api/admin/loot/category-order', { keys: categories.map((c) => c.key) })
+      .catch((err) => {
+        setCatalog(before);
+        setError(err.response?.data?.error || 'Could not save the category order.');
+      });
+  };
 
   if (!can('loot.catalog')) {
     return <RestrictedGate />;
@@ -231,11 +256,23 @@ export default function LootItems() {
             )}
           </div>
 
-          {/* Existing items by category */}
+          {/* Existing items by category. Drag a category's grip to reorder;
+              the order here is the order every loot page shows them in. */}
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onCategoryDragEnd}>
+          <SortableContext items={catalog.categories.map((c) => c.key)} strategy={verticalListSortingStrategy}>
           <div className="space-y-4">
             {catalog.categories.map((cat) => (
-              <div key={cat.key}>
+              <SortableCategory key={cat.key} id={cat.key}>
+              {(handle) => (<>
                 <div className="flex items-center gap-2 mb-2">
+                  <button
+                    {...handle} type="button"
+                    aria-label={`Move the ${cat.label} category. Press space, then the arrow keys.`}
+                    title="Drag to reorder"
+                    className="p-1 -ml-1 rounded text-ash hover:text-bone hover:bg-panelup cursor-grab active:cursor-grabbing touch-none"
+                  >
+                    <GripVertical className="w-4 h-4" />
+                  </button>
                   <h4 className="font-display text-bone tracking-wide">{cat.label}</h4>
                   <button
                     onClick={() => {
@@ -331,11 +368,31 @@ export default function LootItems() {
                   ))}
                   {cat.items.length === 0 && <p className="text-ash text-xs pl-1">No items — add one above or delete this category.</p>}
                 </div>
-              </div>
+              </>)}
+              </SortableCategory>
             ))}
           </div>
+          </SortableContext>
+          </DndContext>
         </div>
       )}
     </PageShell>
+  );
+}
+
+// One category block in the catalog list. Only the grip handed to `children`
+// starts a drag, so the item rows' edit fields and buttons keep their clicks.
+function SortableCategory({ id, children }) {
+  const {
+    attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging,
+  } = useSortable({ id });
+  return (
+    <div
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={isDragging ? 'relative z-10 bg-panel shadow-xl ring-1 ring-brass rounded-md' : ''}
+    >
+      {children({ ref: setActivatorNodeRef, ...attributes, ...listeners })}
+    </div>
   );
 }

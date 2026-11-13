@@ -15,6 +15,18 @@ module.exports = function registerLootItems(router, ctx) {
     res.json(cat);
   });
 
+  // Not /loot/categories/order: that would collide with a category keyed "order".
+  router.put('/loot/category-order', async (req, res) => {
+    const { keys } = req.body || {};
+    if (!Array.isArray(keys) || !keys.every((k) => typeof k === 'string')) {
+      return res.status(400).json({ error: 'An ordered list of category keys is required.' });
+    }
+    if (!(await lootCatalog.reorderCategories(keys))) {
+      return res.status(409).json({ error: 'The category list changed while you were reordering. Reload and try again.' });
+    }
+    res.json({ ok: true });
+  });
+
   router.put('/loot/categories/:key', async (req, res) => {
     const { label } = req.body || {};
     if (!label) return res.status(400).json({ error: 'Category label required.' });

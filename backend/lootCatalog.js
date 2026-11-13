@@ -52,6 +52,23 @@ module.exports = function createLootCatalog(supabase) {
       return !error;
     },
 
+    // Takes every category key in the order wanted. A partial or stale list
+    // (another officer added or deleted one meanwhile) is refused rather than
+    // half-applied, so two categories can never end up sharing a slot.
+    async reorderCategories(keys) {
+      const { data: cats, error: readErr } = await supabase.from('loot_categories').select('key');
+      if (readErr) return false;
+      const current = new Set((cats || []).map((c) => c.key));
+      if (keys.length !== current.size || new Set(keys).size !== keys.length || !keys.every((k) => current.has(k))) {
+        return false;
+      }
+      const results = await Promise.all(keys.map((key, sort_order) =>
+        supabase.from('loot_categories').update({ sort_order }).eq('key', key)));
+      const failed = results.find((r) => r.error);
+      if (failed) console.error('lootCatalog reorderCategories error:', failed.error.message);
+      return !failed;
+    },
+
     async deleteCategory(catKey) {
       await supabase.from('loot_items').delete().eq('category_key', catKey);
       const { error } = await supabase.from('loot_categories').delete().eq('key', catKey);
