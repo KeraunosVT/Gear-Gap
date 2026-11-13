@@ -463,6 +463,13 @@ module.exports = async function runImport(supabase) {
   const currencyIcons = await mirrorCurrencyIcons(supabase);
   errors.push(...currencyIcons.errors);
 
+  // questlog refuses requests from datacenter IPs, so on a hosted server every
+  // API call 403s while the same call from a home connection succeeds. Say so
+  // first, or the officer sees five identical failures and no way forward.
+  if (errors.some((e) => /status code 403/.test(e))) {
+    errors.unshift('questlog.gg refused this server (403). It blocks hosting providers\' IPs, so run `node scripts/syncItemDatabase.js` from your own PC instead. It writes to the same database');
+  }
+
   return {
     imported, skipped, rebuilt, potentials,
     currencyIcons: { mirrored: currencyIcons.mirrored },
