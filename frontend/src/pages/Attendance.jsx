@@ -13,6 +13,7 @@ import Modal from '../components/ui/Modal';
 import { Table, Thead, SortableTh, Tr } from '../components/ui/Table';
 import ErrorBanner from '../components/ui/ErrorBanner';
 import { PageShell } from '../components/ui/PageShell';
+import EventsNav from '../components/EventsNav';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 // One-offs sit in the event picker beside the weekly events as `signup:<id>`,
@@ -447,7 +448,8 @@ export default function Attendance() {
   };
 
   return (
-    <PageShell width="full">
+    <PageShell>
+      <EventsNav />
       <div className="flex items-center justify-between gap-4 flex-wrap mb-6">
         <p className="text-sm text-ash">
           Snap the attendance channel to log who showed up — or, for a night nobody snapped, set its date and use

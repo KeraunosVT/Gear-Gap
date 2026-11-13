@@ -17,6 +17,7 @@ import Toast from '../components/ui/Toast';
 import { useFlash } from '../components/ui/useFlash';
 import ScoutPostModal from '../components/ScoutPostModal';
 import { useT, translate, fmtDay, weekdayName } from '../i18n';
+import EventsNav from '../components/EventsNav';
 
 const DAY_ABBR = (dow) => weekdayName(dow, 'short');
 
@@ -329,6 +330,7 @@ export default function Signups() {
 
   return (
     <PageShell>
+      <EventsNav />
       <div className="flex items-center gap-3 mb-2">
         <ClipboardList className="w-6 h-6 text-brass" />
         <h1 className="font-display text-2xl tracking-wide text-bone">{t('signups.title')}</h1>

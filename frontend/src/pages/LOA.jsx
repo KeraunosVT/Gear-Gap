@@ -12,6 +12,7 @@ import { useFlash } from '../components/ui/useFlash';
 import Toast from '../components/ui/Toast';
 import { useT, fmtDay, weekdayName } from '../i18n';
 import ErrorBanner from '../components/ui/ErrorBanner';
+import EventsNav from '../components/EventsNav';
 
 const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 
@@ -578,6 +579,7 @@ export default function LOA() {
 
   return (
     <PageShell>
+      <EventsNav />
       <div className="flex items-center justify-between gap-4 flex-wrap mb-6">
         <p className="text-sm text-ash">{t('loapage.intro')}</p>
         {/* The schedule is managed from the Event Calendar now; this keeps the

@@ -1,8 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { NavLink, Link, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, Swords, Users, Gem, Package, CalendarOff, CalendarRange, Layers, Gauge,
-  Upload, LayoutGrid, Tag, Gavel, ClipboardCheck, ClipboardList, ScrollText, ShieldCheck, LogOut, Settings, ChevronDown,
+  LayoutDashboard, Swords, Users, Gem, Package, CalendarRange, Layers, Gauge,
+  Upload, LayoutGrid, Tag, Gavel, ScrollText, ShieldCheck, LogOut, Settings, ChevronDown,
   BarChart3, ArrowRightLeft,
 } from 'lucide-react';
 import Sigil from './Sigil';
@@ -22,18 +22,25 @@ export const guildLinks = [
 ];
 
 export const memberLinks = [
+  // `tabs`: one sidebar entry for everything about guild nights, with the
+  // pages as a tab bar (EventsNav) across them. `match` keeps the link lit on
+  // any of them, since they don't share a path.
+  //
+  // The Event Calendar lands first: the week ahead including nights nobody
+  // has opened yet (the answer to "what's on Thursday", which Signups can't
+  // give), with I'm in and a one-night LOA on each, and your own attendance on
+  // the nights already run. /attendance redirects here.
+  { to: '/attendance/calendar', label: 'Events', tabLabel: 'Event Calendar', icon: CalendarRange, tabs: true,
+    match: ['/attendance', '/signups', '/loa', '/admin/attendance'], children: [
+      // Member-facing, so no `perm`: officer controls on these pages gate
+      // themselves inline on 'attendance'.
+      { to: '/signups', label: 'Signups' },
+      { to: '/loa', label: 'LOA' },
+      // The officer log. Only officers with 'attendance' get this tab.
+      { to: '/admin/attendance', label: 'Attendance', perm: 'attendance' },
+    ] },
   { to: '/shards', label: 'Shards', icon: Gem },
   { to: '/loot', label: 'Loot', icon: Package },
-  // Member-facing like /loa, so no `perm` — the officer controls on the page
-  // gate themselves inline on 'attendance'.
-  { to: '/signups', label: 'Signups', icon: ClipboardList },
-  // The week ahead including nights nobody has opened yet — the answer to
-  // "what's on Thursday", which Signups can't give — and, looking back, your
-  // own attendance on the nights already run. It took over the separate
-  // Attendance page, which showed those same past nights; /attendance now
-  // redirects here.
-  { to: '/attendance/calendar', label: 'Event Calendar', icon: CalendarRange },
-  { to: '/loa', label: 'LOA', icon: CalendarOff },
   { to: '/classes', label: 'Classes', icon: Layers },
   { to: '/gear', label: 'Gear Level', icon: Gauge },
   // Every member sets their own; everyone sees the list.
@@ -65,7 +72,6 @@ export const adminLinks = [
     { to: '/admin/loot/currency', label: 'Lucent & Shards', perm: 'loot.lucent' },
     { to: '/admin/loot/items', label: 'Manage Items', perm: 'loot.catalog' },
   ] },
-  { to: '/admin/attendance', label: 'Attendance', icon: ClipboardCheck, perm: 'attendance' },
   { to: '/admin/gear-levels', label: 'Gear Levels', icon: Gauge, perm: 'gear' },
   { to: '/admin/permissions', label: 'Permissions', icon: ShieldCheck, perm: 'permissions' },
   { to: '/admin/audit-log', label: 'Audit Log', icon: ScrollText, perm: 'audit' },
@@ -82,37 +88,42 @@ const LOOT_ANY = ['loot.awards', 'loot.catalog', 'loot.currency', 'loot.requests
 
 const LUCENT_ANY = ['loot.currency', 'loot.requests'];
 const allowedFor = (can) => (perm) => (
-  perm === 'loot.history' ? LOOT_ANY.some(can)
+  !perm ? true
+    : perm === 'loot.history' ? LOOT_ANY.some(can)
     : perm === 'loot.lucent' ? LUCENT_ANY.some(can)
       : can(perm));
 
-// A tabbed group's pages — its own landing page first — that this officer can
+// A tabbed group's pages — its own landing page first — that this member can
 // open. Shared by the sidebar link and the tab bar so the two can't disagree.
 function visibleTabs(link, can) {
   const allowed = allowedFor(can);
   return [link, ...(link.children || [])].filter((p) => allowed(p.perm));
 }
+const asTabs = (link, can) => visibleTabs(link, can).map(({ to, label, tabLabel }) => ({ to, label: tabLabel || label }));
 
-export function visibleLootTabs(can) {
-  return visibleTabs(adminLinks.find((l) => l.to === '/admin/loot'), can)
-    .map(({ to, label }) => ({ to, label }));
+export const visibleLootTabs = (can) => asTabs(adminLinks.find((l) => l.to === '/admin/loot'), can);
+export const visibleEventTabs = (can) => asTabs(memberLinks.find((l) => l.to === '/attendance/calendar'), can);
+
+// A tabbed group as one sidebar link, aimed at the first tab they can open:
+// the Loot Council landing page needs loot.awards, and a catalog-only officer
+// sent there would only meet "restricted". History opens to any loot
+// capability, so it's only the landing tab when nothing more specific to them
+// is visible. The link stays lit on every page in the group.
+function collapseTabs(link, can) {
+  const tabs = visibleTabs(link, can);
+  const landing = tabs.find((p) => p.perm !== 'loot.history') || tabs[0];
+  return landing ? { ...link, to: landing.to, match: link.match || [link.to], children: [] } : null;
+}
+
+export function visibleMemberLinks(can) {
+  return memberLinks.map((l) => (l.tabs ? collapseTabs(l, can) : l)).filter(Boolean);
 }
 
 export function visibleAdminLinks(can) {
   const allowed = allowedFor(can);
   return adminLinks
-    .map((l) => {
-      if (!l.tabs) return { ...l, children: (l.children || []).filter((c) => allowed(c.perm)) };
-      // One link, aimed at the first tab they can open: the landing page needs
-      // loot.awards, and a catalog-only officer sent there would only meet
-      // "restricted". It stays lit anywhere under the group's path.
-      // History opens to any loot capability, so it's only the landing tab
-      // when nothing more specific to them is visible.
-      const tabs = visibleTabs(l, can);
-      const landing = tabs.find((p) => p.perm !== 'loot.history') || tabs[0];
-      return landing ? { ...l, to: landing.to, matchPrefix: l.to, children: [] } : null;
-    })
-    .filter((l) => l && (allowed(l.perm) || l.children.length > 0 || l.matchPrefix));
+    .map((l) => (l.tabs ? collapseTabs(l, can) : { ...l, children: (l.children || []).filter((c) => allowed(c.perm)) }))
+    .filter((l) => l && (l.match || allowed(l.perm) || l.children.length > 0));
 }
 
 export const SIDEBAR_COLLAPSE_KEY = 'sidebarCollapsed';
@@ -156,7 +167,7 @@ export default function Sidebar({ collapsed }) {
 
       <nav className="flex-1 overflow-y-auto px-2 py-3 space-y-4">
         <NavSection title={t('nav.section.guild')} links={guildLinks} linkClass={linkClass} collapsed={collapsed} />
-        {user && <NavSection title={t('nav.section.member')} links={memberLinks} linkClass={linkClass} collapsed={collapsed} />}
+        {user && <NavSection title={t('nav.section.member')} links={visibleMemberLinks(can)} linkClass={linkClass} collapsed={collapsed} />}
         {adminNav.length > 0 && <NavSection title={t('nav.section.admin')} links={adminNav} linkClass={linkClass} collapsed={collapsed} />}
       </nav>
 
@@ -261,7 +272,7 @@ function NavSection({ title, links, linkClass, collapsed }) {
     <div>
       {!collapsed && <div className="eyebrow text-[10px] text-ash/75 px-3 mb-1.5">{title}</div>}
       <div className="space-y-0.5">
-        {links.map(({ to, label: rawLabel, end, icon: Icon, children, matchPrefix }) => {
+        {links.map(({ to, label: rawLabel, end, icon: Icon, children, match }) => {
           const label = navLabel(t, rawLabel);
           // Collapsed rail has no room for a chevron/sub-list — just link
           // straight to the parent page, same as any other icon-only item.
@@ -276,7 +287,7 @@ function NavSection({ title, links, linkClass, collapsed }) {
             return (
               <NavLink
                 key={to} to={to} end={end} title={collapsed ? label : undefined}
-                className={matchPrefix ? () => linkClass({ isActive: isParentActive(matchPrefix) }) : linkClass}
+                className={match ? () => linkClass({ isActive: match.some(isParentActive) }) : linkClass}
               >
                 <Icon className="w-4 h-4 shrink-0" />
                 {!collapsed && <span className="truncate">{label}</span>}
