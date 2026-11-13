@@ -9,6 +9,7 @@ import Toast from '../components/ui/Toast';
 import ErrorBanner from '../components/ui/ErrorBanner';
 import { fmtDatetime } from '../timeUtils';
 import CurrencyIcon from '../components/ui/CurrencyIcon';
+import LootNav from '../components/LootNav';
 
 // Requests move pending -> approved -> paid, with denied as a dead end that can
 // be reopened. Only 'paid' has a side effect (it writes the Lucent grant), which
@@ -275,6 +276,7 @@ export default function LootRequests() {
 
   return (
     <PageShell maxWidth="max-w-none" paddingX="px-2">
+      <LootNav />
       <ErrorBanner>{error}</ErrorBanner>
       <Toast msg={msg} />
 

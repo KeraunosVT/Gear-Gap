@@ -10,6 +10,7 @@ import ErrorBanner from '../components/ui/ErrorBanner';
 import { fmtDatetime } from '../timeUtils';
 import { CURRENCY_TYPES, CURRENCY_LABEL } from '../currencies';
 import CurrencyIcon from '../components/ui/CurrencyIcon';
+import LootNav from '../components/LootNav';
 
 // Split out of LootTally.jsx's "Lucent & Shards" toggle panel so it's a real,
 // linkable page under the Loot Council sidebar dropdown instead of a
@@ -85,6 +86,7 @@ export default function LootCurrency() {
 
   return (
     <PageShell>
+      <LootNav />
       <ErrorBanner>{error}</ErrorBanner>
       <Toast msg={msg} />
 

@@ -52,14 +52,17 @@ export const adminLinks = [
   { to: '/admin', label: 'Upload Match', end: true, icon: Upload, perm: 'match' },
   { to: '/admin/parties', label: 'Parties', icon: LayoutGrid, perm: 'parties' },
   { to: '/admin/names', label: 'Names', icon: Tag, perm: 'names' },
-  { to: '/admin/loot', label: 'Loot Council', icon: Gavel, perm: 'loot.awards', children: [
-    { to: '/admin/loot/items', label: 'Manage Items', perm: 'loot.catalog' },
-    { to: '/admin/loot/currency', label: 'Lucent & Shards', perm: 'loot.currency' },
-    { to: '/admin/loot/requests', label: 'Lucent Requests', perm: 'loot.requests' },
-    { to: '/admin/loot/history', label: 'Loot History', perm: 'loot.history' },
+  // `tabs`: one sidebar link, with the pages as a tab bar (LootNav) on each of
+  // them. The children stay listed here because the Topbar's breadcrumbs and
+  // visibleLootTabs() both read them; their order is the tab order.
+  { to: '/admin/loot', label: 'Loot Council', icon: Gavel, perm: 'loot.awards', tabs: true, children: [
     // Reads awards, currency and attendance together. Gated on awards; the
     // currency columns hide themselves for an officer without loot.currency.
     { to: '/admin/loot/fairness', label: "Who's Owed", perm: 'loot.awards' },
+    { to: '/admin/loot/history', label: 'Loot History', perm: 'loot.history' },
+    { to: '/admin/loot/currency', label: 'Lucent & Shards', perm: 'loot.currency' },
+    { to: '/admin/loot/requests', label: 'Lucent Requests', perm: 'loot.requests' },
+    { to: '/admin/loot/items', label: 'Manage Items', perm: 'loot.catalog' },
   ] },
   { to: '/admin/attendance', label: 'Attendance', icon: ClipboardCheck, perm: 'attendance' },
   { to: '/admin/gear-levels', label: 'Gear Levels', icon: Gauge, perm: 'gear' },
@@ -76,11 +79,35 @@ export const adminLinks = [
 // here so the link table stays a flat list of strings.
 const LOOT_ANY = ['loot.awards', 'loot.catalog', 'loot.currency', 'loot.requests'];
 
+const allowedFor = (can) => (perm) => (perm === 'loot.history' ? LOOT_ANY.some(can) : can(perm));
+
+// A tabbed group's pages — its own landing page first — that this officer can
+// open. Shared by the sidebar link and the tab bar so the two can't disagree.
+function visibleTabs(link, can) {
+  const allowed = allowedFor(can);
+  return [link, ...(link.children || [])].filter((p) => allowed(p.perm));
+}
+
+export function visibleLootTabs(can) {
+  return visibleTabs(adminLinks.find((l) => l.to === '/admin/loot'), can)
+    .map(({ to, label }) => ({ to, label }));
+}
+
 export function visibleAdminLinks(can) {
-  const allowed = (perm) => (perm === 'loot.history' ? LOOT_ANY.some(can) : can(perm));
+  const allowed = allowedFor(can);
   return adminLinks
-    .map((l) => ({ ...l, children: (l.children || []).filter((c) => allowed(c.perm)) }))
-    .filter((l) => allowed(l.perm) || l.children.length > 0);
+    .map((l) => {
+      if (!l.tabs) return { ...l, children: (l.children || []).filter((c) => allowed(c.perm)) };
+      // One link, aimed at the first tab they can open: the landing page needs
+      // loot.awards, and a catalog-only officer sent there would only meet
+      // "restricted". It stays lit anywhere under the group's path.
+      // History opens to any loot capability, so it's only the landing tab
+      // when nothing more specific to them is visible.
+      const tabs = visibleTabs(l, can);
+      const landing = tabs.find((p) => p.perm !== 'loot.history') || tabs[0];
+      return landing ? { ...l, to: landing.to, matchPrefix: l.to, children: [] } : null;
+    })
+    .filter((l) => l && (allowed(l.perm) || l.children.length > 0 || l.matchPrefix));
 }
 
 export const SIDEBAR_COLLAPSE_KEY = 'sidebarCollapsed';
@@ -229,7 +256,7 @@ function NavSection({ title, links, linkClass, collapsed }) {
     <div>
       {!collapsed && <div className="eyebrow text-[10px] text-ash/75 px-3 mb-1.5">{title}</div>}
       <div className="space-y-0.5">
-        {links.map(({ to, label: rawLabel, end, icon: Icon, children }) => {
+        {links.map(({ to, label: rawLabel, end, icon: Icon, children, matchPrefix }) => {
           const label = navLabel(t, rawLabel);
           // Collapsed rail has no room for a chevron/sub-list — just link
           // straight to the parent page, same as any other icon-only item.
@@ -242,7 +269,10 @@ function NavSection({ title, links, linkClass, collapsed }) {
           // lit Upload Match on every page in the section.
           if (!children || children.length === 0 || collapsed) {
             return (
-              <NavLink key={to} to={to} end={end} className={linkClass} title={collapsed ? label : undefined}>
+              <NavLink
+                key={to} to={to} end={end} title={collapsed ? label : undefined}
+                className={matchPrefix ? () => linkClass({ isActive: isParentActive(matchPrefix) }) : linkClass}
+              >
                 <Icon className="w-4 h-4 shrink-0" />
                 {!collapsed && <span className="truncate">{label}</span>}
               </NavLink>

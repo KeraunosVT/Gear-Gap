@@ -14,6 +14,7 @@ const KIND_FILTERS = [{ key: 'all', label: 'All' }, { key: 'item', label: 'Gear'
 
 import ErrorBanner from '../components/ui/ErrorBanner';
 import { BUILD_SHORT as PRIO_SHORT, BUILD_CHIP_ON, BUILD_CHIP_OFF } from '../lootBuilds';
+import LootNav from '../components/LootNav';
 
 export default function LootHistory() {
   const { can, canAny } = useAuth();
@@ -103,7 +104,8 @@ export default function LootHistory() {
   }
 
   return (
-    <PageShell maxWidth="max-w-4xl">
+    <PageShell>
+      <LootNav />
       <ErrorBanner>{error}</ErrorBanner>
 
       <div className="panel rounded-lg p-4 mb-6 space-y-3">

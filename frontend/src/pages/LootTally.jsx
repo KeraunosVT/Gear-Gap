@@ -13,6 +13,7 @@ import Toast from '../components/ui/Toast';
 
 import ErrorBanner from '../components/ui/ErrorBanner';
 import { BUILD_SHORT as PRIO_SHORT, BUILD_DOT as PRIO_DOT, BUILD_TEXT as PRIO_TEXT, BUILD_CHIP_ON as PRIO_ON } from '../lootBuilds';
+import LootNav from '../components/LootNav';
 
 export default function LootTally() {
   const { can } = useAuth();
@@ -166,6 +167,7 @@ export default function LootTally() {
 
   return (
     <PageShell>
+      <LootNav />
       <ErrorBanner>{error}</ErrorBanner>
       <Toast msg={msg} />
 

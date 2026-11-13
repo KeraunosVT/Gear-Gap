@@ -14,6 +14,7 @@ import { PageShell } from '../components/ui/PageShell';
 import { useFlash } from '../components/ui/useFlash';
 import Toast from '../components/ui/Toast';
 import ErrorBanner from '../components/ui/ErrorBanner';
+import LootNav from '../components/LootNav';
 
 // Split out of LootTally.jsx's "Manage items" toggle panel so it's a real,
 // linkable page under the Loot Council sidebar dropdown instead of a
@@ -69,6 +70,7 @@ export default function LootItems() {
 
   return (
     <PageShell>
+      <LootNav />
       <ErrorBanner>{error}</ErrorBanner>
       <Toast msg={msg} />
 

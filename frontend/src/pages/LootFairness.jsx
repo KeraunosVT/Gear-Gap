@@ -9,6 +9,7 @@ import EmptyState from '../components/ui/EmptyState';
 import { Table, Thead, SortableTh, Tr } from '../components/ui/Table';
 import CurrencyIcon from '../components/ui/CurrencyIcon';
 import { BUILD_TEXT as BUILD_TONE, BUILD_SHORT } from '../lootBuilds';
+import LootNav from '../components/LootNav';
 
 // ── THE ARGUMENT, AS A COLUMN SORT ──────────────────────────────────────────
 // Attendance, gear awarded and currency granted were all stored and never
@@ -99,7 +100,8 @@ export default function LootFairness() {
   if (!can('loot.awards')) return <RestrictedGate />;
 
   return (
-    <PageShell maxWidth="max-w-5xl">
+    <PageShell>
+      <LootNav />
       <div className="flex items-center gap-3 mb-2">
         <Scale className="w-6 h-6 text-brass" />
         <h1 className="font-display text-2xl tracking-wide text-bone">WHO'S OWED</h1>
