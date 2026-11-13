@@ -60,8 +60,9 @@ export const adminLinks = [
     // currency columns hide themselves for an officer without loot.currency.
     { to: '/admin/loot/fairness', label: "Who's Owed", perm: 'loot.awards' },
     { to: '/admin/loot/history', label: 'Loot History', perm: 'loot.history' },
-    { to: '/admin/loot/currency', label: 'Lucent & Shards', perm: 'loot.currency' },
-    { to: '/admin/loot/requests', label: 'Lucent Requests', perm: 'loot.requests' },
+    // Requests and the ledger on one page; either capability opens it and
+    // the page shows the half each one covers.
+    { to: '/admin/loot/currency', label: 'Lucent & Shards', perm: 'loot.lucent' },
     { to: '/admin/loot/items', label: 'Manage Items', perm: 'loot.catalog' },
   ] },
   { to: '/admin/attendance', label: 'Attendance', icon: ClipboardCheck, perm: 'attendance' },
@@ -79,7 +80,11 @@ export const adminLinks = [
 // here so the link table stays a flat list of strings.
 const LOOT_ANY = ['loot.awards', 'loot.catalog', 'loot.currency', 'loot.requests'];
 
-const allowedFor = (can) => (perm) => (perm === 'loot.history' ? LOOT_ANY.some(can) : can(perm));
+const LUCENT_ANY = ['loot.currency', 'loot.requests'];
+const allowedFor = (can) => (perm) => (
+  perm === 'loot.history' ? LOOT_ANY.some(can)
+    : perm === 'loot.lucent' ? LUCENT_ANY.some(can)
+      : can(perm));
 
 // A tabbed group's pages — its own landing page first — that this officer can
 // open. Shared by the sidebar link and the tab bar so the two can't disagree.

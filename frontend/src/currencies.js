@@ -1,7 +1,7 @@
 import SHARDS from '../../shared/shards.json';
 
-// Lucent plus the archboss shards, defined once. The Lucent & Shards ledger,
-// Lucent Requests, and Loot History all render the same set and each used to
+// Lucent plus the archboss shards, defined once. The Lucent & Shards page
+// (requests and ledger) and Loot History render the same set and each used to
 // rebuild this list locally.
 //
 // Icons are public URLs in our own storage bucket, mirrored rather than

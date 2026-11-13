@@ -24,7 +24,6 @@ export default {
   'nav.Loot Council': 'Conselho de saque',
   'nav.Manage Items': 'Gerenciar itens',
   'nav.Lucent & Shards': 'Lucent e fragmentos',
-  'nav.Lucent Requests': 'Pedidos de Lucent',
   'nav.Loot History': 'Histórico de saque',
   "nav.Who's Owed": 'Quem tem crédito',
   'nav.Attendance': 'Presença',

@@ -24,7 +24,6 @@ export default {
   'nav.Loot Council': 'Consejo de botín',
   'nav.Manage Items': 'Gestionar objetos',
   'nav.Lucent & Shards': 'Lucent y fragmentos',
-  'nav.Lucent Requests': 'Solicitudes de Lucent',
   'nav.Loot History': 'Historial de botín',
   "nav.Who's Owed": 'A quién se le debe',
   'nav.Attendance': 'Asistencia',

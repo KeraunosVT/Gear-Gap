@@ -243,7 +243,7 @@ export default function LootTally() {
         <SummaryTile value={!catalog ? '—' : summary.itemsWanted} label="Items wanted" />
         <SummaryTile value={!catalog ? '—' : summary.awarded7d} label="Awarded · 7 days" />
         {canRequests && (
-          <Link to="/admin/loot/requests" className="panel rounded-lg px-4 py-3 hover:border-brass/50 transition-colors">
+          <Link to="/admin/loot/currency" className="panel rounded-lg px-4 py-3 hover:border-brass/50 transition-colors">
             <div className="font-mono text-2xl text-amber-700 dark:text-amber-400">{openRequests ?? '—'}</div>
             <div className="eyebrow text-[10px] text-ash mt-1">Lucent requests open →</div>
           </Link>

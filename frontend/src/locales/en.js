@@ -28,7 +28,6 @@ export default {
   'nav.Loot Council': 'Loot Council',
   'nav.Manage Items': 'Manage Items',
   'nav.Lucent & Shards': 'Lucent & Shards',
-  'nav.Lucent Requests': 'Lucent Requests',
   'nav.Loot History': 'Loot History',
   "nav.Who's Owed": "Who's Owed",
   'nav.Attendance': 'Attendance',

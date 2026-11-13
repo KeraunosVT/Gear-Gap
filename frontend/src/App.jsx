@@ -20,8 +20,7 @@ import Parties from './pages/Parties';
 import Names from './pages/Names';
 import LootTally from './pages/LootTally';
 import LootItems from './pages/LootItems';
-import LootCurrency from './pages/LootCurrency';
-import LootRequests from './pages/LootRequests';
+import LootLucent from './pages/LootLucent';
 import Permissions from './pages/Permissions';
 import GuildSettings from './pages/GuildSettings';
 import MyProfile from './pages/MyProfile';
@@ -122,8 +121,9 @@ function Gate() {
           <Route path="/admin/names" element={<Names />} />
           <Route path="/admin/loot" element={<LootTally />} />
           <Route path="/admin/loot/items" element={<LootItems />} />
-          <Route path="/admin/loot/currency" element={<LootCurrency />} />
-          <Route path="/admin/loot/requests" element={<LootRequests />} />
+          <Route path="/admin/loot/currency" element={<LootLucent />} />
+          {/* Requests merged into Lucent & Shards; old links land there. */}
+          <Route path="/admin/loot/requests" element={<Navigate to="/admin/loot/currency" replace />} />
           <Route path="/admin/loot/history" element={<LootHistory />} />
           <Route path="/admin/loot/fairness" element={<LootFairness />} />
           <Route path="/admin/attendance" element={<Attendance />} />
