@@ -424,7 +424,9 @@ module.exports = async function runImport(supabase) {
       const detail = await fetchDetail(it.id);
       const icon = await downloadAndUploadIcon(supabase, it.id, it.icon);
 
-      await supabase.from('questlog_items').upsert({
+      // supabase-js reports a failed write in `error` rather than throwing, so
+      // an unchecked upsert counted every rejected row as imported.
+      const { error } = await supabase.from('questlog_items').upsert({
         id: it.id,
         name: it.name,
         icon,
@@ -434,6 +436,7 @@ module.exports = async function runImport(supabase) {
         sub_category: it.subCategory,
         data: trimDetail(detail),
       });
+      if (error) throw new Error(error.message);
       imported++;
     } catch (err) {
       errors.push(`${it.name}: ${err.message}`);

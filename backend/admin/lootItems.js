@@ -78,7 +78,12 @@ module.exports = function registerLootItems(router, ctx) {
     importStatus = { running: true, result: null, error: null };
     res.json({ ok: true, message: 'Import started.' });
     runImport(supabase)
-      .then((result) => { importStatus = { running: false, result, error: null }; })
+      .then((result) => {
+        if (result.errors?.length) {
+          console.warn(`Questlog import finished with ${result.errors.length} error(s):\n  ` + result.errors.slice(0, 20).join('\n  '));
+        }
+        importStatus = { running: false, result, error: null };
+      })
       .catch((err) => {
         console.error('Questlog import error:', err.stack || err.message);
         importStatus = { running: false, result: null, error: err.message };

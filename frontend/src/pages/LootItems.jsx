@@ -106,15 +106,34 @@ export default function LootItems() {
                   setImporting(true); setImportResult(null); setError('');
                   axios.post('/api/admin/loot/import-questlog')
                     .then(() => {
+                      // A blip in polling is fine; a status endpoint that stays
+                      // unreachable (logged out, server down) would otherwise
+                      // leave the button on "Syncing…" forever.
+                      let failures = 0;
                       const poll = setInterval(() => {
                         axios.get('/api/admin/loot/import-status').then((res) => {
-                          if (!res.data.running) {
-                            clearInterval(poll);
-                            setImporting(false);
-                            if (res.data.error) setError('Sync failed: ' + res.data.error);
-                            else setImportResult(res.data.result);
+                          failures = 0;
+                          if (res.data.running) return;
+                          clearInterval(poll);
+                          setImporting(false);
+                          if (res.data.error) setError('Sync failed: ' + res.data.error);
+                          // The status lives in server memory, so a restart
+                          // mid-sync reads as "not running, no result, no error".
+                          else if (!res.data.result) setError('Sync was interrupted. The server probably restarted, so press the button again.');
+                          else {
+                            setImportResult(res.data.result);
+                            const errs = res.data.result.errors || [];
+                            if (errs.length) {
+                              setError(`Sync finished with ${errs.length} error${errs.length === 1 ? '' : 's'}: `
+                                + errs.slice(0, 5).join(' · ') + (errs.length > 5 ? ` · …and ${errs.length - 5} more (see server log)` : ''));
+                            }
                           }
-                        }).catch(() => {});
+                        }).catch((err) => {
+                          if (++failures < 5) return;
+                          clearInterval(poll);
+                          setImporting(false);
+                          setError('Lost contact with the sync: ' + (err.response?.data?.error || err.message));
+                        });
                       }, 3000);
                     })
                     .catch((err) => { setError(err.response?.data?.error || 'Failed to start sync.'); setImporting(false); });
