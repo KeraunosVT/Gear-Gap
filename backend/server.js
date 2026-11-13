@@ -616,7 +616,11 @@ app.get('/api/loot', async (req, res) => {
       if (!a.priority) return;
       (awardedBuilds[a.item_key] = awardedBuilds[a.item_key] || []).push(a.priority);
     });
-    res.json({ mine, counts, awardedBuilds, tally: userHas(req.user, 'loot.awards') ? tally : undefined });
+    // Every award to the current member, untagged ones included: the wishlist's
+    // "received" count and its Mine only filter. awardedBuilds can't serve
+    // that, since it drops awards that predate builds being recorded.
+    const received = (myAwards || []).map((a) => ({ item_key: a.item_key, priority: a.priority || null }));
+    res.json({ mine, counts, awardedBuilds, received, tally: userHas(req.user, 'loot.awards') ? tally : undefined });
   } catch (err) {
     console.error('Loot load error:', err.message);
     res.status(500).json({ error: 'Failed to load loot wishlist.' });
