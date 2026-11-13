@@ -2,6 +2,7 @@ import { Star } from 'lucide-react';
 import {
   COMBAT, DAMAGE, CC, RESOURCES, HEALING, DMG, PVP_BASE, IN_YOUR_FAVOUR, baseOf, fmtStat, shownValue, fullLabel,
 } from '../../buildStats';
+import { BUILD_TEXT } from '../../buildColors';
 
 // One stat. For an officer with 'builds' it is a toggle that pins it to the
 // key stats; for everyone else it is just the number. PvP matrix stats (and
@@ -58,7 +59,7 @@ const th = 'px-3 py-2 text-[10px] eyebrow text-ash font-semibold text-right whit
 export default function BuildSheet({ kind, build, picked, onToggle }) {
   const v = (id) => <Value id={id} kind={kind} build={build} picked={picked} onToggle={onToggle} />;
   // The group that matters most for this build gets the build's colour.
-  const focus = (g) => (kind === 'pve' && g === 'boss' ? 'text-emerald-400' : kind === 'pvp' && g === 'pvp' ? 'text-oxblood' : 'text-bone');
+  const focus = (g) => (kind === 'pve' && g === 'boss' ? BUILD_TEXT.PvE : kind === 'pvp' && g === 'pvp' ? BUILD_TEXT.PvP : 'text-bone');
 
   const list = (sections) => sections.map(([sub, ids]) => (
     <div key={sub || 'main'}>

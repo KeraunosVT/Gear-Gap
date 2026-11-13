@@ -19,6 +19,7 @@ import Button from '../components/ui/Button';
 import Tabs from '../components/ui/Tabs';
 import { PageShell } from '../components/ui/PageShell';
 import EmptyState from '../components/ui/EmptyState';
+import { BUILD_TEXT, BUILD_BORDER, BUILD_CHIP_ON } from '../buildColors';
 
 // A member's wishlist is a list of weapons, each carrying how many of its shard
 // they still need; per-shard totals are the sum over those plus `unlinked`
@@ -78,7 +79,7 @@ function shardTotals(list) {
 function BuildPill({ build }) {
   if (!build) return <span className="text-ash/40 text-xs">—</span>;
   return (
-    <span className={`text-[10px] font-bold tracking-wide rounded-full px-2 py-0.5 border ${build === 'PvP' ? 'text-oxblood border-oxblood/40' : 'text-emerald-400 border-emerald-400/40'}`}>
+    <span className={`text-[10px] font-bold tracking-wide rounded-full px-2 py-0.5 border ${build === 'PvP' ? `${BUILD_TEXT.PvP} ${BUILD_BORDER.PvP}` : `${BUILD_TEXT.PvE} ${BUILD_BORDER.PvE}`}`}>
       {build.toUpperCase()}
     </span>
   );
@@ -896,7 +897,7 @@ function WeaponPicker({ member, onClose, onSave }) {
                     <button
                       key={b} type="button" onClick={() => setBuild(key, b)}
                       className={`px-2 py-0.5 rounded-full text-[9px] font-bold tracking-wide transition-colors ${
-                        build === b ? (b === 'PvP' ? 'bg-oxblood text-bone' : 'bg-emerald-500 text-ink') : 'text-ash hover:text-bone'
+                        build === b ? BUILD_CHIP_ON[b] : 'text-ash hover:text-bone'
                       }`}
                     >
                       {b.toUpperCase()}

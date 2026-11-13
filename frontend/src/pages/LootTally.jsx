@@ -14,7 +14,7 @@ import { useFlash } from '../components/ui/useFlash';
 import Toast from '../components/ui/Toast';
 import ErrorBanner from '../components/ui/ErrorBanner';
 import LootNav from '../components/LootNav';
-import { BUILDS, BUILD_SHORT, BUILD_DOT, BUILD_TEXT, BUILD_CHIP_ON, BUILD_CHIP_OFF } from '../lootBuilds';
+import { BUILDS, BUILD_SHORT, BUILD_DOT, BUILD_TEXT, BUILD_CHIP_ON, BUILD_CHIP_OFF } from '../buildColors';
 import { rankCandidates, lastAwardMap } from '../lootCandidates';
 
 // How far back the Recent awards panel reaches. Older ones are on History.

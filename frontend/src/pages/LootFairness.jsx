@@ -8,7 +8,7 @@ import ErrorState from '../components/ui/ErrorState';
 import EmptyState from '../components/ui/EmptyState';
 import { Table, Thead, SortableTh, Tr } from '../components/ui/Table';
 import CurrencyIcon from '../components/ui/CurrencyIcon';
-import { BUILD_TEXT as BUILD_TONE, BUILD_SHORT } from '../lootBuilds';
+import { BUILD_TEXT as BUILD_TONE, BUILD_SHORT } from '../buildColors';
 import LootNav from '../components/LootNav';
 
 // ── THE ARGUMENT, AS A COLUMN SORT ──────────────────────────────────────────

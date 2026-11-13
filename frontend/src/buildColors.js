@@ -1,4 +1,5 @@
-// How the three loot builds look, in one place. These are fixed Tailwind
+// How PvP, Second Build and PvE look, everywhere: loot wishlists and awards,
+// Shards, character builds, the Parties toggle. These are fixed Tailwind
 // colours rather than palette tokens on purpose: in the default palette
 // `oxblood` and `brass` are both reds, so PvP and Second Build were two
 // near-identical chips. Red / gold / green stays distinct on every palette.
@@ -21,6 +22,12 @@ export const BUILD_DOT = {
   'PvE': 'bg-emerald-500',
 };
 
+export const BUILD_BORDER = {
+  'PvP': 'border-rose-500/40',
+  'Second Build': 'border-amber-500/40',
+  'PvE': 'border-emerald-500/40',
+};
+
 // A selected build chip. Dark text on the -400 fill reads in both themes.
 export const BUILD_CHIP_ON = {
   'PvP': 'bg-rose-400 text-neutral-950 border-transparent',
@@ -28,6 +35,9 @@ export const BUILD_CHIP_ON = {
   'PvE': 'bg-emerald-400 text-neutral-950 border-transparent',
 };
 export const BUILD_CHIP_OFF = 'border-line text-ash hover:text-bone';
+
+// The character-build pages key builds by lowercase kind.
+export const KIND_BUILD = { pvp: 'PvP', pve: 'PvE' };
 
 export const buildIndex = (b) => {
   const i = BUILDS.indexOf(b);

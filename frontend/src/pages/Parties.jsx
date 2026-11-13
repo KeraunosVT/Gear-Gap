@@ -13,6 +13,7 @@ import Button from '../components/ui/Button';
 import { PageShell } from '../components/ui/PageShell';
 import { todayInGuildTz, fmtTimeEst, eventsForGuildDay, isAfterMidnight } from '../timeUtils';
 import { Save, Trash2, Send, Plus, Copy, RefreshCw, Users, CalendarOff, CalendarDays, CalendarCheck, ClipboardList, X } from 'lucide-react';
+import { BUILD_CHIP_ON } from '../buildColors';
 
 const ROLES = ['Tank', 'DPS', 'Healer'];
 const DAY_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -960,8 +961,8 @@ export default function Parties() {
         </div>
         <button onClick={() => setClassMode((m) => m === 'pvp' ? 'pve' : 'pvp')}
           className="inline-flex items-center gap-0 rounded-full border border-line bg-hall p-0.5 cursor-pointer shrink-0" title="Toggle PvP / PvE classes and roles">
-          <span className={`px-3 py-1 rounded-full text-xs font-bold tracking-wide transition-all ${classMode === 'pvp' ? 'bg-oxblood text-bone' : 'text-ash'}`}>PVP</span>
-          <span className={`px-3 py-1 rounded-full text-xs font-bold tracking-wide transition-all ${classMode === 'pve' ? 'bg-emerald-500 text-ink' : 'text-ash'}`}>PVE</span>
+          <span className={`px-3 py-1 rounded-full text-xs font-bold tracking-wide transition-all ${classMode === 'pvp' ? BUILD_CHIP_ON.PvP : 'text-ash'}`}>PVP</span>
+          <span className={`px-3 py-1 rounded-full text-xs font-bold tracking-wide transition-all ${classMode === 'pve' ? BUILD_CHIP_ON.PvE : 'text-ash'}`}>PVE</span>
         </button>
         <div className="flex-1" />
         <Button variant="secondary" size="none" className="px-5 py-2" disabled={busy} onClick={post}><Send className="w-4 h-4" /> Post to Discord</Button>

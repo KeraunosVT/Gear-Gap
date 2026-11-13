@@ -1,4 +1,4 @@
-import { buildIndex } from './lootBuilds.js';
+import { buildIndex } from './buildColors.js';
 
 // The people who want one item, in the order the council reads them, with
 // what it weighs when choosing: attendance and items received over the

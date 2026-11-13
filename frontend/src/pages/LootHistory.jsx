@@ -13,7 +13,7 @@ import CurrencyIcon from '../components/ui/CurrencyIcon';
 const KIND_FILTERS = [{ key: 'all', label: 'All' }, { key: 'item', label: 'Gear' }, { key: 'currency', label: 'Lucent & Shards' }];
 
 import ErrorBanner from '../components/ui/ErrorBanner';
-import { BUILD_SHORT as PRIO_SHORT, BUILD_CHIP_ON, BUILD_CHIP_OFF } from '../lootBuilds';
+import { BUILD_SHORT as PRIO_SHORT, BUILD_CHIP_ON, BUILD_CHIP_OFF } from '../buildColors';
 import LootNav from '../components/LootNav';
 
 export default function LootHistory() {

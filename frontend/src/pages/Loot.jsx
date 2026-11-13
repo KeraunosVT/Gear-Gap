@@ -6,7 +6,7 @@ import ItemTooltip, { gradeStyle } from '../components/ItemTooltip';
 import { PageShell } from '../components/ui/PageShell';
 import EmptyState from '../components/ui/EmptyState';
 import ErrorBanner from '../components/ui/ErrorBanner';
-import { BUILDS, BUILD_SHORT, BUILD_DOT, BUILD_TEXT, BUILD_CHIP_ON, BUILD_CHIP_OFF } from '../lootBuilds';
+import { BUILDS, BUILD_SHORT, BUILD_DOT, BUILD_TEXT, BUILD_CHIP_ON, BUILD_CHIP_OFF } from '../buildColors';
 
 export default function Loot() {
   const { user } = useAuth();

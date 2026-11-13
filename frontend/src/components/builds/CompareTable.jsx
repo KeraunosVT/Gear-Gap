@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { COMPARE_SECTIONS, PVP_BASE, STAT, fmtStat, shownValue, fullLabel } from '../../buildStats';
+import { BUILD_TEXT } from '../../buildColors';
 
 // The same label with where it comes from, since this table mixes base, Boss
 // and PvP rows under one column.
@@ -66,8 +67,8 @@ export default function CompareTable({ pve, pvp }) {
           <thead>
             <tr>
               <th className="px-4 py-2 text-left eyebrow text-[10px] text-ash">Stat</th>
-              <th className="px-4 py-2 text-right eyebrow text-[10px] text-emerald-400">PvE</th>
-              <th className="px-4 py-2 text-right eyebrow text-[10px] text-oxblood">PvP</th>
+              <th className={`px-4 py-2 text-right eyebrow text-[10px] ${BUILD_TEXT.PvE}`}>PvE</th>
+              <th className={`px-4 py-2 text-right eyebrow text-[10px] ${BUILD_TEXT.PvP}`}>PvP</th>
               <th className="px-4 py-2 text-right eyebrow text-[10px] text-ash">Difference</th>
             </tr>
           </thead>

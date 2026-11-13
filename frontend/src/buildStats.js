@@ -4,6 +4,7 @@
 import STATS from '../../shared/buildStats.json';
 import WEAPON_CLASSES from '../../shared/weaponClasses.json';
 import EXTRA_CLASSES from '../../shared/extraClasses.json';
+import { BUILD_TEXT, BUILD_BORDER } from './buildColors.js';
 
 export const BUILD_STATS = STATS;
 export const STAT = Object.fromEntries(STATS.map((s) => [s.id, s]));
@@ -14,10 +15,10 @@ export const KIND_LABEL = { pve: 'PvE', pvp: 'PvP' };
 // backend/builds.js checks a save against.
 export const BUILD_CLASSES = [...new Set([...Object.values(WEAPON_CLASSES), ...EXTRA_CLASSES])].sort();
 
-// The site's existing PvE/PvP colours (Shards' build pill, Parties' toggle).
+// The site-wide build colours (buildColors.js), as an outlined pill.
 export const KIND_CHIP = {
-  pve: 'text-emerald-400 border-emerald-400/40',
-  pvp: 'text-oxblood border-oxblood/40',
+  pve: `${BUILD_TEXT.PvE} ${BUILD_BORDER.PvE}`,
+  pvp: `${BUILD_TEXT.PvP} ${BUILD_BORDER.PvP}`,
 };
 
 export const DMG = ['Melee', 'Ranged', 'Magic'];

@@ -13,6 +13,7 @@ import KeyStats from '../components/builds/KeyStats';
 import CompareTable from '../components/builds/CompareTable';
 import BuildHistory, { HOW_LABEL, fmtWhen, summarise } from '../components/builds/BuildHistory';
 import { UploadBuildModal, FixBuildModal } from '../components/builds/BuildModals';
+import { BUILD_TEXT } from '../buildColors';
 
 const daysAgo = (iso) => Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
 const ago = (iso) => { const d = daysAgo(iso); return d === 0 ? 'today' : d === 1 ? 'yesterday' : `${d} days ago`; };
@@ -131,8 +132,8 @@ export default function MemberBuild() {
         builds.pve && builds.pvp ? (
           <>
             <p className="text-xs text-ash mb-4 flex flex-wrap gap-x-5 gap-y-1">
-              <span><span className="text-emerald-400">PvE</span> updated {shortDate(builds.pve.updated_at)}</span>
-              <span><span className="text-oxblood">PvP</span> updated {shortDate(builds.pvp.updated_at)}</span>
+              <span><span className={BUILD_TEXT.PvE}>PvE</span> updated {shortDate(builds.pve.updated_at)}</span>
+              <span><span className={BUILD_TEXT.PvP}>PvP</span> updated {shortDate(builds.pvp.updated_at)}</span>
               <span>Differences are PvP minus PvE. PvP stats compare their totals.</span>
             </p>
             <CompareTable pve={builds.pve} pvp={builds.pvp} />
