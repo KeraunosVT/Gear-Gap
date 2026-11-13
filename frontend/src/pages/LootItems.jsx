@@ -69,7 +69,7 @@ export default function LootItems() {
   }
 
   return (
-    <PageShell>
+    <PageShell maxWidth="max-w-none">
       <LootNav />
       <ErrorBanner>{error}</ErrorBanner>
       <Toast msg={msg} />

@@ -104,7 +104,7 @@ export default function LootHistory() {
   }
 
   return (
-    <PageShell>
+    <PageShell maxWidth="max-w-none">
       <LootNav />
       <ErrorBanner>{error}</ErrorBanner>
 

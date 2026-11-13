@@ -100,7 +100,7 @@ export default function LootFairness() {
   if (!can('loot.awards')) return <RestrictedGate />;
 
   return (
-    <PageShell>
+    <PageShell maxWidth="max-w-none">
       <LootNav />
       <div className="flex items-center gap-3 mb-2">
         <Scale className="w-6 h-6 text-brass" />

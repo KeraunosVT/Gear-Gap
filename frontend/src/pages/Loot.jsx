@@ -81,7 +81,7 @@ export default function Loot() {
   const myCount = Object.keys(picks).length;
 
   return (
-    <PageShell>
+    <PageShell maxWidth="max-w-none">
       <div className="flex items-baseline justify-between gap-4 flex-wrap mb-2">
         <p className="text-sm text-ash">Mark the drops you want and how you'd use them. Changes save as you click.</p>
         <span className="text-sm min-h-[20px]" aria-live="polite">

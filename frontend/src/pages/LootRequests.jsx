@@ -275,7 +275,7 @@ export default function LootRequests() {
   if (!can('loot.requests')) return <RestrictedGate />;
 
   return (
-    <PageShell maxWidth="max-w-none" paddingX="px-2">
+    <PageShell maxWidth="max-w-none">
       <LootNav />
       <ErrorBanner>{error}</ErrorBanner>
       <Toast msg={msg} />
