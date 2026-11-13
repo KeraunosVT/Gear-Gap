@@ -192,17 +192,17 @@ export default function GuildSettings() {
     }
   };
 
-  if (loading) return <PageShell maxWidth="max-w-3xl"><div className="py-20 text-center text-ash">Loading settings…</div></PageShell>;
+  if (loading) return <PageShell width="narrow"><div className="py-20 text-center text-ash">Loading settings…</div></PageShell>;
   if (!form) {
     return (
-      <PageShell maxWidth="max-w-3xl">
+      <PageShell width="narrow">
         <ErrorBanner className="">{error || 'No settings available.'}</ErrorBanner>
       </PageShell>
     );
   }
 
   return (
-    <PageShell maxWidth="max-w-3xl">
+    <PageShell width="narrow">
       <p className="text-sm text-ash mb-6">
         The house&apos;s identity and its Discord wiring. These used to be environment variables — changing them
         needed a redeploy.

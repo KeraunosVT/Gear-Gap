@@ -172,7 +172,7 @@ export default function MatchStats() {
   const topHealing = [...players].sort((a, b) => (b.healing || 0) - (a.healing || 0)).slice(0, 10);
 
   return (
-    <PageShell maxWidth="max-w-7xl">
+    <PageShell width="full">
       <Toast msg={msg} />
 
       {/* Header */}

@@ -915,7 +915,7 @@ export default function Parties() {
   const fillCount = items[FILL_PARTY_ID].length;
 
   return (
-    <PageShell maxWidth="max-w-none" paddingX="px-2">
+    <PageShell width="full" paddingX="px-2">
       <div className="panel rounded-lg p-4 mb-6 flex flex-wrap items-center gap-3">
         <input value={rosterName} onChange={(e) => setRosterName(e.target.value)} placeholder="Roster name"
           className="bg-hall border border-line rounded px-3 py-2 text-bone focus:outline-none focus:border-brass w-52" />

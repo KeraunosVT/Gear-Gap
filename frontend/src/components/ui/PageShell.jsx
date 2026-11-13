@@ -1,6 +1,16 @@
-// The max-w-Nxl mx-auto px-6 py-12 wrapper repeated at the top of nearly
-// every page. Width genuinely varies by page density (2xl forms up to
-// [1600px] for the Parties board), so it's a prop, not a fixed value.
-export function PageShell({ maxWidth = 'max-w-6xl', paddingX = 'px-6', className = '', children }) {
-  return <div className={`${maxWidth} mx-auto ${paddingX} py-12 ${className}`}>{children}</div>;
+// The max-w mx-auto px-6 py-12 wrapper at the top of nearly every page.
+//
+// Three widths, named for what's on the page rather than a size, so pages of
+// the same kind line up as you move between them:
+//   narrow   — forms, settings, short single-column lists
+//   standard — lists and profiles (the default)
+//   full     — boards and wide tables that use every pixel (loot, parties)
+const WIDTHS = {
+  narrow: 'max-w-3xl',
+  standard: 'max-w-6xl',
+  full: 'max-w-none',
+};
+
+export function PageShell({ width = 'standard', paddingX = 'px-6', className = '', children }) {
+  return <div className={`${WIDTHS[width] || WIDTHS.standard} mx-auto ${paddingX} py-12 ${className}`}>{children}</div>;
 }

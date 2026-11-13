@@ -74,8 +74,8 @@ export default function MemberBuild() {
     load();
   };
 
-  if (error) return <PageShell maxWidth="max-w-6xl"><EmptyState>{error}</EmptyState></PageShell>;
-  if (!data || !view) return <PageShell maxWidth="max-w-6xl"><EmptyState>Loading…</EmptyState></PageShell>;
+  if (error) return <PageShell><EmptyState>{error}</EmptyState></PageShell>;
+  if (!data || !view) return <PageShell><EmptyState>Loading…</EmptyState></PageShell>;
 
   const { builds, history } = data;
   const name = data.display_name || (isOwner ? user.username : 'Member');
@@ -101,7 +101,7 @@ export default function MemberBuild() {
   ];
 
   return (
-    <PageShell maxWidth="max-w-6xl">
+    <PageShell>
       <Link to="/builds" className="inline-flex items-center gap-1.5 text-sm text-ash hover:text-bone mb-4">
         <ArrowLeft className="w-4 h-4" /> All builds
       </Link>

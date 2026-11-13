@@ -65,7 +65,7 @@ export default function AuditLog() {
   const totalPages = Math.max(Math.ceil(total / LIMIT), 1);
 
   return (
-    <PageShell maxWidth="max-w-6xl">
+    <PageShell>
       <div className="flex flex-wrap items-center gap-3 mb-6">
         <select value={discordId} onChange={(e) => resetToFirstPage(setDiscordId)(e.target.value)}
           className="bg-panel border border-line rounded-lg px-3 py-2.5 text-bone focus:outline-none focus:border-brass">

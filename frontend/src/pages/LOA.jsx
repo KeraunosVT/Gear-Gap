@@ -577,7 +577,7 @@ export default function LOA() {
   const canSubmitRecurring = loaType === 'recurring' && recurDays.size > 0 && reason.trim();
 
   return (
-    <PageShell maxWidth="max-w-4xl">
+    <PageShell>
       <div className="flex items-center justify-between gap-4 flex-wrap mb-6">
         <p className="text-sm text-ash">{t('loapage.intro')}</p>
         {/* The schedule is managed from the Event Calendar now; this keeps the

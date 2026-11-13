@@ -265,7 +265,7 @@ export default function Shards() {
   const pickerMember = pickerId ? members.find((m) => m.id === pickerId) : null;
 
   return (
-    <PageShell maxWidth="max-w-[1400px]">
+    <PageShell width="full">
       <p className="text-sm text-ash mb-5">
         Link every weapon you&apos;re working toward. Each archboss weapon takes {SHARD_WEAPONS.costs.archboss} of its boss&apos;s shard
         and each Heroic weapon takes {SHARD_WEAPONS.costs.heroic} Otherworldly Mind&apos;s Eye; your shard totals add up from your weapons.

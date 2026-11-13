@@ -129,7 +129,7 @@ export default function GearLevels() {
   }
 
   return (
-    <PageShell maxWidth="max-w-4xl">
+    <PageShell>
       <div className="flex flex-wrap items-center justify-between mb-5 gap-4">
         <input
           value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search members…"

@@ -105,10 +105,10 @@ export default function TransferCooldown() {
     }
   };
 
-  if (loading) return <PageShell maxWidth="max-w-3xl"><EmptyState>{t('xfer.loading')}</EmptyState></PageShell>;
+  if (loading) return <PageShell width="narrow"><EmptyState>{t('xfer.loading')}</EmptyState></PageShell>;
   if (error && rows.length === 0) {
     return (
-      <PageShell maxWidth="max-w-3xl">
+      <PageShell width="narrow">
         <ErrorState title={t('xfer.unreachable')} message={error} onRetry={() => { setLoading(true); load(); }} />
       </PageShell>
     );
@@ -117,7 +117,7 @@ export default function TransferCooldown() {
   const mineLeft = mine ? Date.parse(mine.ends_at) - now : null;
 
   return (
-    <PageShell maxWidth="max-w-3xl">
+    <PageShell width="narrow">
       <div className="flex items-center gap-3 mb-2">
         <ArrowRightLeft className="w-6 h-6 text-brass" />
         <h1 className="font-display text-2xl tracking-wide text-bone">{t('xfer.title')}</h1>

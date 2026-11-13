@@ -233,7 +233,7 @@ export default function LootTally() {
   }
 
   return (
-    <PageShell maxWidth="max-w-none">
+    <PageShell width="full">
       <LootNav />
       <ErrorBanner>{error}</ErrorBanner>
       <Toast msg={msg} />

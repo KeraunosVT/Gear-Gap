@@ -21,8 +21,8 @@ export default function MyProfile() {
       .catch((err) => setError(err.response?.data?.error || t('profile.loadFailed')));
   }, []);
 
-  if (error) return <PageShell maxWidth="max-w-2xl"><EmptyState>{error}</EmptyState></PageShell>;
-  if (!state) return <PageShell maxWidth="max-w-2xl"><EmptyState>{t('profile.finding')}</EmptyState></PageShell>;
+  if (error) return <PageShell width="narrow"><EmptyState>{error}</EmptyState></PageShell>;
+  if (!state) return <PageShell width="narrow"><EmptyState>{t('profile.finding')}</EmptyState></PageShell>;
 
   if (state.mapped && state.hasRecord) {
     return <Navigate to={`/roster/${encodeURIComponent(state.name)}`} replace />;
@@ -30,7 +30,7 @@ export default function MyProfile() {
 
   // Both failure modes are fixable, so say which one it is and by whom.
   return (
-    <PageShell maxWidth="max-w-2xl">
+    <PageShell width="narrow">
       <div className="panel rounded-lg p-8 text-center">
         <UserSearch className="w-8 h-8 text-brass mx-auto mb-4" />
         <h2 className="font-display text-xl text-bone tracking-[0.06em] mb-3">{t('profile.none')}</h2>

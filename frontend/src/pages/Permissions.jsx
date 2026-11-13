@@ -123,7 +123,7 @@ export default function Permissions() {
   if (!can('permissions')) return <RestrictedGate />;
 
   return (
-    <PageShell maxWidth="max-w-none">
+    <PageShell width="full">
       <Toast msg={msg} />
       <ErrorBanner>{error}</ErrorBanner>
 

@@ -83,7 +83,7 @@ export default function Classes() {
   };
 
   return (
-    <PageShell maxWidth="max-w-2xl">
+    <PageShell width="narrow">
       <p className="text-sm text-ash mb-5">Rank up to 3 classes per mode so officers can plan parties around your build.</p>
 
       {loading ? (

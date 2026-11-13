@@ -155,10 +155,10 @@ export default function GuildFeudRoster() {
     return sortRows(filtered, sort.key, sort.dir);
   }, [data, filter, scope, sort.key, sort.dir]);
 
-  if (loading) return <PageShell maxWidth="max-w-5xl"><EmptyState>Reading their roster…</EmptyState></PageShell>;
+  if (loading) return <PageShell><EmptyState>Reading their roster…</EmptyState></PageShell>;
   if (error) {
     return (
-      <PageShell maxWidth="max-w-5xl">
+      <PageShell>
         <ErrorState title="NO SUCH GUILD" message={error} onRetry={() => { setLoading(true); load(); }} />
       </PageShell>
     );
@@ -167,7 +167,7 @@ export default function GuildFeudRoster() {
   const marked = (data?.players || []).filter((p) => p.standout).length;
 
   return (
-    <PageShell maxWidth="max-w-5xl">
+    <PageShell>
       <Link to="/war-record/feuds" className="inline-flex items-center gap-2 text-sm text-ash hover:text-brass mb-6 transition-colors">
         <ArrowLeft className="w-4 h-4" /> Feuds
       </Link>

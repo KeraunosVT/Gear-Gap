@@ -245,10 +245,10 @@ export default function EventAttendance() {
     "Asked. An officer will approve or deny it — you'll get a DM either way.",
   );
 
-  if (loading) return <PageShell maxWidth="max-w-[1400px]"><EmptyState>Reading the roll…</EmptyState></PageShell>;
+  if (loading) return <PageShell width="full"><EmptyState>Reading the roll…</EmptyState></PageShell>;
   if (error) {
     return (
-      <PageShell maxWidth="max-w-[1400px]">
+      <PageShell width="full">
         <ErrorBanner className="">{error}</ErrorBanner>
         <Link to="/attendance/calendar" className="inline-flex items-center gap-2 text-sm text-brass hover:text-brassbright mt-4">
           <ArrowLeft className="w-4 h-4" /> Back to the Event Calendar
@@ -269,7 +269,7 @@ export default function EventAttendance() {
   ].filter((t) => !t.hidden);
 
   return (
-    <PageShell maxWidth="max-w-[1400px]">
+    <PageShell width="full">
       <Link to="/attendance/calendar" className="inline-flex items-center gap-1.5 text-xs text-ash hover:text-brass mb-4">
         <ArrowLeft className="w-3 h-3" /> Event Calendar
       </Link>

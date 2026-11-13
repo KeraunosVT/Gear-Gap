@@ -58,11 +58,11 @@ export default function Builds() {
     total: (members || []).length,
   }), [members]);
 
-  if (error) return <PageShell maxWidth="max-w-5xl"><EmptyState>{error}</EmptyState></PageShell>;
-  if (!members) return <PageShell maxWidth="max-w-5xl"><EmptyState>Loading…</EmptyState></PageShell>;
+  if (error) return <PageShell><EmptyState>{error}</EmptyState></PageShell>;
+  if (!members) return <PageShell><EmptyState>Loading…</EmptyState></PageShell>;
 
   return (
-    <PageShell maxWidth="max-w-5xl">
+    <PageShell>
       <div className="flex items-start justify-between gap-4 flex-wrap mb-6">
         <p className="text-sm text-ash max-w-xl">
           Every member&apos;s PvE and PvP stats, read from their character stats screenshots.

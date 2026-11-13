@@ -493,10 +493,10 @@ export default function EventCalendar() {
     setSelected({ date: a.event_date, attId: a.id });
   };
 
-  if (loading) return <PageShell maxWidth="max-w-3xl"><EmptyState>{t('cal.loading')}</EmptyState></PageShell>;
+  if (loading) return <PageShell width="narrow"><EmptyState>{t('cal.loading')}</EmptyState></PageShell>;
   if (error) {
     return (
-      <PageShell maxWidth="max-w-3xl">
+      <PageShell width="narrow">
         <ErrorState title={t('cal.unreachable')} message={error} onRetry={() => { setLoading(true); load(); }} />
       </PageShell>
     );
@@ -546,7 +546,7 @@ export default function EventCalendar() {
     // Week view takes the same full width as the Parties board: seven columns
     // plus the side panel are cramped at 7xl. The list stays narrow — it's
     // one column of rows, and long lines are harder to read.
-    <PageShell maxWidth={view === 'week' ? 'max-w-[1600px]' : 'max-w-3xl'}>
+    <PageShell width={view === 'week' ? 'full' : 'narrow'}>
       <div className="flex items-center gap-3 mb-2">
         <CalendarRange className="w-6 h-6 text-brass" />
         <h1 className="font-display text-2xl tracking-wide text-bone">{t('cal.title')}</h1>

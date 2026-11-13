@@ -228,7 +228,7 @@ export default function Admin() {
   };
 
   return (
-    <PageShell maxWidth="max-w-7xl">
+    <PageShell width="full">
       <div className="flex items-center justify-between gap-4 mb-5">
         <div>
           <h1 className="font-display text-2xl text-bone tracking-[0.06em]">{editingMatchId ? 'Edit Match' : 'Upload a Match'}</h1>

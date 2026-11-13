@@ -100,13 +100,13 @@ export default function LootFairness() {
   if (!can('loot.awards')) return <RestrictedGate />;
 
   return (
-    <PageShell maxWidth="max-w-none">
+    <PageShell width="full">
       <LootNav />
       <div className="flex items-center gap-3 mb-2">
         <Scale className="w-6 h-6 text-brass" />
         <h1 className="font-display text-2xl tracking-wide text-bone">WHO'S OWED</h1>
       </div>
-      <p className="text-ash text-sm mb-6">
+      <p className="text-ash text-sm mb-6 max-w-3xl">
         Attendance against what each member has actually received. Sort by attendance and read up from the
         bottom of the Items column — that's the list this page exists for.
         {' '}<span className="text-ash/70">The window covers both halves, so the two numbers on a row always describe the same period.</span>

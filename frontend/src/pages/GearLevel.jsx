@@ -90,7 +90,7 @@ export default function GearLevel() {
   ] : [];
 
   return (
-    <PageShell maxWidth="max-w-3xl">
+    <PageShell width="narrow">
       <p className="text-sm text-ash mb-5">
         Send a <span className="text-bone">Watermark Upload</span> to record your levels — that&apos;s the one that gets
         read. You can also file a <span className="text-bone">Gear Screenshot Upload</span> so officers can see the

@@ -318,17 +318,17 @@ export default function Signups() {
     }
   };
 
-  if (loading) return <PageShell maxWidth="max-w-4xl"><EmptyState>{t('signups.loading')}</EmptyState></PageShell>;
+  if (loading) return <PageShell><EmptyState>{t('signups.loading')}</EmptyState></PageShell>;
   if (error) {
     return (
-      <PageShell maxWidth="max-w-4xl">
+      <PageShell>
         <ErrorState title={t('signups.unreachable')} message={error} onRetry={() => { setLoading(true); load(); }} />
       </PageShell>
     );
   }
 
   return (
-    <PageShell maxWidth="max-w-4xl">
+    <PageShell>
       <div className="flex items-center gap-3 mb-2">
         <ClipboardList className="w-6 h-6 text-brass" />
         <h1 className="font-display text-2xl tracking-wide text-bone">{t('signups.title')}</h1>

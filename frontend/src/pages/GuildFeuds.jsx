@@ -163,10 +163,10 @@ export default function GuildFeuds() {
     applyMerge(mergeFrom, target);
   };
 
-  if (loading) return <PageShell maxWidth="max-w-5xl"><EmptyState>Reading the war record…</EmptyState></PageShell>;
+  if (loading) return <PageShell><EmptyState>Reading the war record…</EmptyState></PageShell>;
   if (error) {
     return (
-      <PageShell maxWidth="max-w-5xl">
+      <PageShell>
         <ErrorState title="THE RECORD IS SEALED" message={error} onRetry={() => { setLoading(true); load(); }} />
       </PageShell>
     );
@@ -175,7 +175,7 @@ export default function GuildFeuds() {
   const { excluded = 0, total_matches: totalMatches = 0 } = data?.coverage || {};
 
   return (
-    <PageShell maxWidth="max-w-5xl">
+    <PageShell>
       <Link to="/war-record" className="inline-flex items-center gap-2 text-sm text-ash hover:text-brass mb-6 transition-colors">
         <ArrowLeft className="w-4 h-4" /> War Record
       </Link>
