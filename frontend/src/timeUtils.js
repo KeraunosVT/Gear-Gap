@@ -198,8 +198,24 @@ export function eventsForGuildDay(schedule, dow, dateStr = null) {
 // midnight for the same reason: at 12:30am the night in progress is still
 // last night's.
 export function todayInGuildTz() {
-  const shifted = new Date(Date.now() - guildDayStartMin * 60_000);
+  return guildDateOf(Date.now());
+}
+
+// The guild day (YYYY-MM-DD) an instant belongs to, rolling at the guild day
+// start like todayInGuildTz — an award given at 12:30am lands on the night it
+// was given in, not the next calendar day.
+export function guildDateOf(instant) {
+  const shifted = new Date(new Date(instant).getTime() - guildDayStartMin * 60_000);
   return shifted.toLocaleDateString('en-CA', { timeZone: guildTz });
+}
+
+// A guild day as a short label, "Thu, Nov 13" (or "Nov 13" without the
+// weekday). Pinned to UTC noon so the viewer's own timezone can't move a bare
+// date onto its neighbour.
+export function fmtGuildDay(dateStr, { weekday = true } = {}) {
+  return new Date(`${dateStr}T12:00:00Z`).toLocaleDateString(displayLocale, {
+    ...(weekday ? { weekday: 'short' } : {}), month: 'short', day: 'numeric', timeZone: 'UTC',
+  });
 }
 
 // The guild timezone's short name ("ET", "GMT", "AEDT") as of right now.

@@ -128,3 +128,19 @@ describe('eventsForGuildDay', () => {
     assert.deepEqual(tu.eventsForGuildDay(biweekly, 6).map((e) => e.id), ['d', 'a', 'b'], 'no date = the pattern');
   });
 });
+
+describe('guildDateOf', () => {
+  // Guild time here is America/New_York with the day starting at 01:00, so
+  // an award given at 12:30am belongs to the night before.
+  test('rolls at the guild day start, not at midnight', () => {
+    assert.equal(tu.guildDateOf('2026-11-14T04:30:00Z'), '2026-11-13', '11:30pm ET Thursday');
+    assert.equal(tu.guildDateOf('2026-11-14T05:30:00Z'), '2026-11-13', '12:30am ET is still Thursday night');
+    assert.equal(tu.guildDateOf('2026-11-14T06:30:00Z'), '2026-11-14', '1:30am ET is Friday');
+  });
+
+  test('fmtGuildDay keeps the date whatever the viewer\'s zone', () => {
+    assert.match(tu.fmtGuildDay('2026-11-13'), /Nov 13/);
+    assert.match(tu.fmtGuildDay('2026-11-13'), /Fri/);
+    assert.doesNotMatch(tu.fmtGuildDay('2026-11-13', { weekday: false }), /Fri/);
+  });
+});
