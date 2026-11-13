@@ -13,7 +13,10 @@ const CATEGORIES = [
   { main: 'weapons', sub: '' },
   { main: 'armor', sub: '' },
   { main: 'accessories', sub: '' },
-  { main: 'misc', sub: 'perk', filter: (it) => it.id.startsWith('Perk_EA') },
+  // Skill cores. questlog moved these from misc/perk to usable/perk in
+  // November 2026; misc/perk now answers with zero pages rather than an error.
+  // Rows imported before the move keep main_category 'misc' (nothing reads it).
+  { main: 'usable', sub: 'perk', filter: (it) => it.id.startsWith('Perk_EA') },
 ];
 
 // Potentials share the questlog_items table rather than getting one of their
@@ -408,6 +411,10 @@ module.exports = async function runImport(supabase) {
     try {
       let items = await fetchList(cat.main, cat.sub);
       if (cat.filter) items = items.filter(cat.filter);
+      // An empty category is never real. It means questlog renamed or moved
+      // it, and without this the sync reports success while importing nothing,
+      // which is how the skill-core move went unnoticed.
+      if (!items.length) errors.push(`questlog returned no items for ${cat.main}/${cat.sub}. The category has probably moved`);
       items.forEach((it) => { it._mainCategory = cat.main; });
       allListItems.push(...items);
     } catch (err) {
