@@ -14,7 +14,7 @@ import { PageShell } from '../components/ui/PageShell';
 import { todayInGuildTz, fmtTimeEst, eventsForGuildDay, isAfterMidnight } from '../timeUtils';
 import {
   Save, Trash2, Send, Plus, Copy, RefreshCw, CalendarOff, CalendarDays, CalendarCheck, ClipboardList, X,
-  MoreHorizontal, Check, AlertTriangle, Clock, Pencil,
+  MoreHorizontal, Check, AlertTriangle, Clock, Pencil, ChevronDown,
 } from 'lucide-react';
 import { BUILD_CHIP_ON, KIND_BUILD } from '../buildColors';
 import ErrorBanner from '../components/ui/ErrorBanner';
@@ -55,6 +55,15 @@ const POOL_BOXES = [
   { key: 'DPS', label: 'DPS', plural: 'DPS' },
   { key: 'Healer', label: 'Healer', plural: 'healers' },
 ];
+// Which pool boxes are folded, per viewer. A convenience only, so a blocked or
+// empty store just means everything starts open.
+const POOL_COLLAPSED_KEY = 'parties.poolCollapsed';
+const readPoolCollapsed = () => {
+  try {
+    const v = JSON.parse(localStorage.getItem(POOL_COLLAPSED_KEY) || '[]');
+    return Array.isArray(v) ? v : [];
+  } catch { return []; }
+};
 const findContainer = (id, src) => {
   if (id in src) return id;
   if (String(id).startsWith(POOL_BOX_PREFIX)) return 'pool';
@@ -274,6 +283,12 @@ export default function Parties() {
   const [rosterId, setRosterId] = useState(null);
   const [rosterName, setRosterName] = useState('');
   const [filter, setFilter] = useState('');
+  const [poolCollapsed, setPoolCollapsed] = useState(readPoolCollapsed);
+  const togglePoolBox = (key) => setPoolCollapsed((prev) => {
+    const next = prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key];
+    try { localStorage.setItem(POOL_COLLAPSED_KEY, JSON.stringify(next)); } catch { /* per-viewer nicety only */ }
+    return next;
+  });
   const [signedOnly, setSignedOnly] = useState(false);
   const [activeId, setActiveId] = useState(null);
   // Click-to-place: the member picked up by a click, waiting for a click on
@@ -1191,6 +1206,7 @@ export default function Parties() {
                   {POOL_BOXES.map(({ key, label, plural }) => (
                     <PoolBox key={key} id={`${POOL_BOX_PREFIX}${key}`} ids={pool[key]} label={label}
                       style={ROLE_STYLE[key]} selecting={Boolean(selected)} onPlace={placeAt('pool')}
+                      collapsed={poolCollapsed.includes(key)} onToggle={() => togglePoolBox(key)}
                       emptyText={poolFiltered ? `No ${plural} match` : `No ${plural} in the pool`}
                       renderMember={(id) => memberCard(id)} />
                   ))}
@@ -1198,6 +1214,7 @@ export default function Parties() {
                   {pool.none.length > 0 && (
                     <PoolBox id={`${POOL_BOX_PREFIX}none`} ids={pool.none} label="No role"
                       hint="Set T / H / D on the card" selecting={Boolean(selected)} onPlace={placeAt('pool')}
+                      collapsed={poolCollapsed.includes('none')} onToggle={() => togglePoolBox('none')}
                       renderMember={(id) => memberCard(id)} />
                   )}
                 </>
@@ -1364,17 +1381,24 @@ function PartyCard({ pid, name, onRename, ids, roles, selecting, onPlace, render
 
 // One role's share of the pool. All the boxes are the same pool underneath, so
 // a drop or click-to-place on any of them sends the member back to the pool.
-function PoolBox({ id, ids, label, style, hint, emptyText, selecting, onPlace, renderMember }) {
+// The name in the header folds the box. A folded box still takes drops and
+// still counts who's in it, so search results there aren't lost from view.
+function PoolBox({ id, ids, label, style, hint, emptyText, selecting, onPlace, renderMember, collapsed, onToggle }) {
   return (
-    <DroppableColumn id={id} itemIds={ids} onClick={onPlace} selecting={selecting}
+    <DroppableColumn id={id} itemIds={collapsed ? [] : ids} onClick={onPlace} selecting={selecting}
       className={`rounded-lg border border-line bg-panel/40 p-2 ${style ? `border-l-2 ${style.ring}` : 'border-dashed'}`}>
-      <div className="flex items-center gap-2 mb-1.5 px-0.5">
-        <span className={`w-2 h-2 rounded-full shrink-0 ${style ? style.dot : 'bg-ash/40'}`} />
-        <h3 className={`font-display text-sm tracking-[0.06em] ${style ? style.text : 'text-ash'}`}>{label}</h3>
-        <span className="font-mono text-xs text-ash">{ids.length}</span>
-        {hint && <span className="ml-auto text-[11px] text-ash">{hint}</span>}
+      <div className={`flex items-center gap-2 px-0.5 ${collapsed ? '' : 'mb-1.5'}`}>
+        <button type="button" aria-expanded={!collapsed} onClick={(e) => { e.stopPropagation(); onToggle(); }}
+          title={collapsed ? `Show ${label}` : `Hide ${label}`}
+          className="flex items-center gap-2 min-w-0 rounded hover:bg-panelup/60 -ml-0.5 pl-0.5 pr-1.5">
+          <ChevronDown className={`w-3.5 h-3.5 text-ash shrink-0 transition-transform ${collapsed ? '-rotate-90' : ''}`} />
+          <span className={`w-2 h-2 rounded-full shrink-0 ${style ? style.dot : 'bg-ash/40'}`} />
+          <h3 className={`font-display text-sm tracking-[0.06em] ${style ? style.text : 'text-ash'}`}>{label}</h3>
+          <span className="font-mono text-xs text-ash">{ids.length}</span>
+        </button>
+        {hint && !collapsed && <span className="ml-auto text-[11px] text-ash">{hint}</span>}
       </div>
-      {ids.length === 0 ? (
+      {collapsed ? null : ids.length === 0 ? (
         <div className="text-ash/60 text-xs text-center py-2">{emptyText}</div>
       ) : (
         <div className="space-y-1">{ids.map(renderMember)}</div>
