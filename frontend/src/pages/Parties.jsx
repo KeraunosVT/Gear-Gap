@@ -1203,7 +1203,9 @@ export default function Parties() {
           </DroppableColumn>
 
           <div className="min-w-0">
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3 items-start">
+            {/* Six across on wide screens, so the 11 parties read as a row of
+                6 and a row of 5. Narrower screens step down the columns. */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3 items-start">
               {BOARD_PARTY_IDS.map((pid) => (
                 <PartyCard key={pid} pid={pid} name={partyNames[pid]} onRename={(v) => renameParty(pid, v)}
                   ids={items[pid]} roles={roles} selecting={Boolean(selected)} onPlace={placeAt(pid)}
