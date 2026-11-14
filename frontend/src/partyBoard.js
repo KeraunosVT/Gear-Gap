@@ -30,34 +30,27 @@ export function partyMakeup(ids, roles, size = PARTY_SIZE) {
   return { pips, missing, seats, full: ids.length >= size };
 }
 
-// Whether a member passes the pool's role chip. 'none' is the "No role" chip.
-export const roleMatches = (role, filter) => (filter === 'all'
-  ? true
-  : filter === 'none' ? !ROLES.includes(role) : role === filter);
-
-// The pool as shown: search and the Signed up only switch first, then the
-// role chip. `counts` is per chip after search and the switch, so each chip
-// says how many it would show. Signed up first (going, then waitlist), then
-// by name, so the people expected tonight are at the top.
+// The pool as shown: one box per role, plus `none` for members with no role
+// in the current mode. Search and the Signed up only switch narrow every box.
+// Within a box, signed up first (going, then waitlist), then by name, so the
+// people expected tonight are at the top.
 //   ids        pool member ids
 //   nameOf     id -> display name
 //   roleOf     id -> role in the current mode, or falsy
 //   signupOf   id -> 'going' | 'waitlist' | undefined
-export function poolView(ids, { nameOf, roleOf, signupOf, query = '', signedOnly = false, role = 'all' }) {
+export function poolView(ids, { nameOf, roleOf, signupOf, query = '', signedOnly = false }) {
   const q = query.trim().toLowerCase();
-  const base = ids.filter((id) => (!signedOnly || signupOf(id))
-    && (!q || (nameOf(id) || '').toLowerCase().includes(q)));
-  const counts = { all: base.length, none: 0 };
-  ROLES.forEach((r) => { counts[r] = 0; });
-  base.forEach((id) => {
-    const r = roleOf(id);
-    if (ROLES.includes(r)) counts[r] += 1; else counts.none += 1;
-  });
   const signRank = (id) => ({ going: 0, waitlist: 1 }[signupOf(id)] ?? 2);
-  const list = base
-    .filter((id) => roleMatches(roleOf(id), role))
-    .sort((a, b) => (signRank(a) - signRank(b)) || (nameOf(a) || '').localeCompare(nameOf(b) || ''));
-  return { list, counts };
+  const groups = { none: [] };
+  ROLES.forEach((r) => { groups[r] = []; });
+  ids
+    .filter((id) => (!signedOnly || signupOf(id)) && (!q || (nameOf(id) || '').toLowerCase().includes(q)))
+    .sort((a, b) => (signRank(a) - signRank(b)) || (nameOf(a) || '').localeCompare(nameOf(b) || ''))
+    .forEach((id) => {
+      const r = roleOf(id);
+      groups[ROLES.includes(r) ? r : 'none'].push(id);
+    });
+  return groups;
 }
 
 // Everything a saved roster records, as one comparable string. The pool is

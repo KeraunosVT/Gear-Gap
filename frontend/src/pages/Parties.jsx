@@ -37,8 +37,10 @@ const PARTY_IDS = Array.from({ length: 12 }, (_, i) => `p${i + 1}`);
 const FILL_PARTY_ID = 'p12';
 const BOARD_PARTY_IDS = PARTY_IDS.filter((id) => id !== FILL_PARTY_ID);
 
-// Everyone not placed in a party or Absent sits in one pool. Role is a filter
-// on it, not a column, so changing a role or the PvP/PvE mode moves nobody.
+// Everyone not placed in a party or Absent sits in one pool. It's shown as a
+// box per role, but the boxes are views onto that one list, so changing a role
+// or the PvP/PvE mode moves nobody, and dropping on any box returns someone to
+// the pool (where they show under their own role).
 const initItems = () => ({
   pool: [],
   absent: [],
@@ -47,7 +49,17 @@ const initItems = () => ({
 const initNames = () => Object.fromEntries(
   PARTY_IDS.map((id, i) => [id, id === FILL_PARTY_ID ? 'Fill' : `Party ${i + 1}`]),
 );
-const findContainer = (id, src) => (id in src ? id : Object.keys(src).find((k) => src[k].includes(id)));
+const POOL_BOX_PREFIX = 'pool:';
+const POOL_BOXES = [
+  { key: 'Tank', label: 'Tank', plural: 'tanks' },
+  { key: 'DPS', label: 'DPS', plural: 'DPS' },
+  { key: 'Healer', label: 'Healer', plural: 'healers' },
+];
+const findContainer = (id, src) => {
+  if (id in src) return id;
+  if (String(id).startsWith(POOL_BOX_PREFIX)) return 'pool';
+  return Object.keys(src).find((k) => src[k].includes(id));
+};
 
 const ROLE_COLOR = { Tank: '#38bdf8', DPS: '#fb923c', Healer: '#4ade80' };
 const ROLE_SYMBOL = { Tank: '🛡️', DPS: '⚔️', Healer: '💚' };
@@ -262,7 +274,6 @@ export default function Parties() {
   const [rosterId, setRosterId] = useState(null);
   const [rosterName, setRosterName] = useState('');
   const [filter, setFilter] = useState('');
-  const [roleFilter, setRoleFilter] = useState('all');
   const [signedOnly, setSignedOnly] = useState(false);
   const [activeId, setActiveId] = useState(null);
   // Click-to-place: the member picked up by a click, waiting for a click on
@@ -326,8 +337,8 @@ export default function Parties() {
     signupOf: (id) => signupById.get(id),
     query: filter,
     signedOnly,
-    role: roleFilter,
-  }), [items.pool, byId, roles, signupById, filter, signedOnly, roleFilter]);
+  }), [items.pool, byId, roles, signupById, filter, signedOnly]);
+  const poolFiltered = Boolean(filter.trim()) || signedOnly;
 
   // ── Saved / Unsaved changes ────────────────────────────────────────────
   // The board is compared with a signature of what was last saved or loaded,
@@ -974,12 +985,6 @@ export default function Parties() {
       selected={selected === id} onSelect={selectMember} onReturn={returnable ? returnToPool : undefined} />
   );
 
-  const roleChips = [
-    { key: 'all', label: 'All', dot: 'bg-ash' },
-    ...ROLES.map((r) => ({ key: r, label: r, dot: ROLE_STYLE[r].dot })),
-    { key: 'none', label: 'No role', dot: 'bg-ash/40' },
-  ];
-
   return (
     <PageShell width="full" paddingX="px-2">
       {/* Header, split by job: the night you're building for, the roster
@@ -1150,11 +1155,10 @@ export default function Parties() {
       <DndContext sensors={sensors} collisionDetection={closestCorners}
         onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd} onDragCancel={endDrag}>
         <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4 items-start">
-          {/* The pool: everyone not placed, in one list. Role is a filter. */}
-          <DroppableColumn id="pool" itemIds={pool.list} onClick={placeAt('pool')} selecting={Boolean(selected)}
-            className="panel rounded-lg p-3 flex flex-col lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)]">
-            {/* Controls don't count as a click on the pool. */}
-            <div onClick={(e) => e.stopPropagation()}>
+          {/* The pool: everyone not placed, in a box per role. Search and
+              Signed up only narrow every box. */}
+          <div className="panel rounded-lg p-3 flex flex-col lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)]">
+            <div>
               <div className="flex items-center justify-between gap-2 mb-2">
                 <h2 className="font-display text-bone text-[15px]">
                   Pool <span className="font-mono text-xs text-ash font-normal">{items.pool.length}</span>
@@ -1173,34 +1177,33 @@ export default function Parties() {
                 </div>
               </div>
               <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search…" aria-label="Search the pool"
-                className="w-full bg-hall border border-line rounded px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass mb-2" />
-              <div className="flex flex-wrap gap-1.5 mb-2">
-                {roleChips.map(({ key, label, dot }) => {
-                  const on = roleFilter === key;
-                  return (
-                    <button key={key} type="button" aria-pressed={on} onClick={() => setRoleFilter(key)}
-                      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold border transition-colors ${on ? 'border-ash/60 bg-panelup text-bone' : 'border-line text-ash hover:text-bone'}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />{label}
-                      <span className="font-mono opacity-80">{pool.counts[key]}</span>
-                    </button>
-                  );
-                })}
-              </div>
+                className="w-full bg-hall border border-line rounded px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass mb-3" />
             </div>
-            <div className="flex-1 min-h-[60px] max-h-[60vh] lg:max-h-none overflow-auto space-y-1 pr-1">
+            <div className="flex-1 min-h-[60px] max-h-[60vh] lg:max-h-none overflow-auto space-y-3 pr-1">
               {loadingMembers ? (
                 <div className="text-ash text-sm text-center py-6">Loading members…</div>
               ) : membersError ? (
                 <ErrorBanner className="" compact>
                   {membersError}<button type="button" onClick={loadMembers} className="block mt-2 text-brass hover:text-brassbright">Retry</button>
                 </ErrorBanner>
-              ) : pool.list.length === 0 ? (
-                <div className="text-ash/60 text-xs text-center py-4 border border-dashed border-line rounded">
-                  {items.pool.length === 0 ? 'Everyone is placed.' : 'Nobody here matches.'}
-                </div>
-              ) : pool.list.map((id) => memberCard(id))}
+              ) : (
+                <>
+                  {POOL_BOXES.map(({ key, label, plural }) => (
+                    <PoolBox key={key} id={`${POOL_BOX_PREFIX}${key}`} ids={pool[key]} label={label}
+                      style={ROLE_STYLE[key]} selecting={Boolean(selected)} onPlace={placeAt('pool')}
+                      emptyText={poolFiltered ? `No ${plural} match` : `No ${plural} in the pool`}
+                      renderMember={(id) => memberCard(id)} />
+                  ))}
+                  {/* Only there when someone needs a role set. */}
+                  {pool.none.length > 0 && (
+                    <PoolBox id={`${POOL_BOX_PREFIX}none`} ids={pool.none} label="No role"
+                      hint="Set T / H / D on the card" selecting={Boolean(selected)} onPlace={placeAt('pool')}
+                      renderMember={(id) => memberCard(id)} />
+                  )}
+                </>
+              )}
             </div>
-          </DroppableColumn>
+          </div>
 
           <div className="min-w-0">
             {/* Six across on wide screens, so the 11 parties read as a row of
@@ -1355,6 +1358,27 @@ function PartyCard({ pid, name, onRename, ids, roles, selecting, onPlace, render
           </div>
         ))}
       </div>
+    </DroppableColumn>
+  );
+}
+
+// One role's share of the pool. All the boxes are the same pool underneath, so
+// a drop or click-to-place on any of them sends the member back to the pool.
+function PoolBox({ id, ids, label, style, hint, emptyText, selecting, onPlace, renderMember }) {
+  return (
+    <DroppableColumn id={id} itemIds={ids} onClick={onPlace} selecting={selecting}
+      className={`rounded-lg border border-line bg-panel/40 p-2 ${style ? `border-l-2 ${style.ring}` : 'border-dashed'}`}>
+      <div className="flex items-center gap-2 mb-1.5 px-0.5">
+        <span className={`w-2 h-2 rounded-full shrink-0 ${style ? style.dot : 'bg-ash/40'}`} />
+        <h3 className={`font-display text-sm tracking-[0.06em] ${style ? style.text : 'text-ash'}`}>{label}</h3>
+        <span className="font-mono text-xs text-ash">{ids.length}</span>
+        {hint && <span className="ml-auto text-[11px] text-ash">{hint}</span>}
+      </div>
+      {ids.length === 0 ? (
+        <div className="text-ash/60 text-xs text-center py-2">{emptyText}</div>
+      ) : (
+        <div className="space-y-1">{ids.map(renderMember)}</div>
+      )}
     </DroppableColumn>
   );
 }

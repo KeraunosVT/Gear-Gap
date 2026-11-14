@@ -51,25 +51,21 @@ describe('poolView', () => {
     nameOf: (id) => names[id], roleOf: (id) => roles[id], signupOf: (id) => signups[id], ...extra,
   });
 
-  test('going first, then waitlist, then everyone else by name', () => {
-    assert.deepEqual(pb.poolView(['a', 'b', 'c', 'd'], opts()).list, ['c', 'd', 'b', 'a']);
+  test('splits the pool into a box per role, with no role apart', () => {
+    assert.deepEqual(pb.poolView(['a', 'b', 'c', 'd'], opts()), {
+      Tank: ['a'], Healer: [], DPS: ['c', 'b'], none: ['d'],
+    });
   });
 
-  test('role chip filters the list but counts cover every chip', () => {
-    const v = pb.poolView(['a', 'b', 'c', 'd'], opts({ role: 'DPS' }));
-    assert.deepEqual(v.list, ['c', 'b']);
-    assert.deepEqual(v.counts, { all: 4, none: 1, Tank: 1, Healer: 0, DPS: 2 });
+  test('within a box, going first, then waitlist, then everyone else by name', () => {
+    const r = { a: 'DPS', b: 'DPS', c: 'DPS', d: 'DPS' };
+    const v = pb.poolView(['a', 'b', 'c', 'd'], opts({ roleOf: (id) => r[id] }));
+    assert.deepEqual(v.DPS, ['c', 'd', 'b', 'a']);
   });
 
-  test('No role chip shows members without a role', () => {
-    assert.deepEqual(pb.poolView(['a', 'b', 'c', 'd'], opts({ role: 'none' })).list, ['d']);
-  });
-
-  test('search and Signed up only narrow the counts too', () => {
+  test('search and Signed up only narrow every box', () => {
     const v = pb.poolView(['a', 'b', 'c', 'd'], opts({ signedOnly: true, query: 'mor' }));
-    assert.deepEqual(v.list, ['c']);
-    assert.equal(v.counts.all, 1);
-    assert.equal(v.counts.DPS, 1);
+    assert.deepEqual(v, { Tank: [], Healer: [], DPS: ['c'], none: [] });
   });
 });
 
