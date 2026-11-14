@@ -12,46 +12,48 @@ import RestrictedGate from '../components/ui/RestrictedGate';
 import Button from '../components/ui/Button';
 import { PageShell } from '../components/ui/PageShell';
 import { todayInGuildTz, fmtTimeEst, eventsForGuildDay, isAfterMidnight } from '../timeUtils';
-import { Save, Trash2, Send, Plus, Copy, RefreshCw, Users, CalendarOff, CalendarDays, CalendarCheck, ClipboardList, X } from 'lucide-react';
-import { BUILD_CHIP_ON } from '../buildColors';
+import {
+  Save, Trash2, Send, Plus, Copy, RefreshCw, CalendarOff, CalendarDays, CalendarCheck, ClipboardList, X,
+  MoreHorizontal, Check, AlertTriangle, Clock, Pencil,
+} from 'lucide-react';
+import { BUILD_CHIP_ON, KIND_BUILD } from '../buildColors';
 import ErrorBanner from '../components/ui/ErrorBanner';
+import { ROLES, PARTY_SIZE, partyMakeup, poolView, boardSignature } from '../partyBoard';
 
-const ROLES = ['Tank', 'DPS', 'Healer'];
 const DAY_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+// Tank blue, healer green, DPS orange. Red is kept for problems only (LOA,
+// conflicts), so a party full of DPS no longer looks like an error.
 const ROLE_STYLE = {
-  Tank:   { dot: 'bg-sky-400',     ring: 'border-l-sky-400' },
-  DPS:    { dot: 'bg-oxblood',     ring: 'border-l-oxblood' },
-  Healer: { dot: 'bg-emerald-400', ring: 'border-l-emerald-400' },
+  Tank:   { dot: 'bg-sky-400',     ring: 'border-l-sky-400',     text: 'text-sky-600 dark:text-sky-400' },
+  Healer: { dot: 'bg-emerald-400', ring: 'border-l-emerald-400', text: 'text-emerald-700 dark:text-emerald-400' },
+  DPS:    { dot: 'bg-orange-400',  ring: 'border-l-orange-400',  text: 'text-orange-600 dark:text-orange-400' },
 };
-const PARTY_SIZE = 6;
+const WARN_TEXT = 'text-amber-700 dark:text-amber-400';
+const GOOD_TEXT = 'text-emerald-700 dark:text-emerald-400';
 const PARTY_IDS = Array.from({ length: 12 }, (_, i) => `p${i + 1}`);
+// The last slot is the overflow/standby group rather than a numbered party, so
+// it's named for what it's used for and sits on the bench beside Absent. It is
+// still saved and posted like any other party, and still renameable.
+const FILL_PARTY_ID = 'p12';
+const BOARD_PARTY_IDS = PARTY_IDS.filter((id) => id !== FILL_PARTY_ID);
 
-// Members sit in a role-specific pool (or "unassigned" if no role is set yet).
-const POOL_ROLE_KEY = { Tank: 'pool_tank', DPS: 'pool_dps', Healer: 'pool_healer' };
-const POOL_KEYS = ['pool_unassigned', 'pool_tank', 'pool_dps', 'pool_healer'];
-const poolForRole = (role) => POOL_ROLE_KEY[role] || 'pool_unassigned';
-const POOL_META = [
-  { key: 'pool_tank', label: 'Tank', dot: 'bg-sky-400' },
-  { key: 'pool_dps', label: 'DPS', dot: 'bg-oxblood' },
-  { key: 'pool_healer', label: 'Healer', dot: 'bg-emerald-400' },
-  { key: 'pool_unassigned', label: 'Unassigned', dot: 'bg-ash' },
-];
-
+// Everyone not placed in a party or Absent sits in one pool. Role is a filter
+// on it, not a column, so changing a role or the PvP/PvE mode moves nobody.
 const initItems = () => ({
-  ...Object.fromEntries(POOL_KEYS.map((k) => [k, []])),
+  pool: [],
   absent: [],
   ...Object.fromEntries(PARTY_IDS.map((id) => [id, []])),
 });
-// The last slot is the overflow/standby group rather than a numbered party, so
-// it's named for what it's used for. Still renameable like any other.
-const FILL_PARTY_ID = 'p12';
 const initNames = () => Object.fromEntries(
   PARTY_IDS.map((id, i) => [id, id === FILL_PARTY_ID ? 'Fill' : `Party ${i + 1}`]),
 );
 const findContainer = (id, src) => (id in src ? id : Object.keys(src).find((k) => src[k].includes(id)));
 
-const ROLE_COLOR = { Tank: '#38bdf8', DPS: '#b0423a', Healer: '#4ade80' };
+const ROLE_COLOR = { Tank: '#38bdf8', DPS: '#fb923c', Healer: '#4ade80' };
 const ROLE_SYMBOL = { Tank: '🛡️', DPS: '⚔️', Healer: '💚' };
+// Seeding falls back to whoever's left in this order when the role a seat
+// wants has run out, so a party missing a tank takes a DPS before a healer.
+const SEED_FALLBACK = ['Tank', 'DPS', 'Healer'];
 
 // Whether an absence is definite enough to act on. A `partial` entry from
 // /loa/unavailable is time-scoped and couldn't be checked against an event time
@@ -260,7 +262,12 @@ export default function Parties() {
   const [rosterId, setRosterId] = useState(null);
   const [rosterName, setRosterName] = useState('');
   const [filter, setFilter] = useState('');
+  const [roleFilter, setRoleFilter] = useState('all');
+  const [signedOnly, setSignedOnly] = useState(false);
   const [activeId, setActiveId] = useState(null);
+  // Click-to-place: the member picked up by a click, waiting for a click on
+  // where they go. The drag-free way to build a board.
+  const [selected, setSelected] = useState(null);
   const [loadingMembers, setLoadingMembers] = useState(true);
   const [membersError, setMembersError] = useState('');
   const [msg, setMsg] = useState(null);
@@ -299,11 +306,6 @@ export default function Parties() {
   const signupRef = useRef(signupById);
   useEffect(() => { signupRef.current = signupById; }, [signupById]);
 
-  // Top-of-page bars the officer has closed ('signup', 'loaConflict'). Scoped
-  // to the occasion: moving the date/event brings them back.
-  const [dismissedBars, setDismissedBars] = useState(() => new Set());
-  const dismissBar = (key) => setDismissedBars((prev) => new Set(prev).add(key));
-
   const rolesByModeRef = useRef(rolesByMode);
   useEffect(() => { rolesByModeRef.current = rolesByMode; }, [rolesByMode]);
 
@@ -318,12 +320,52 @@ export default function Parties() {
     return m;
   }, [members, extra]);
 
-  const poolViews = useMemo(() => {
-    const f = filter.toLowerCase();
-    const views = {};
-    POOL_KEYS.forEach((k) => { views[k] = items[k].filter((id) => (byId[id]?.name || '').toLowerCase().includes(f)); });
-    return views;
-  }, [items, byId, filter]);
+  const pool = useMemo(() => poolView(items.pool, {
+    nameOf: (id) => byId[id]?.name,
+    roleOf: (id) => roles[id],
+    signupOf: (id) => signupById.get(id),
+    query: filter,
+    signedOnly,
+    role: roleFilter,
+  }), [items.pool, byId, roles, signupById, filter, signedOnly, roleFilter]);
+
+  // ── Saved / Unsaved changes ────────────────────────────────────────────
+  // The board is compared with a signature of what was last saved or loaded,
+  // so undoing a move by hand reads as Saved again. markClean() asks for the
+  // next committed board to become the new baseline; the tick makes that
+  // happen even when the board itself didn't change.
+  const sigFor = (name) => boardSignature({
+    items, partyIds: PARTY_IDS, partyNames, classAssignments, rosterName: name, date: loaDate, event: loaEvent,
+  });
+  const boardSig = sigFor(rosterName);
+  const [cleanSig, setCleanSig] = useState(null);
+  const [cleanTick, setCleanTick] = useState(0);
+  const cleanPending = useRef(true);
+  const markClean = () => { cleanPending.current = true; setCleanTick((t) => t + 1); };
+  useEffect(() => {
+    if (!cleanPending.current) return;
+    cleanPending.current = false;
+    setCleanSig(boardSig);
+  }, [boardSig, cleanTick]);
+  const dirty = cleanSig !== null && boardSig !== cleanSig;
+  const dirtyRef = useRef(dirty);
+  dirtyRef.current = dirty;
+
+  // Closing the tab or reloading with unsaved work asks first.
+  useEffect(() => {
+    if (!dirty) return undefined;
+    const warn = (e) => { e.preventDefault(); e.returnValue = ''; };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [dirty]);
+
+  // Escape puts down whoever was picked up for click-to-place.
+  useEffect(() => {
+    if (!selected) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') setSelected(null); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [selected]);
 
   const loadMembers = () => {
     setLoadingMembers(true); setMembersError('');
@@ -336,26 +378,25 @@ export default function Parties() {
           if (m.pvp_role) seededPvp[m.id] = m.pvp_role;
           if (m.pve_role) seededPve[m.id] = m.pve_role;
         });
-        const merged = {
+        setRolesByMode({
           pvp: { ...seededPvp, ...rolesByModeRef.current.pvp },
           pve: { ...seededPve, ...rolesByModeRef.current.pve },
-        };
-        setRolesByMode(merged);
-        // Put any members not already placed into the pool matching their role
-        // in the currently active mode, or the absent box if they're on LOA.
+        });
+        // Put any members not already placed into the pool, or the Absent box
+        // if they're on LOA.
         setItems((prev) => {
           const placed = new Set([...PARTY_IDS, 'absent'].flatMap((k) => prev[k]));
           const unplaced = ms.map((m) => m.id).filter((id) => !placed.has(id));
           const loa = loaRef.current;
-          const currentRoles = merged[classMode];
-          const next = { ...prev };
-          POOL_KEYS.forEach((k) => { next[k] = []; });
-          unplaced.forEach((id) => {
-            if (!isFullyOut(loa, id)) next[poolForRole(currentRoles[id])].push(id);
-          });
-          next.absent = [...prev.absent, ...unplaced.filter((id) => isFullyOut(loa, id))];
-          return next;
+          return {
+            ...prev,
+            pool: unplaced.filter((id) => !isFullyOut(loa, id)),
+            absent: [...prev.absent, ...unplaced.filter((id) => isFullyOut(loa, id))],
+          };
         });
+        // Benching people on LOA is automatic, not an edit. If the board was
+        // clean, it stays clean.
+        if (!dirtyRef.current) markClean();
       })
       .catch((err) => setMembersError(err.response?.data?.error || 'Could not load members.'))
       .finally(() => setLoadingMembers(false));
@@ -437,7 +478,6 @@ export default function Parties() {
     const key = `${loaDate}|${loaEvent}`;
     if (loaFetchedFor.current === key) return;
     loaFetchedFor.current = key;
-    setDismissedBars(new Set());
     fetchLoa(loaDate, loaEvent).then(setLoaById);
     fetchSignups(loaDate, loaEvent).then(setSignupById);
   }, [loaDate, loaEvent]);
@@ -445,7 +485,7 @@ export default function Parties() {
   // Moving the occasion changes who's flagged, but never moves anyone: the
   // picker is a view onto a different night, and silently yanking people out of
   // parties an officer just built (with no way back) loses real work. Conflicts
-  // surface in a prompt instead — see loaConflicts.
+  // surface in the status strip instead — see loaConflicts.
   const changeLoaDate = (date) => {
     // Events are tied to one weekday, so a previously picked one may not exist
     // on the new date. Both setters land in the same React batch, so the fetch
@@ -460,7 +500,7 @@ export default function Parties() {
   // bulk-moved; `partial` is surfaced so an officer can check the window and
   // decide, since it may not collide with this event at all.
   const loaConflicts = useMemo(() => {
-    const onBoard = [...PARTY_IDS, ...POOL_KEYS].flatMap((k) => items[k].filter((id) => loaById.has(id)));
+    const onBoard = [...PARTY_IDS, 'pool'].flatMap((k) => items[k].filter((id) => loaById.has(id)));
     const inParties = PARTY_IDS.flatMap((pid) => items[pid].filter((id) => loaById.has(id)));
     return {
       full: onBoard.filter((id) => isFullyOut(loaById, id)),
@@ -471,22 +511,22 @@ export default function Parties() {
     };
   }, [items, loaById]);
 
-  // Headline numbers for the signup banner, plus how many of them are still
-  // sitting in a pool — which is what "Seed parties" would actually move, so
+  // Headline numbers for the signups chip, plus how many of them are still
+  // sitting in the pool — which is what "Seed parties" would actually move, so
   // the button can say nothing rather than promise a no-op.
   const signupCounts = useMemo(() => {
     let going = 0; let waitlist = 0;
     // Composition of who's coming, read off the same rolesByMode the seed uses
-    // — so the banner is a preview of what "Seed parties" would actually build.
+    // — so the chip is a preview of what "Seed parties" would actually build.
     const byRole = { Tank: 0, DPS: 0, Healer: 0, unroled: 0 };
     signupById.forEach((s, id) => {
       if (s !== 'going') { waitlist += 1; return; }
       going += 1;
       if (ROLES.includes(roles[id])) byRole[roles[id]] += 1; else byRole.unroled += 1;
     });
-    const inPool = POOL_KEYS.flatMap((k) => items[k]).filter((id) => signupById.has(id)).length;
+    const inPool = items.pool.filter((id) => signupById.has(id)).length;
     return { going, waitlist, inPool, byRole };
-  }, [signupById, items, roles]);
+  }, [signupById, items.pool, roles]);
 
   // Keep absentWhy in step with the Absent box. Anyone arriving without an
   // already-recorded reason is classified once, on arrival: a definite absence
@@ -515,19 +555,8 @@ export default function Parties() {
     [items.absent, absentWhy, loaById],
   );
 
-  // Re-bucket anyone sitting in an unassigned pool column (never an actual
-  // party or the absent box — those are deliberate placements) to match their
-  // role in whichever mode was just switched to.
-  useEffect(() => {
-    setItems((prev) => {
-      const next = { ...prev };
-      POOL_KEYS.forEach((k) => { next[k] = []; });
-      POOL_KEYS.forEach((k) => {
-        prev[k].forEach((id) => { next[poolForRole(roles[id])].push(id); });
-      });
-      return next;
-    });
-  }, [classMode]);
+  // A click that ends a drag must not also pick the card up for click-to-place.
+  const justDragged = useRef(false);
 
   if (!can('parties')) {
     return <RestrictedGate />;
@@ -535,12 +564,19 @@ export default function Parties() {
 
   const flash = (text, ok = true) => { setMsg({ text, ok }); setTimeout(() => setMsg(null), 4000); };
 
-  // Names for a list of ids, truncated — the conflict bar names who's affected
+  // Unsaved work is only thrown away on purpose.
+  const okToDiscard = () => !dirty || window.confirm('This board has unsaved changes. Discard them?');
+
+  // Names for a list of ids, truncated — the strip names who's affected
   // without growing unbounded when a whole night's worth of people are out.
   const namesFor = (ids, max = 3) => {
     const names = ids.slice(0, max).map((id) => byId[id]?.name || 'Unknown');
     return ids.length > max ? `${names.join(', ')} +${ids.length - max} more` : names.join(', ');
   };
+
+  const isFullParty = (key, list) => PARTY_IDS.includes(key) && list.length >= PARTY_SIZE;
+
+  const onDragStart = ({ active }) => { setActiveId(active.id); setSelected(null); };
 
   const onDragOver = ({ active, over }) => {
     if (!over) return;
@@ -550,12 +586,13 @@ export default function Parties() {
       const ac = findContainer(activeId, prev);
       const oc = findContainer(overId, prev);
       if (!ac || !oc || ac === oc) return prev;
-      if (!POOL_KEYS.includes(oc) && oc !== 'absent' && prev[oc].length >= PARTY_SIZE) return prev; // party full
+      if (isFullParty(oc, prev[oc])) return prev;
       const activeItems = prev[ac];
       const overItems = prev[oc];
       const overIndex = overItems.indexOf(overId);
       let newIndex;
-      if (overId in prev) {
+      // The pool is shown sorted, so where in it someone lands means nothing.
+      if (overId in prev || oc === 'pool') {
         newIndex = overItems.length;
       } else {
         const below = active.rect.current.translated && over.rect &&
@@ -570,15 +607,21 @@ export default function Parties() {
     });
   };
 
-  const onDragEnd = ({ active, over }) => {
+  const endDrag = () => {
     setActiveId(null);
+    justDragged.current = true;
+    setTimeout(() => { justDragged.current = false; }, 0);
+  };
+
+  const onDragEnd = ({ active, over }) => {
+    endDrag();
     if (!over) return;
     const activeId = active.id;
     const overId = over.id;
     setItems((prev) => {
       const ac = findContainer(activeId, prev);
       const oc = findContainer(overId, prev);
-      if (!ac || !oc || ac !== oc) return prev;
+      if (!ac || !oc || ac !== oc || ac === 'pool') return prev;
       const list = prev[ac];
       const oldIndex = list.indexOf(activeId);
       const newIndex = overId in prev ? list.length - 1 : list.indexOf(overId);
@@ -587,22 +630,41 @@ export default function Parties() {
     });
   };
 
+  // Move one member to the end of another container: click-to-place, and
+  // double-click back to the pool.
+  const moveMember = (id, dest) => {
+    const from = findContainer(id, items);
+    if (!from || from === dest) return;
+    if (isFullParty(dest, items[dest])) { flash(`${partyNames[dest] || 'That party'} is full.`, false); return; }
+    setItems((prev) => {
+      const src = findContainer(id, prev);
+      if (!src || src === dest) return prev;
+      return { ...prev, [src]: prev[src].filter((x) => x !== id), [dest]: [...prev[dest], id] };
+    });
+  };
+
+  const selectMember = (id) => {
+    if (justDragged.current) return;
+    setSelected((cur) => (cur === id ? null : id));
+  };
+  // Where a click lands while someone is picked up.
+  const placeAt = (dest) => () => {
+    if (!selected) return;
+    const id = selected;
+    setSelected(null);
+    moveMember(id, dest);
+  };
+
+  // Double-click a member in a party, Fill or Absent to send them back.
+  const returnToPool = (id) => { setSelected(null); moveMember(id, 'pool'); };
+
+  // Roles are saved per member the moment they change, so they carry into
+  // every roster and into the signup counts.
   const setRole = (id, role) => {
     const next = roles[id] === role ? '' : role;
     setRolesByMode((prev) => ({ ...prev, [classMode]: { ...prev[classMode], [id]: next } }));
-    axios.put('/api/admin/member-roles', { id, mode: classMode, role: next }).catch(() => {});
-    // If they're sitting in a pool (not a party or absent), move them to the pool matching their new role.
-    setItems((prev) => {
-      const container = findContainer(id, prev);
-      if (!POOL_KEYS.includes(container)) return prev;
-      const dest = poolForRole(next);
-      if (dest === container) return prev;
-      return {
-        ...prev,
-        [container]: prev[container].filter((x) => x !== id),
-        [dest]: [...prev[dest], id],
-      };
-    });
+    axios.put('/api/admin/member-roles', { id, mode: classMode, role: next })
+      .catch(() => flash(`Couldn't save ${byId[id]?.name || 'that member'}'s role.`, false));
   };
 
   const renameParty = (id, name) => setPartyNames((n) => ({ ...n, [id]: name }));
@@ -629,12 +691,14 @@ export default function Parties() {
     const next = initItems();
     members.forEach((m) => {
       if (isFullyOut(loaById, m.id)) next.absent.push(m.id);
-      else next[poolForRole(roles[m.id])].push(m.id);
+      else next.pool.push(m.id);
     });
     setItems(next);
     setPartyNames(initNames()); setRosterId(null); setRosterName(''); setExtra({});
-    setClassAssignments({ pvp: {}, pve: {} }); setLoaDiff(null); setAbsentWhy({});
+    setClassAssignments({ pvp: {}, pve: {} }); setLoaDiff(null); setAbsentWhy({}); setSelected(null);
+    markClean();
   };
+  const newBoard = () => { if (okToDiscard()) resetBoard(); };
 
   // Move everyone definitely out off the board in one go — the explicit version
   // of what used to happen silently on every date change. Partial absences are
@@ -645,7 +709,7 @@ export default function Parties() {
     const movingSet = new Set(moving);
     setItems((prev) => {
       const next = { ...prev, absent: [...prev.absent, ...moving] };
-      [...POOL_KEYS, ...PARTY_IDS].forEach((key) => { next[key] = prev[key].filter((id) => !movingSet.has(id)); });
+      ['pool', ...PARTY_IDS].forEach((key) => { next[key] = prev[key].filter((id) => !movingSet.has(id)); });
       return next;
     });
     setLoaDiff(null);
@@ -656,14 +720,13 @@ export default function Parties() {
   // bulk move here — the occasion changing must never rearrange a board an
   // officer is in the middle of building.
   //
-  // Only people currently sitting in a pool are touched: anyone already in a
+  // Only people currently sitting in the pool are touched: anyone already in a
   // party or parked in Absent was put there deliberately. And nobody is ever
   // moved to Absent, because not signing up means undecided, not out — that
   // distinction is the whole reason signups are opt-in only.
   const seedFromSignups = () => {
-    const pool = POOL_KEYS.flatMap((k) => items[k]);
-    const going = pool.filter((id) => signupById.get(id) === 'going');
-    const waiting = pool.filter((id) => signupById.get(id) === 'waitlist');
+    const going = items.pool.filter((id) => signupById.get(id) === 'going');
+    const waiting = items.pool.filter((id) => signupById.get(id) === 'waitlist');
     if (going.length === 0 && waiting.length === 0) {
       return flash('Nobody in the pool has signed up for this occasion.', false);
     }
@@ -678,7 +741,7 @@ export default function Parties() {
       if (queue[role].length) return queue[role].shift();
       // Fall back to whoever's left rather than leaving a party short just
       // because nobody who signed up is a healer.
-      const other = ROLES.find((r) => queue[r].length);
+      const other = SEED_FALLBACK.find((r) => queue[r].length);
       return other ? queue[other].shift() : null;
     };
 
@@ -686,8 +749,8 @@ export default function Parties() {
     // have people in them are topped up from the seat they left off at.
     const SEATS = ['Tank', 'Healer', 'DPS', 'DPS', 'DPS', 'DPS'];
     const placed = {};
-    for (const pid of PARTY_IDS) {
-      if (pid === FILL_PARTY_ID || items[pid].length >= PARTY_SIZE) continue;
+    for (const pid of BOARD_PARTY_IDS) {
+      if (items[pid].length >= PARTY_SIZE) continue;
       const taking = [];
       for (let seat = items[pid].length; seat < PARTY_SIZE; seat += 1) {
         const id = pull(SEATS[seat]);
@@ -701,56 +764,37 @@ export default function Parties() {
     // Waitlist plus anyone the parties couldn't hold goes to Fill, which is
     // already the board's standby group. Fill respects the party size like any
     // other column; the remainder simply stays in the pool.
-    const standby = [...waiting, ...ROLES.flatMap((r) => queue[r])];
+    const standby = [...waiting, ...SEED_FALLBACK.flatMap((r) => queue[r])];
     const fill = standby.slice(0, Math.max(0, PARTY_SIZE - items[FILL_PARTY_ID].length));
     const stayed = standby.length - fill.length;
 
     const seated = Object.values(placed).flat();
     const moving = new Set([...seated, ...fill]);
     setItems((prev) => {
-      const next = { ...prev };
-      POOL_KEYS.forEach((k) => { next[k] = prev[k].filter((id) => !moving.has(id)); });
+      const next = { ...prev, pool: prev.pool.filter((id) => !moving.has(id)) };
       Object.entries(placed).forEach(([pid, ids]) => { next[pid] = [...prev[pid], ...ids]; });
       next[FILL_PARTY_ID] = [...prev[FILL_PARTY_ID], ...fill];
       return next;
     });
 
     const tail = [
-      fill.length ? `${fill.length} to Fill` : '',
-      stayed ? `${stayed} left in the pool — no room` : '',
+      fill.length ? `${fill.length} to ${partyNames[FILL_PARTY_ID] || 'Fill'}` : '',
+      stayed ? `${stayed} left in the pool, no room` : '',
       unroled.length ? `${unroled.length} left in the pool with no role set` : '',
     ].filter(Boolean);
     flash(`Seeded ${seated.length} from signups${tail.length ? `. ${tail.join(', ')}.` : '.'}`);
   };
 
-  // Click a party member to send them back to the pool for their role — the
-  // reverse of dragging them in, without the drag. Fired only for pointer
-  // travel under the sensor's own activation threshold (see MemberCardBase),
-  // so it can never land at the end of a real drag.
-  const returnToPool = (id) => {
-    setItems((prev) => {
-      const container = findContainer(id, prev);
-      if (!PARTY_IDS.includes(container)) return prev;
-      const dest = poolForRole(roles[id]);
-      return {
-        ...prev,
-        [container]: prev[container].filter((x) => x !== id),
-        [dest]: [...prev[dest], id],
-      };
-    });
-  };
-
-  // Put members whose LOA no longer applies back into the pool for their role,
-  // out of the Absent box they were parked in when the roster was saved.
+  // Put members whose LOA no longer applies back into the pool, out of the
+  // Absent box they were parked in when the roster was saved.
   const returnFromAbsent = (ids) => {
     const returning = new Set(ids.filter((id) => items.absent.includes(id)));
     if (returning.size === 0) return;
-    setItems((prev) => {
-      const next = { ...prev, absent: prev.absent.filter((id) => !returning.has(id)) };
-      POOL_KEYS.forEach((k) => { next[k] = [...prev[k]]; });
-      returning.forEach((id) => { next[poolForRole(roles[id])].push(id); });
-      return next;
-    });
+    setItems((prev) => ({
+      ...prev,
+      absent: prev.absent.filter((id) => !returning.has(id)),
+      pool: [...prev.pool, ...returning],
+    }));
   };
 
   // The board as a savable roster. Shared by save and duplicate, so a copy is
@@ -769,9 +813,11 @@ export default function Parties() {
     if (!rosterName.trim()) return flash('Name the roster first.', false);
     setBusy(true);
     const body = buildBody(rosterName);
+    const sig = boardSig;
     try {
       if (rosterId) await axios.put(`/api/admin/rosters/${rosterId}`, body);
       else { const res = await axios.post('/api/admin/rosters', body); setRosterId(res.data.id); }
+      setCleanSig(sig);
       loadSaved(); flash('Roster saved.');
     } catch (err) { flash(err.response?.data?.error || 'Save failed.', false); }
     finally { setBusy(false); }
@@ -779,7 +825,7 @@ export default function Parties() {
 
   // "Siege" → "Siege (copy)" → "Siege (copy 2)" … an existing suffix is stripped
   // first so repeated duplication doesn't pile them up, and taken names are
-  // skipped so the dropdown never shows two entries reading the same.
+  // skipped so the menu never shows two entries reading the same.
   const copyName = (name) => {
     const base = name.replace(/ \(copy(?: \d+)?\)$/, '').trim() || 'Roster';
     const taken = new Set(saved.map((r) => r.name));
@@ -790,16 +836,17 @@ export default function Parties() {
 
   // Save the board as a new roster, leaving the loaded one untouched, and switch
   // to editing the copy. This is how a roster gets reused for another night:
-  // duplicate it, move the date, and the LOA bars re-check the new occasion
-  // against the copy — where load-change-date-Update overwrites last week's.
+  // duplicate it, move the date, and the strip re-checks LOA for the new
+  // occasion against the copy — where load-change-date-Save overwrites last week's.
   const duplicate = async () => {
     if (!rosterId) return;
     setBusy(true);
     const name = copyName(rosterName);
+    const sig = sigFor(name);
     try {
       const res = await axios.post('/api/admin/rosters', buildBody(name));
-      setRosterId(res.data.id); setRosterName(name);
-      // The diff banner is about the roster that was loaded; the copy is
+      setRosterId(res.data.id); setRosterName(name); setCleanSig(sig);
+      // The LOA-changed note is about the roster that was loaded; the copy is
       // freshly saved, so there's nothing to have changed since.
       setLoaDiff(null);
       loadSaved(); flash(`Duplicated as "${name}".`);
@@ -808,7 +855,7 @@ export default function Parties() {
   };
 
   const load = async (id) => {
-    if (!id) return;
+    if (!id || !okToDiscard()) return;
     try {
       const res = await axios.get(`/api/admin/rosters/${id}`);
       const r = res.data.roster;
@@ -827,7 +874,7 @@ export default function Parties() {
       const legacyRoles = {};
       const nextExtra = {};
       (r.layout?.parties || []).forEach((lp) => {
-        if (!(lp.id in nextItems)) return;
+        if (!PARTY_IDS.includes(lp.id)) return;
         nextNames[lp.id] = lp.name || nextNames[lp.id];
         (lp.members || []).forEach((m) => {
           nextItems[lp.id].push(m.id);
@@ -848,9 +895,9 @@ export default function Parties() {
       };
       const assigned = new Set([...PARTY_IDS, 'absent'].flatMap((p) => nextItems[p]));
       const unassigned = members.map((m) => m.id).filter((mid) => !assigned.has(mid));
-      unassigned.forEach((id) => {
-        if (isFullyOut(loa, id)) nextItems.absent.push(id);
-        else nextItems[poolForRole(mergedRolesByMode[classMode][id])].push(id);
+      unassigned.forEach((mid) => {
+        if (isFullyOut(loa, mid)) nextItems.absent.push(mid);
+        else nextItems.pool.push(mid);
       });
 
       // Assigned members who have filed since this was saved. Only this half of
@@ -871,18 +918,19 @@ export default function Parties() {
       setItems(nextItems); setPartyNames(nextNames); setAbsentWhy(savedWhy);
       setRolesByMode(mergedRolesByMode); setExtra(nextExtra);
       setClassAssignments(r.layout?.classAssignments || { pvp: {}, pve: {} });
-      setRosterId(r.id); setRosterName(r.name);
+      setRosterId(r.id); setRosterName(r.name); setSelected(null);
       if (date) {
         loaFetchedFor.current = `${date}|${event}`;
         setLoaDate(date); setLoaEvent(event); setLoaById(loa);
       }
       setLoaDiff(date && nowOut.length ? { nowOut } : null);
+      markClean();
       flash(`Loaded "${r.name}".`);
     } catch (err) { flash(err.response?.data?.error || 'Load failed.', false); }
   };
 
   const del = async () => {
-    if (!rosterId) return resetBoard();
+    if (!rosterId) return;
     if (!window.confirm(`Delete roster "${rosterName}"?`)) return;
     try { await axios.delete(`/api/admin/rosters/${rosterId}`); loadSaved(); resetBoard(); flash('Roster deleted.'); }
     catch (err) { flash(err.response?.data?.error || 'Delete failed.', false); }
@@ -910,263 +958,283 @@ export default function Parties() {
   const activeMember = activeId ? byId[activeId] : null;
 
   // Fill is standby, not a real party, so it's counted apart from the total.
-  const slottedCount = PARTY_IDS.filter((pid) => pid !== FILL_PARTY_ID)
-    .reduce((n, pid) => n + items[pid].length, 0);
+  const slottedCount = BOARD_PARTY_IDS.reduce((n, pid) => n + items[pid].length, 0);
   const fillCount = items[FILL_PARTY_ID].length;
+
+  const saveState = dirty
+    ? { label: 'Unsaved changes', cls: `${WARN_TEXT} border-amber-500/50`, dot: 'bg-amber-500' }
+    : rosterId
+      ? { label: 'Saved', cls: `${GOOD_TEXT} border-emerald-500/40`, dot: 'bg-emerald-500' }
+      : { label: 'New board', cls: 'text-ash border-line', dot: 'bg-ash' };
+
+  const memberCard = (id, { returnable = false } = {}) => (
+    <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole}
+      loa={loaById.get(id)} signup={signupById.get(id)} classMode={classMode}
+      assignedClass={classAssignments[classMode][id]} onClassChange={(cls) => setMemberClass(classMode, id, cls)}
+      selected={selected === id} onSelect={selectMember} onReturn={returnable ? returnToPool : undefined} />
+  );
+
+  const roleChips = [
+    { key: 'all', label: 'All', dot: 'bg-ash' },
+    ...ROLES.map((r) => ({ key: r, label: r, dot: ROLE_STYLE[r].dot })),
+    { key: 'none', label: 'No role', dot: 'bg-ash/40' },
+  ];
 
   return (
     <PageShell width="full" paddingX="px-2">
-      <div className="panel rounded-lg p-4 mb-6 flex flex-wrap items-center gap-3">
-        <input value={rosterName} onChange={(e) => setRosterName(e.target.value)} placeholder="Roster name"
-          className="bg-hall border border-line rounded px-3 py-2 text-bone focus:outline-none focus:border-brass w-52" />
-        <button onClick={save} disabled={busy} className="inline-flex items-center gap-2 px-4 py-2 bg-brass hover:bg-brassbright text-ink font-semibold rounded-lg transition-colors disabled:opacity-40">
-          <Save className="w-4 h-4" /> {rosterId ? 'Update' : 'Save'}
-        </button>
-        <select value={rosterId || ''} onChange={(e) => load(e.target.value)}
-          className="bg-hall border border-line rounded px-3 py-2 text-bone focus:outline-none focus:border-brass">
-          <option value="">Load roster…</option>
-          {saved.map((r) => <option key={r.id} value={r.id}>{r.name}{r.event_date ? ` — ${r.event_date}` : ''}</option>)}
-        </select>
-        <button onClick={resetBoard} className="inline-flex items-center gap-2 px-3 py-2 text-ash hover:text-bone transition-colors"><Plus className="w-4 h-4" /> New</button>
-        <button onClick={duplicate} disabled={!rosterId || busy}
-          title={rosterId ? 'Save this board as a new roster, leaving the original untouched' : 'Load a roster first'}
-          className="inline-flex items-center gap-2 px-3 py-2 text-ash hover:text-bone transition-colors disabled:opacity-40 disabled:hover:text-ash">
-          <Copy className="w-4 h-4" /> Duplicate
-        </button>
-        <Button variant="destructive" size="none" className="px-3 py-2" onClick={del}><Trash2 className="w-4 h-4" /> Delete</Button>
-        <div className="flex items-center gap-2 text-sm text-ash">
-          <CalendarDays className="w-4 h-4" />
-          <span className="eyebrow text-[10px]">For</span>
-          <input type="date" value={loaDate} onChange={(e) => changeLoaDate(e.target.value)}
-            className="bg-hall border border-line rounded px-2 py-1.5 text-bone text-sm focus:outline-none focus:border-brass"
-            title="The occasion this roster is for — LOAs are checked against it, and it's saved with the roster" />
-          <select value={loaEvent} onChange={(e) => changeLoaEvent(e.target.value)}
-            className="bg-hall border border-line rounded px-2 py-1.5 text-bone text-sm focus:outline-none focus:border-brass">
-            <option value="">All events</option>
-            {/* After-midnight events belong to this night but land on the next
-                calendar day, so the day is shown to head off "why is the 12:30
-                AM one under Saturday?". */}
-            {eventsForDate.map((s) => (
-              <option key={s.id} value={s.id}>
-                {s.name}{s.event_time ? ` — ${fmtTimeEst(s.event_time)}` : ''}
-                {isAfterMidnight(s.event_time) ? ` ${DAY_ABBR[s.day_of_week]}` : ''}
-              </option>
-            ))}
-            {oneOffs.map((o) => (
-              <option key={o.id} value={`signup:${o.id}`}>
-                {o.title}{o.event_time ? ` — ${fmtTimeEst(o.event_time)}` : ''}
-              </option>
-            ))}
-          </select>
-          {loaById.size > 0 && <span className="text-oxblood font-mono">{loaById.size} out</span>}
-        </div>
-        <button onClick={() => setClassMode((m) => m === 'pvp' ? 'pve' : 'pvp')}
-          className="inline-flex items-center gap-0 rounded-full border border-line bg-hall p-0.5 cursor-pointer shrink-0" title="Toggle PvP / PvE classes and roles">
-          <span className={`px-3 py-1 rounded-full text-xs font-bold tracking-wide transition-all ${classMode === 'pvp' ? BUILD_CHIP_ON.PvP : 'text-ash'}`}>PVP</span>
-          <span className={`px-3 py-1 rounded-full text-xs font-bold tracking-wide transition-all ${classMode === 'pve' ? BUILD_CHIP_ON.PvE : 'text-ash'}`}>PVE</span>
-        </button>
-        <div className="flex-1" />
-        <Button variant="secondary" size="none" className="px-5 py-2" disabled={busy} onClick={post}><Send className="w-4 h-4" /> Post to Discord</Button>
-      </div>
-
-      {msg && (
-        <div className={`mb-6 px-5 py-3 rounded-lg border text-sm ${msg.ok ? 'border-brass/40 bg-panel text-bone' : 'border-oxblood/50 bg-oxblooddeep/20 text-bone'}`}>{msg.text}</div>
-      )}
-
-      {/* Which parties lost someone since this roster was saved. Informational
-          — every change is applied by the officer, never automatically. */}
-      {loaDiff && (
-        <div className="mb-3 px-5 py-3 rounded-lg border border-brass/40 bg-panel text-sm flex items-start justify-between gap-4">
-          <div>
-            <div className="eyebrow text-[10px] text-brass mb-1">LOA changed since this roster was saved</div>
-            <div className="text-bone">
-              <span className="text-oxblood font-semibold">Now on LOA:</span>{' '}
-              {loaDiff.nowOut.map((m) => `${m.name} (${m.party})`).join(', ')}
-            </div>
+      {/* Header, split by job: the night you're building for, the roster
+          itself, then what you do with it. Load, New, Duplicate and Delete
+          live in the ⋯ menu. */}
+      <header className="panel rounded-lg p-3 mb-3 flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+        <div className="flex flex-col gap-1">
+          <span className="eyebrow text-[10px] text-ash flex items-center gap-1.5">
+            <CalendarDays className="w-3.5 h-3.5" /> Building for
+          </span>
+          <div className="flex flex-wrap gap-2">
+            <input type="date" value={loaDate} onChange={(e) => changeLoaDate(e.target.value)} aria-label="Date"
+              className="bg-hall border border-line rounded px-2 py-1.5 text-bone text-sm focus:outline-none focus:border-brass"
+              title="The occasion this roster is for. LOAs and signups are checked against it, and it's saved with the roster." />
+            <select value={loaEvent} onChange={(e) => changeLoaEvent(e.target.value)} aria-label="Event"
+              className="bg-hall border border-line rounded px-2 py-1.5 text-bone text-sm focus:outline-none focus:border-brass max-w-[16rem]">
+              <option value="">All events</option>
+              {/* After-midnight events belong to this night but land on the next
+                  calendar day, so the day is shown to head off "why is the 12:30
+                  AM one under Saturday?". */}
+              {eventsForDate.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}{s.event_time ? ` — ${fmtTimeEst(s.event_time)}` : ''}
+                  {isAfterMidnight(s.event_time) ? ` ${DAY_ABBR[s.day_of_week]}` : ''}
+                </option>
+              ))}
+              {oneOffs.map((o) => (
+                <option key={o.id} value={`signup:${o.id}`}>
+                  {o.title}{o.event_time ? ` — ${fmtTimeEst(o.event_time)}` : ''}
+                </option>
+              ))}
+            </select>
           </div>
-          <button onClick={() => setLoaDiff(null)} className="p-1 text-ash hover:text-bone shrink-0" title="Dismiss">
-            <X className="w-4 h-4" />
-          </button>
         </div>
-      )}
 
-      {/* Who said they're coming. Deliberately says nothing about anyone else:
-          no signup is undecided, not out, and the LOA bars below are the only
-          thing on this page that means absent. */}
-      {signupById.size > 0 && !dismissedBars.has('signup') && (
-        <div className="mb-3 px-5 py-3 rounded-lg border border-brass/40 bg-panel text-sm flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2 text-bone">
-            <ClipboardList className="w-4 h-4 text-brass shrink-0" />
-            <span>
-              <span className="font-semibold">{signupCounts.going}</span> signed up for this occasion
-              {signupCounts.waitlist > 0 && `, ${signupCounts.waitlist} on the waitlist`}.
-              <span className="text-ash"> Everyone else just hasn&apos;t answered.</span>
+        <div className="flex items-center gap-3 flex-1 basis-64 justify-center min-w-0">
+          <label className="relative min-w-0 flex items-center gap-1.5">
+            <span className="sr-only">Roster name</span>
+            <input value={rosterName} onChange={(e) => setRosterName(e.target.value)} placeholder="Name this roster"
+              className="bg-transparent border-0 border-b border-dashed border-line focus:border-brass focus:outline-none font-display text-lg text-bone placeholder:text-ash/60 px-0 py-0.5 w-56 min-w-0" />
+            <Pencil className="w-3.5 h-3.5 text-ash/60 shrink-0" aria-hidden="true" />
+          </label>
+          <span className={`inline-flex items-center gap-1.5 text-xs font-semibold border rounded-full px-2.5 py-0.5 whitespace-nowrap ${saveState.cls}`}>
+            <span className={`w-1.5 h-1.5 rounded-full ${saveState.dot}`} />{saveState.label}
+          </span>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <div role="group" aria-label="Classes and roles for" className="inline-flex rounded-full border border-line bg-hall p-0.5">
+            {['pvp', 'pve'].map((m) => (
+              <button key={m} type="button" aria-pressed={classMode === m} onClick={() => setClassMode(m)}
+                className={`px-3 py-1 rounded-full text-xs font-bold tracking-wide transition-colors ${classMode === m ? BUILD_CHIP_ON[KIND_BUILD[m]] : 'text-ash hover:text-bone'}`}>
+                {KIND_BUILD[m]}
+              </button>
+            ))}
+          </div>
+          <RosterMenu saved={saved} rosterId={rosterId} loaDate={loaDate} busy={busy}
+            onLoad={load} onNew={newBoard} onDuplicate={duplicate} onDelete={del} />
+          <Button size="none" className="px-4 py-2" disabled={busy} onClick={save}><Save className="w-4 h-4" /> Save</Button>
+          <Button variant="secondary" size="none" className="px-4 py-2" disabled={busy} onClick={post}><Send className="w-4 h-4" /> Post to Discord</Button>
+        </div>
+      </header>
+
+      {/* One status strip in place of the stacked bars: signups, LOA trouble,
+          and the result of the last action. Each chip only appears when it has
+          something to say, except signups, which always reports. */}
+      <div aria-label="Board status" className="panel rounded-lg px-2.5 py-2 mb-4 flex flex-wrap items-center gap-2 text-sm">
+        {signupById.size > 0 ? (
+          <StatusChip title="Who said they're coming. Everyone else just hasn't answered.">
+            <ClipboardList className={`w-4 h-4 shrink-0 ${GOOD_TEXT}`} />
+            <span className="text-bone">
+              <b className="font-mono">{signupCounts.going}</b> signed up
+              {signupCounts.waitlist > 0 && <>, <b className="font-mono">{signupCounts.waitlist}</b> waitlist</>}
             </span>
-          </div>
-          <div className="flex items-center gap-3 shrink-0">
             {ROLES.map((r) => (
-              <span key={r} className="inline-flex items-center gap-1.5" title={`${r}s signed up`}>
-                <span className={`w-1.5 h-1.5 rounded-full ${ROLE_STYLE[r].dot}`} />
-                <span className={`font-mono text-sm ${signupCounts.byRole[r] ? 'text-bone' : 'text-ash/50'}`}>{signupCounts.byRole[r]}</span>
+              <span key={r} title={`${r}s signed up`} className={`font-mono text-xs ${ROLE_STYLE[r].text}`}>
+                {r[0]} {signupCounts.byRole[r]}
               </span>
             ))}
             {signupCounts.byRole.unroled > 0 && (
-              <span className="text-xs text-brass" title="Signed up with no role set — the seed leaves these in the pool">
+              <span className={`text-xs ${WARN_TEXT}`} title="Signed up with no role set. Seed parties leaves them in the pool.">
                 +{signupCounts.byRole.unroled} no role
               </span>
             )}
-          </div>
-          {signupCounts.inPool > 0 && (
-            <Button variant="secondary" size="none" className="px-3 py-1.5 text-xs shrink-0" onClick={seedFromSignups}>
-              Seed parties
-            </Button>
-          )}
-          <button onClick={() => dismissBar('signup')} className="p-1 text-ash hover:text-bone shrink-0" title="Dismiss">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
-      {/* Benched for an absence that no longer applies — the counterpart to the
-          conflict bar below, and what keeps the Absent box from silting up as
-          an officer moves between dates. */}
-      {staleBenches.length > 0 && (
-        <div className="mb-3 px-5 py-3 rounded-lg border border-emerald-500/40 bg-panel text-sm flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2 text-bone">
-            <CalendarCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-            <span>
-              <span className="font-semibold">{namesFor(staleBenches)}</span>
-              {staleBenches.length === 1 ? ' is' : ' are'} in Absent for an LOA that doesn&apos;t apply to this occasion.
-            </span>
-          </div>
-          <Button variant="secondary" size="none" className="px-3 py-1.5 text-xs shrink-0" onClick={() => returnFromAbsent(staleBenches)}>
-            Return {staleBenches.length} to pool
-          </Button>
-        </div>
-      )}
-
-      {/* Live conflict prompt: members definitely out, still on the board. */}
-      {loaConflicts.full.length > 0 && !dismissedBars.has('loaConflict') && (
-        <ErrorBanner className="mb-3 flex items-center justify-between gap-4">
-          <div className="flex items-center gap-2 text-bone">
-            <CalendarOff className="w-4 h-4 text-oxblood shrink-0" />
-            {loaConflicts.fullInParties.length > 0 ? (
-              <span>
-                <span className="font-semibold">{namesFor(loaConflicts.fullInParties)}</span>
-                {loaConflicts.fullInParties.length === 1 ? ' is' : ' are'} on LOA for this occasion but still in a party.
-                {loaConflicts.full.length > loaConflicts.fullInParties.length
-                  && ` ${loaConflicts.full.length - loaConflicts.fullInParties.length} more in the pool.`}
-              </span>
-            ) : (
-              <span>
-                {loaConflicts.full.length} member{loaConflicts.full.length === 1 ? '' : 's'} in the pool
-                {loaConflicts.full.length === 1 ? ' is' : ' are'} on LOA for this occasion.
-              </span>
+            {signupCounts.inPool > 0 && (
+              <button type="button" onClick={seedFromSignups}
+                className={`px-2 py-0.5 rounded border border-emerald-500/60 text-xs font-semibold hover:bg-emerald-500/10 ${GOOD_TEXT}`}>
+                Seed parties
+              </button>
             )}
-          </div>
-          <Button variant="secondary" size="none" className="px-3 py-1.5 text-xs shrink-0" onClick={benchLoaConflicts}>
-            Move {loaConflicts.full.length} to Absent
-          </Button>
-          <button onClick={() => dismissBar('loaConflict')} className="p-1 text-ash hover:text-bone shrink-0" title="Dismiss">
-            <X className="w-4 h-4" />
-          </button>
-        </ErrorBanner>
-      )}
+          </StatusChip>
+        ) : (
+          <StatusChip tone="muted">
+            <ClipboardList className="w-4 h-4 shrink-0" /> No signups for this night yet
+          </StatusChip>
+        )}
 
-      {/* Time-scoped absences that may or may not collide with what's being
-          built. No bulk action — picking a specific event above resolves them
-          into a definite yes/no, and the card tooltips show each window. */}
-      {loaConflicts.partial.length > 0 && (
-        <div className="mb-6 px-5 py-2.5 rounded-lg border border-brass/30 bg-panel text-sm text-ash flex items-center gap-2">
-          <CalendarOff className="w-4 h-4 text-brass shrink-0" />
-          <span>
-            <span className="text-bone font-semibold">{namesFor(loaConflicts.partial)}</span>
-            {loaConflicts.partial.length === 1 ? ' has' : ' have'} an LOA for part of this day — hover for the window
-            {!loaEvent && ', or pick an event above to check it exactly'}.
-          </span>
-        </div>
-      )}
+        {/* Which parties lost someone since this roster was saved. Every change
+            is applied by the officer, never automatically. */}
+        {loaDiff && (
+          <StatusChip tone="warn">
+            <CalendarOff className="w-4 h-4 shrink-0" />
+            <span>On LOA since this was saved: <span className="text-bone">{loaDiff.nowOut.map((m) => `${m.name} (${m.party})`).join(', ')}</span></span>
+            <button type="button" onClick={() => setLoaDiff(null)} className="p-0.5 text-ash hover:text-bone" aria-label="Dismiss">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </StatusChip>
+        )}
+
+        {/* Members definitely out, still on the board. */}
+        {loaConflicts.full.length > 0 && (
+          <StatusChip tone="danger">
+            <AlertTriangle className="w-4 h-4 shrink-0 text-oxblood" />
+            <span className="text-bone">
+              {loaConflicts.fullInParties.length > 0 ? (
+                <>
+                  <b>{namesFor(loaConflicts.fullInParties)}</b> on LOA but in a party
+                  {loaConflicts.full.length > loaConflicts.fullInParties.length
+                    && `, ${loaConflicts.full.length - loaConflicts.fullInParties.length} more in the pool`}
+                </>
+              ) : (
+                <><b className="font-mono">{loaConflicts.full.length}</b> in the pool on LOA</>
+              )}
+            </span>
+            <button type="button" onClick={benchLoaConflicts}
+              className="px-2 py-0.5 rounded bg-oxblood text-white text-xs font-semibold hover:opacity-90">
+              Move {loaConflicts.full.length} to Absent
+            </button>
+          </StatusChip>
+        )}
+
+        {/* Benched for an absence that no longer applies: the counterpart to
+            the conflict chip, and what keeps Absent from silting up as an
+            officer moves between dates. */}
+        {staleBenches.length > 0 && (
+          <StatusChip tone="good">
+            <CalendarCheck className={`w-4 h-4 shrink-0 ${GOOD_TEXT}`} />
+            <span className="text-bone"><b>{namesFor(staleBenches)}</b> in Absent for an LOA that doesn&apos;t apply</span>
+            <button type="button" onClick={() => returnFromAbsent(staleBenches)}
+              className={`px-2 py-0.5 rounded border border-emerald-500/60 text-xs font-semibold hover:bg-emerald-500/10 ${GOOD_TEXT}`}>
+              Return {staleBenches.length} to pool
+            </button>
+          </StatusChip>
+        )}
+
+        {/* Time-scoped absences that may or may not collide with what's being
+            built. No bulk action: picking a specific event resolves them into a
+            definite yes or no, and the card tooltips show each window. */}
+        {loaConflicts.partial.length > 0 && (
+          <StatusChip tone="warn">
+            <Clock className="w-4 h-4 shrink-0" />
+            <span>
+              <b>{namesFor(loaConflicts.partial)}</b> out for part of the day. Hover for the window
+              {!loaEvent && ', or pick an event to check it exactly'}.
+            </span>
+          </StatusChip>
+        )}
+
+        <span className="flex-1" />
+        <span role="status" className={`text-xs ${msg ? (msg.ok ? GOOD_TEXT : 'text-oxblood') : 'sr-only'}`}>{msg?.text || ''}</span>
+        <span className="text-xs text-ash whitespace-nowrap">
+          <b className="font-mono text-bone">{slottedCount}</b> slotted
+          {' · '}<b className="font-mono text-bone">{fillCount}</b> in {partyNames[FILL_PARTY_ID] || 'Fill'}
+          {loaById.size > 0 && <>{' · '}<b className="font-mono text-oxblood">{loaById.size}</b> on LOA</>}
+        </span>
+      </div>
 
       <DndContext sensors={sensors} collisionDetection={closestCorners}
-        onDragStart={({ active }) => setActiveId(active.id)} onDragOver={onDragOver} onDragEnd={onDragEnd}>
-        <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
-          {/* Role pools */}
-          <div className="flex flex-col gap-3 lg:sticky lg:top-20 lg:self-start lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto pr-0.5">
-            <div className="panel rounded-lg p-3">
-              <div className="flex items-center justify-between mb-2">
-                <div className="eyebrow text-[10px] text-brass flex items-center gap-2"><Users className="w-3.5 h-3.5" /> Pool</div>
-                <button onClick={loadMembers} className="text-ash hover:text-brass" title="Reload members"><RefreshCw className="w-3.5 h-3.5" /></button>
-              </div>
-              <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search…"
-                className="w-full bg-hall border border-line rounded px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass" />
-            </div>
-
-            {loadingMembers ? (
-              <div className="panel rounded-lg p-6 text-ash text-sm text-center">Loading members…</div>
-            ) : membersError ? (
-              <ErrorBanner className="">
-                {membersError}<button onClick={loadMembers} className="block mt-2 text-brass hover:text-brassbright">Retry</button>
-              </ErrorBanner>
-            ) : (
-              <div className="grid grid-cols-1 gap-4">
-                {POOL_META.filter(({ key }) => activeId || items[key].length > 0).map(({ key, label, dot }) => (
-                  <DroppableColumn key={key} id={key} itemIds={poolViews[key]} className="panel rounded-lg p-3">
-                    <div className="eyebrow text-[10px] text-ash flex items-center gap-2 mb-2">
-                      <span className={`w-2 h-2 rounded-full ${dot}`} /> {label} ({items[key].length})
-                    </div>
-                    <div className="space-y-1 max-h-[340px] overflow-auto pr-1 min-h-[50px]">
-                      {poolViews[key].length === 0
-                        ? <div className="text-ash/50 text-xs py-4 text-center">Empty</div>
-                        : poolViews[key].map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} loa={loaById.get(id)} signup={signupById.get(id)} classMode={classMode} assignedClass={classAssignments[classMode][id]} onClassChange={(cls) => setMemberClass(classMode, id, cls)} />)}
-                    </div>
-                  </DroppableColumn>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Parties + Absent */}
-          <div className="flex flex-col gap-1.5">
-            <div className="eyebrow text-[10px] text-ash flex items-center gap-2">
-              <Users className="w-3.5 h-3.5" />
-              <span><span className="font-mono text-bone">{slottedCount}</span> slotted</span>
-              {fillCount > 0 && <span>· <span className="font-mono text-bone">{fillCount}</span> in Fill</span>}
-            </div>
-            {[PARTY_IDS.slice(0, 6), PARTY_IDS.slice(6, 12)].map((row, i) => (
-              <div key={i} className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-3 items-start">
-                {row.map((pid) => (
-                  <DroppableColumn key={pid} id={pid} itemIds={items[pid]} className={`rounded-lg border bg-panel p-2 ${items[pid].length >= PARTY_SIZE ? 'border-line' : 'border-line'}`}>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <input value={partyNames[pid]} onChange={(e) => renameParty(pid, e.target.value)}
-                        className="bg-transparent font-display text-bone text-sm tracking-[0.06em] focus:outline-none focus:text-brassbright w-24" />
-                      <span className={`font-mono text-xs ${items[pid].length >= PARTY_SIZE ? 'text-oxblood' : 'text-ash'}`}>{items[pid].length}/{PARTY_SIZE}</span>
-                    </div>
-                    <div className="space-y-1">
-                      {items[pid].length === 0
-                        ? <div className="text-ash/50 text-xs text-center py-3 border border-dashed border-line rounded">Drop members here</div>
-                        : items[pid].map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} inParty loa={loaById.get(id)} signup={signupById.get(id)} classMode={classMode} assignedClass={classAssignments[classMode][id]} onClassChange={(cls) => setMemberClass(classMode, id, cls)} onQuickMove={returnToPool} />)}
-                    </div>
-                  </DroppableColumn>
-                ))}
-              </div>
-            ))}
-
-            {/* Absent sits under the parties rather than in the left rail: it's
-                full-width here, so members lay out in a wrapping grid instead of
-                one tall column, and it stays out of the way until needed. */}
-            <DroppableColumn id="absent" itemIds={items.absent} strategy={rectSortingStrategy}
-              className="panel rounded-lg p-3 mt-1.5">
-              <div className="eyebrow text-[10px] text-oxblood flex items-center gap-2 mb-2">
-                <CalendarOff className="w-3.5 h-3.5" /> Absent ({items.absent.length})
-              </div>
-              {items.absent.length === 0 ? (
-                <div className="text-ash/50 text-xs text-center py-4 border border-dashed border-line rounded">Drop absent members here</div>
-              ) : (
-                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2 max-h-[320px] overflow-auto pr-1">
-                  {items.absent.map((id) => <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole} loa={loaById.get(id)} signup={signupById.get(id)} classMode={classMode} assignedClass={classAssignments[classMode][id]} onClassChange={(cls) => setMemberClass(classMode, id, cls)} />)}
+        onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd} onDragCancel={endDrag}>
+        <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4 items-start">
+          {/* The pool: everyone not placed, in one list. Role is a filter. */}
+          <DroppableColumn id="pool" itemIds={pool.list} onClick={placeAt('pool')} selecting={Boolean(selected)}
+            className="panel rounded-lg p-3 flex flex-col lg:sticky lg:top-20 lg:max-h-[calc(100vh-6rem)]">
+            {/* Controls don't count as a click on the pool. */}
+            <div onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <h2 className="font-display text-bone text-[15px]">
+                  Pool <span className="font-mono text-xs text-ash font-normal">{items.pool.length}</span>
+                </h2>
+                <div className="flex items-center gap-3">
+                  <button type="button" role="switch" aria-checked={signedOnly} onClick={() => setSignedOnly((v) => !v)}
+                    className={`inline-flex items-center gap-1.5 text-xs ${signedOnly ? 'text-bone' : 'text-ash hover:text-bone'}`}>
+                    <span className={`relative inline-block w-6 h-3.5 rounded-full transition-colors ${signedOnly ? 'bg-emerald-500' : 'bg-line'}`}>
+                      <span className={`absolute top-0.5 w-2.5 h-2.5 rounded-full bg-bone transition-all ${signedOnly ? 'left-3' : 'left-0.5'}`} />
+                    </span>
+                    Signed up only
+                  </button>
+                  <button type="button" onClick={loadMembers} className="text-ash hover:text-brass" title="Reload members" aria-label="Reload members">
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  </button>
                 </div>
-              )}
-            </DroppableColumn>
+              </div>
+              <input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search…" aria-label="Search the pool"
+                className="w-full bg-hall border border-line rounded px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass mb-2" />
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {roleChips.map(({ key, label, dot }) => {
+                  const on = roleFilter === key;
+                  return (
+                    <button key={key} type="button" aria-pressed={on} onClick={() => setRoleFilter(key)}
+                      className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-semibold border transition-colors ${on ? 'border-ash/60 bg-panelup text-bone' : 'border-line text-ash hover:text-bone'}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />{label}
+                      <span className="font-mono opacity-80">{pool.counts[key]}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="flex-1 min-h-[60px] max-h-[60vh] lg:max-h-none overflow-auto space-y-1 pr-1">
+              {loadingMembers ? (
+                <div className="text-ash text-sm text-center py-6">Loading members…</div>
+              ) : membersError ? (
+                <ErrorBanner className="" compact>
+                  {membersError}<button type="button" onClick={loadMembers} className="block mt-2 text-brass hover:text-brassbright">Retry</button>
+                </ErrorBanner>
+              ) : pool.list.length === 0 ? (
+                <div className="text-ash/60 text-xs text-center py-4 border border-dashed border-line rounded">
+                  {items.pool.length === 0 ? 'Everyone is placed.' : 'Nobody here matches.'}
+                </div>
+              ) : pool.list.map((id) => memberCard(id))}
+            </div>
+          </DroppableColumn>
+
+          <div className="min-w-0">
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3 items-start">
+              {BOARD_PARTY_IDS.map((pid) => (
+                <PartyCard key={pid} pid={pid} name={partyNames[pid]} onRename={(v) => renameParty(pid, v)}
+                  ids={items[pid]} roles={roles} selecting={Boolean(selected)} onPlace={placeAt(pid)}
+                  renderMember={(id) => memberCard(id, { returnable: true })} />
+              ))}
+            </div>
+
+            {/* The bench: Fill (standby) and Absent, side by side under the
+                parties, laid out as wrapping grids. */}
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-3 mt-4">
+              <BenchBox id={FILL_PARTY_ID} ids={items[FILL_PARTY_ID]} selecting={Boolean(selected)} onPlace={placeAt(FILL_PARTY_ID)}
+                tone="border-amber-500/40 bg-amber-500/[0.03]" dot="bg-amber-500"
+                title={(
+                  <input value={partyNames[FILL_PARTY_ID]} onChange={(e) => renameParty(FILL_PARTY_ID, e.target.value)}
+                    onClick={(e) => e.stopPropagation()} aria-label="Standby group name"
+                    className="bg-transparent font-display text-bone text-sm tracking-[0.06em] focus:outline-none focus:text-brassbright w-28" />
+                )}
+                count={`${fillCount}/${PARTY_SIZE}`} hint="Standby: fills in if someone drops" emptyText="Drop backups here"
+                renderMember={(id) => memberCard(id, { returnable: true })} />
+              <BenchBox id="absent" ids={items.absent} selecting={Boolean(selected)} onPlace={placeAt('absent')}
+                tone="border-oxblood/40 bg-oxblood/[0.03]" dot="bg-oxblood"
+                title={<h2 className="font-display text-bone text-sm tracking-[0.06em]">Absent</h2>}
+                count={String(items.absent.length)} hint="Not playing this night" emptyText="Drop absent members here"
+                renderMember={(id) => memberCard(id, { returnable: true })} />
+            </div>
+
+            <p className="mt-3 text-xs text-ash">
+              Drag members between the pool, parties and bench, or click a member and then click where they go (Esc to cancel).
+              Double-click someone in a party or on the bench to send them back to the pool.
+              T / H / D on a card sets that member&apos;s {KIND_BUILD[classMode]} role for every roster.
+            </p>
           </div>
         </div>
 
@@ -1176,15 +1244,152 @@ export default function Parties() {
   );
 }
 
+const CHIP_TONE = {
+  neutral: 'border-line bg-panelup/40',
+  muted: 'border-line text-ash',
+  warn: `border-amber-500/40 ${WARN_TEXT}`,
+  danger: 'border-oxblood/50 bg-oxblood/10',
+  good: 'border-emerald-500/40',
+};
+
+function StatusChip({ tone = 'neutral', title, children }) {
+  return (
+    <span title={title} className={`inline-flex flex-wrap items-center gap-2 px-2.5 py-1 rounded-md border ${CHIP_TONE[tone]}`}>
+      {children}
+    </span>
+  );
+}
+
+// Load, New, Duplicate and Delete, out of the header's way.
+function RosterMenu({ saved, rosterId, loaDate, busy, onLoad, onNew, onDuplicate, onDelete }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
+  }, [open]);
+
+  const pick = (fn) => () => { setOpen(false); fn(); };
+  const item = 'w-full text-left px-2 py-1.5 rounded text-sm flex items-center gap-2 hover:bg-panelup disabled:opacity-40 disabled:hover:bg-transparent';
+
+  return (
+    <div ref={ref} className="relative">
+      <button type="button" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}
+        aria-label="Roster menu: load, new, duplicate, delete" title="Load, new, duplicate, delete"
+        className="w-9 h-9 inline-flex items-center justify-center rounded-lg border border-line text-ash hover:text-bone">
+        <MoreHorizontal className="w-4 h-4" />
+      </button>
+      {open && (
+        <div role="menu" className="absolute right-0 top-11 z-30 w-72 max-w-[calc(100vw-2rem)] bg-panel border border-line rounded-lg p-1.5 shadow-xl">
+          <div className="eyebrow text-[10px] text-ash px-2 py-1.5">Load roster</div>
+          <div className="max-h-72 overflow-auto">
+            {saved.length === 0 && <div className="px-2 py-1.5 text-sm text-ash/70">No saved rosters yet.</div>}
+            {saved.map((r) => (
+              <button key={r.id} type="button" role="menuitem" onClick={pick(() => onLoad(r.id))}
+                className={`${item} ${r.id === rosterId ? 'text-bone font-semibold' : 'text-ash hover:text-bone'}`}>
+                <span className="truncate flex-1">{r.name}</span>
+                {r.event_date === loaDate
+                  ? <span className={`text-xs shrink-0 ${GOOD_TEXT}`}>this night</span>
+                  : r.event_date && <span className="text-xs font-mono text-ash/70 shrink-0">{r.event_date}</span>}
+                {r.id === rosterId && <Check className="w-3.5 h-3.5 shrink-0" aria-label="Open now" />}
+              </button>
+            ))}
+          </div>
+          <div className="h-px bg-line my-1.5" />
+          <button type="button" role="menuitem" onClick={pick(onNew)} className={`${item} text-bone`}>
+            <Plus className="w-4 h-4 text-ash" /> New board
+          </button>
+          <button type="button" role="menuitem" onClick={pick(onDuplicate)} disabled={!rosterId || busy}
+            title={rosterId ? 'Save this board as a new roster, leaving the original untouched' : 'Load or save a roster first'}
+            className={`${item} text-bone`}>
+            <Copy className="w-4 h-4 text-ash" /> Duplicate
+          </button>
+          {rosterId && (
+            <button type="button" role="menuitem" onClick={pick(onDelete)} className={`${item} text-oxblood`}>
+              <Trash2 className="w-4 h-4" /> Delete roster…
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// One party: six seats, always. Pips show the makeup at a glance, a missing
+// tank or healer is called out (and named in the empty seat it belongs in),
+// and a full party turns green.
+function PartyCard({ pid, name, onRename, ids, roles, selecting, onPlace, renderMember }) {
+  const mk = partyMakeup(ids, roles);
+  return (
+    <DroppableColumn id={pid} itemIds={ids} onClick={onPlace} selecting={selecting}
+      className={`rounded-lg border bg-panel p-2.5 ${mk.full ? 'border-emerald-500/40' : 'border-line'}`}>
+      <div className="flex items-center gap-1.5 mb-1.5">
+        <input value={name} onChange={(e) => onRename(e.target.value)} onClick={(e) => e.stopPropagation()}
+          aria-label={`Rename ${name}`}
+          className="bg-transparent font-display text-bone text-sm tracking-[0.06em] focus:outline-none focus:text-brassbright min-w-0 flex-1" />
+        <span className={`font-mono text-xs ${mk.full ? GOOD_TEXT : 'text-ash'}`}>{ids.length}/{PARTY_SIZE}</span>
+      </div>
+      <div className="flex gap-1 mb-2" aria-hidden="true">
+        {Array.from({ length: PARTY_SIZE }, (_, i) => (i < mk.pips.length
+          ? <span key={i} className={`flex-1 h-1.5 rounded-full ${mk.pips[i] ? ROLE_STYLE[mk.pips[i]].dot : 'bg-ash/40'}`} />
+          : <span key={i} className="flex-1 h-1.5 rounded-full border border-dashed border-line" />))}
+      </div>
+      {mk.missing.length > 0 && (
+        <div className={`text-[11px] font-semibold mb-1.5 ${WARN_TEXT}`}>
+          No {mk.missing.map((r) => r.toLowerCase()).join(' or ')} yet
+        </div>
+      )}
+      <div className="space-y-1">
+        {ids.map(renderMember)}
+        {mk.seats.map((need, i) => (
+          <div key={`seat-${pid}-${i}`}
+            className={`h-[30px] flex items-center px-2 rounded border border-dashed text-[11px] ${need ? `border-amber-500/50 ${WARN_TEXT}` : 'border-line text-ash/60'}`}>
+            {need ? `Empty seat · needs a ${need.toLowerCase()}` : 'Empty seat'}
+          </div>
+        ))}
+      </div>
+    </DroppableColumn>
+  );
+}
+
+function BenchBox({ id, ids, selecting, onPlace, tone, dot, title, count, hint, emptyText, renderMember }) {
+  return (
+    <DroppableColumn id={id} itemIds={ids} strategy={rectSortingStrategy} onClick={onPlace} selecting={selecting}
+      className={`rounded-lg border border-dashed p-3 ${tone}`}>
+      <div className="flex items-center gap-2 mb-2">
+        <span className={`w-2 h-2 rounded-full shrink-0 ${dot}`} />
+        {title}
+        <span className="font-mono text-xs text-ash">{count}</span>
+        <span className="flex-1" />
+        <span className="text-[11px] text-ash">{hint}</span>
+      </div>
+      {ids.length === 0 ? (
+        <div className="text-ash/60 text-xs text-center py-3">{emptyText}</div>
+      ) : (
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(170px,1fr))] gap-1.5 max-h-[320px] overflow-auto pr-1">
+          {ids.map(renderMember)}
+        </div>
+      )}
+    </DroppableColumn>
+  );
+}
+
 // Droppable container that also provides a SortableContext for its items.
-// Pools and parties are single columns; Absent lays out as a wrapping grid and
-// passes rectSortingStrategy so drag previews shift correctly in two dimensions
-// instead of assuming a vertical list.
-function DroppableColumn({ id, itemIds, className, children, strategy = verticalListSortingStrategy }) {
+// The pool and parties are single columns; the bench lays out as wrapping
+// grids and passes rectSortingStrategy so drag previews shift correctly in two
+// dimensions. While someone is picked up for click-to-place, every container
+// is outlined and a click on it places them there.
+function DroppableColumn({ id, itemIds, className, children, strategy = verticalListSortingStrategy, onClick, selecting }) {
   const { setNodeRef, isOver } = useDroppable({ id });
+  const state = isOver ? 'ring-2 ring-brass/60' : selecting ? 'ring-1 ring-brass/40 cursor-pointer' : '';
   return (
     <SortableContext id={id} items={itemIds} strategy={strategy}>
-      <div ref={setNodeRef} className={`${className} transition-colors ${isOver ? 'border-brass/70 ring-1 ring-brass/40' : ''}`}>
+      <div ref={setNodeRef} onClick={onClick} className={`${className} transition-shadow ${state}`}>
         {children}
       </div>
     </SortableContext>
@@ -1197,64 +1402,54 @@ function SortableMember(props) {
   return <MemberCardBase ref={setNodeRef} style={style} handle={{ ...attributes, ...listeners }} isDragging={isDragging} {...props} />;
 }
 
-// Pointer travel below this counts as a click rather than a drag. It matches
-// the PointerSensor's activationConstraint exactly: under it, the sensor never
-// activated, so a click handler here cannot collide with a drag.
-const CLICK_SLOP_PX = 5;
+// Nested controls (role buttons, the class select) keep their clicks to
+// themselves, so using them never picks the card up or sends it to the pool.
+const keepClick = {
+  onPointerDown: (e) => e.stopPropagation(),
+  onClick: (e) => e.stopPropagation(),
+  onDoubleClick: (e) => e.stopPropagation(),
+};
 
-const MemberCardBase = forwardRef(function MemberCardBase({ member, role, onRole, inParty, overlay, style, handle, isDragging, loa, signup, classMode, assignedClass, onClassChange, onQuickMove }, ref) {
+const MemberCardBase = forwardRef(function MemberCardBase({ member, role, onRole, overlay, style, handle, isDragging, loa, signup, classMode, assignedClass, onClassChange, selected, onSelect, onReturn }, ref) {
   const rs = ROLE_STYLE[role];
   const classes = ((classMode === 'pve' ? member.pve_classes : member.pvp_classes) || []).filter(Boolean);
   const current = assignedClass || classes[0];
   // A definite absence is dimmed and reddened; a partial one stays at full
-  // strength in brass, because the member may well still be usable — the
+  // strength in amber, because the member may well still be usable — the
   // difference is the whole point of showing the window.
   const partial = Boolean(loa?.partial);
   const loaTitle = loaSummary(loa);
-  const hint = onQuickMove ? 'Click to send back to the pool' : null;
+  const hint = onReturn ? 'Double-click to send back to the pool' : null;
   const title = [loaTitle, hint].filter(Boolean).join(' · ') || undefined;
-
-  // Where the pointer went down, to measure travel on release. Nested controls
-  // (role buttons, the class select) stop pointerdown from reaching here, so
-  // this stays null for those and their release is ignored below.
-  const downAt = useRef(null);
-  const onPointerDown = (e) => {
-    handle?.onPointerDown?.(e); // dnd-kit's own listener — compose, don't replace
-    downAt.current = onQuickMove ? { x: e.clientX, y: e.clientY } : null;
-  };
-  const onPointerUp = (e) => {
-    const from = downAt.current;
-    downAt.current = null;
-    if (!from) return;
-    if (Math.hypot(e.clientX - from.x, e.clientY - from.y) < CLICK_SLOP_PX) onQuickMove(member.id);
-  };
 
   return (
     <div
       ref={ref} style={style} {...handle}
-      onPointerDown={onPointerDown} onPointerUp={onPointerUp}
+      onClick={onSelect ? (e) => { e.stopPropagation(); onSelect(member.id); } : undefined}
+      onDoubleClick={onReturn ? (e) => { e.stopPropagation(); onReturn(member.id); } : undefined}
+      aria-pressed={onSelect ? Boolean(selected) : undefined}
       title={title}
-      className={`group relative flex items-center gap-1 bg-hall border border-line ${rs ? `border-l-2 ${rs.ring}` : ''} rounded px-1.5 py-1 cursor-grab active:cursor-grabbing select-none ${isDragging ? 'opacity-30' : ''} ${overlay ? 'shadow-xl ring-1 ring-brass/40' : ''} ${loa && !partial ? 'opacity-50' : ''} ${partial ? 'ring-1 ring-brass/40' : ''}`}
+      className={`group relative flex items-center gap-1 bg-hall border border-line ${rs ? `border-l-2 ${rs.ring}` : ''} rounded px-1.5 py-1 cursor-grab active:cursor-grabbing select-none ${isDragging ? 'opacity-30' : ''} ${overlay ? 'shadow-xl ring-1 ring-brass/40' : ''} ${selected ? 'ring-2 ring-brass' : ''} ${loa && !partial ? 'opacity-50' : ''} ${partial && !selected ? 'ring-1 ring-amber-500/40' : ''}`}
     >
       {member.avatar
         ? <img src={member.avatar} alt="" className="w-5 h-5 rounded-full border border-line shrink-0" />
         : <span className="w-5 h-5 rounded-full bg-panelup border border-line shrink-0 flex items-center justify-center text-[9px] text-brass">{(member.name || '?').slice(0, 1).toUpperCase()}</span>}
       <div className="min-w-0 flex-1">
-        <span className={`text-sm leading-tight truncate block ${member.missing ? 'text-ash italic' : loa && !partial ? 'text-oxblood' : partial ? 'text-brass' : 'text-bone'}`}
+        <span className={`text-sm leading-tight truncate block ${member.missing ? 'text-ash italic' : loa && !partial ? 'text-oxblood' : partial ? WARN_TEXT : 'text-bone'}`}
           title={loaTitle || (member.missing ? 'No longer in the server' : member.name)}>{member.name}</span>
         {loa?.start_time && (
-          <span className={`text-[10px] leading-tight truncate block ${partial ? 'text-brass' : 'text-oxblood'}`}>
+          <span className={`text-[10px] leading-tight truncate block ${partial ? WARN_TEXT : 'text-oxblood'}`}>
             {loa.end_time ? `out ${shortTime(loa.start_time)}–${shortTime(loa.end_time)}` : `out from ${shortTime(loa.start_time)}`}
           </span>
         )}
         {classes.length === 1 && (
-          <span className="text-[10px] leading-tight text-brass truncate block">{classes[0]}</span>
+          <span className="text-[10px] leading-tight text-ash truncate block">{classes[0]}</span>
         )}
         {classes.length > 1 && onClassChange && (
           <select
-            value={current} onChange={(e) => onClassChange(e.target.value)}
-            onPointerDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()}
-            className="text-[10px] bg-transparent text-brass border-none focus:outline-none cursor-pointer truncate w-full -ml-px"
+            value={current} onChange={(e) => onClassChange(e.target.value)} {...keepClick}
+            aria-label={`${member.name}'s class`}
+            className="text-[10px] bg-transparent text-ash hover:text-bone border-none focus:outline-none cursor-pointer truncate w-full -ml-px"
           >
             {classes.map((c, i) => <option key={c} value={c} className="bg-panelup text-bone">{c}{i === 0 ? ' ★' : ''}</option>)}
           </select>
@@ -1264,16 +1459,18 @@ const MemberCardBase = forwardRef(function MemberCardBase({ member, role, onRole
           counterpart marker for people who haven't answered. */}
       {signup && (
         <span title={signup === 'waitlist' ? 'On the signup waitlist' : 'Signed up for this occasion'}
-          className={`text-[9px] font-bold leading-none shrink-0 ${signup === 'waitlist' ? 'text-brass' : 'text-emerald-400'}`}>
+          className={`text-[9px] font-bold leading-none shrink-0 ${signup === 'waitlist' ? WARN_TEXT : GOOD_TEXT}`}>
           {signup === 'waitlist' ? 'WL' : '✓'}
         </span>
       )}
-      {loa && <CalendarOff className={`w-3.5 h-3.5 shrink-0 ${partial ? 'text-brass' : 'text-oxblood'}`} />}
+      {loa && <CalendarOff className={`w-3.5 h-3.5 shrink-0 ${partial ? WARN_TEXT : 'text-oxblood'}`} />}
       {onRole && (
-        <div className="flex gap-1 opacity-60 group-hover:opacity-100 transition-opacity" onPointerDown={(e) => e.stopPropagation()}>
+        <div className="flex gap-1 opacity-60 group-hover:opacity-100 transition-opacity" {...keepClick}>
           {ROLES.map((r) => (
-            <button key={r} onClick={() => onRole(member.id, r)} title={r}
-              className={`w-5 h-5 rounded-full text-[9px] font-bold flex items-center justify-center border transition-colors ${role === r ? `${ROLE_STYLE[r].dot} text-ink border-transparent` : 'border-line text-ash hover:text-bone'}`}>
+            <button key={r} type="button" onClick={() => onRole(member.id, r)} aria-pressed={role === r}
+              title={role === r ? `${member.name} is ${r} (click to clear)` : `Set ${member.name} as ${r}`}
+              aria-label={role === r ? `Clear ${r}` : `Set as ${r}`}
+              className={`w-5 h-5 rounded-full text-[9px] font-bold flex items-center justify-center border transition-colors ${role === r ? `${ROLE_STYLE[r].dot} text-neutral-950 border-transparent` : 'border-line text-ash hover:text-bone'}`}>
               {r[0]}
             </button>
           ))}
