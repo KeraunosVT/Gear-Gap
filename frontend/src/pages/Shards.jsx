@@ -1,9 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../auth';
-import SHARDS from '../../../shared/shards.json';
-import BOSS_WEAPONS from '../../../shared/archbossWeapons.json';
-import SHARD_WEAPONS from '../../../shared/shardWeapons.json';
+import {
+  SOURCES, SOURCE, WEAPONS_BY_SOURCE, SHARD_LABEL, SHARD_ORDER, COSTS, shardFor, costFor,
+} from '../shardRules';
 import {
   Check, Loader2, AlertCircle, RefreshCw, Plus, X, ChevronDown, ChevronUp, GripVertical, ListOrdered,
 } from 'lucide-react';
@@ -26,30 +26,14 @@ import ErrorBanner from '../components/ui/ErrorBanner';
 // they still need; per-shard totals are the sum over those plus `unlinked`
 // (counts carried over from the old per-type table that no single weapon could
 // claim). The shape, its caps and the conversion of old rows all live in
-// backend/shardWishlist.js — this page reads what the server hands it.
-//
-// shardFor and costFor mirror that file's. Both read shared/shardWeapons.json,
-// so the rule itself ("Snowsoul weapons take the Thunderstruck shard") is
-// stated once, in the JSON; only these few lines of reading it are doubled.
+// backend/shardWishlist.js — this page reads what the server hands it. Which
+// shard a weapon takes and its cost come from ../shardRules.js.
 
 const BUILDS = ['PvP', 'PvE'];
 // Officer-set and officer-only: the server sends everyone else '' (normal)
 // and keeps stored priorities on their saves.
 const PRIORITIES = [{ key: 'high', label: 'High' }, { key: '', label: 'Normal' }, { key: 'low', label: 'Low' }];
 const PRIORITY_RANK = { high: 0, '': 1, low: 2 };
-const SOURCES = SHARD_WEAPONS.sources;
-const SOURCE = new Map(SOURCES.map((s) => [s.key, s]));
-const WEAPONS_BY_SOURCE = new Map(SOURCES.map((s) => [s.key, s.weapons || BOSS_WEAPONS[s.key] || []]));
-const SHARD_LABEL = new Map(SHARDS.types.map((t) => [t.key, t.label]));
-// Totals are listed in shards.json order, so every member's chips line up.
-const SHARD_ORDER = new Map(SHARDS.types.map((t, i) => [t.key, i]));
-
-const shardFor = (source, weapon) => {
-  const s = SOURCE.get(source);
-  if (!s) return null;
-  return s.snowsoul && String(weapon).includes('Snowsoul') ? s.snowsoul : s.shard;
-};
-const costFor = (source) => (SOURCE.get(source)?.heroic ? SHARD_WEAPONS.costs.heroic : SHARD_WEAPONS.costs.archboss);
 const keyOf = (w) => `${w.boss}|${w.weapon}`;
 
 const emptyWishlist = () => ({ v: 2, weapons: [], unlinked: {} });
@@ -267,8 +251,8 @@ export default function Shards() {
   return (
     <PageShell width="full">
       <p className="text-sm text-ash mb-5">
-        Link every weapon you&apos;re working toward. Each archboss weapon takes {SHARD_WEAPONS.costs.archboss} of its boss&apos;s shard
-        and each Heroic weapon takes {SHARD_WEAPONS.costs.heroic} Otherworldly Mind&apos;s Eye; your shard totals add up from your weapons.
+        Link every weapon you&apos;re working toward. Each archboss weapon takes {COSTS.archboss} of its boss&apos;s shard
+        and each Heroic weapon takes {COSTS.heroic} Otherworldly Mind&apos;s Eye; your shard totals add up from your weapons.
         {' '}{can('loot.awards') ? 'You can edit any member.' : 'You can edit your own; others are read-only.'}
         <span className="block text-bone font-bold uppercase mt-1.5">Put how many you still need, not how many you have AND keep it updated</span>
       </p>
