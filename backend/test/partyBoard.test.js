@@ -69,6 +69,44 @@ describe('poolView', () => {
   });
 });
 
+describe('rosterForOccasion', () => {
+  const TUE = '2026-11-17';
+  const SAT = '2026-11-21';
+  // Newest first, as the API returns them.
+  const saved = [
+    { id: 'raid-copy', event_date: TUE, event_schedule_id: 'raid' },
+    { id: 'raid', event_date: TUE, event_schedule_id: 'raid' },
+    { id: 'boss', event_date: TUE, event_schedule_id: 'boss' },
+    { id: 'fight', event_date: SAT, signup_event_id: 'ff' },
+    { id: 'old', event_date: null },
+  ];
+
+  test('a weekly event opens the newest roster linked to it', () => {
+    assert.equal(pb.rosterForOccasion(saved, TUE, 'raid').id, 'raid-copy');
+    assert.equal(pb.rosterForOccasion(saved, TUE, 'boss').id, 'boss');
+  });
+
+  test('a one-off event opens its roster by signup id', () => {
+    assert.equal(pb.rosterForOccasion(saved, SAT, 'signup:ff').id, 'fight');
+    assert.equal(pb.rosterForOccasion(saved, SAT, 'signup:other'), null);
+  });
+
+  test('All events opens the only roster on a night, but not one of several', () => {
+    assert.equal(pb.rosterForOccasion(saved, SAT, '').id, 'fight');
+    assert.equal(pb.rosterForOccasion(saved, TUE, ''), null);
+  });
+
+  test('All events prefers a roster saved for the whole night', () => {
+    const night = [...saved, { id: 'whole', event_date: TUE, event_schedule_id: null }];
+    assert.equal(pb.rosterForOccasion(night, TUE, '').id, 'whole');
+  });
+
+  test('the same event on another night opens nothing', () => {
+    assert.equal(pb.rosterForOccasion(saved, '2026-11-24', 'raid'), null);
+    assert.equal(pb.rosterForOccasion(saved, '', ''), null);
+  });
+});
+
 describe('boardSignature', () => {
   const base = () => ({
     items: { pool: ['z'], absent: ['y'], p1: ['a', 'b'], p2: [] },

@@ -53,6 +53,25 @@ export function poolView(ids, { nameOf, roleOf, signupOf, query = '', signedOnly
   return groups;
 }
 
+// The event picker's value for the occasion a saved roster is linked to: a
+// one-off as `signup:<id>`, a weekly event by its schedule id, '' for the
+// whole night.
+export const rosterOccasionKey = (r) => (r.signup_event_id
+  ? `signup:${r.signup_event_id}`
+  : r.event_schedule_id || '');
+
+// The saved roster linked to a night and event, or null. `saved` is newest
+// first, so a duplicated roster beats its original. With "All events" picked
+// and nothing saved for the whole night, a night with exactly one roster still
+// opens it; with several there's no telling which was meant.
+export function rosterForOccasion(saved, date, event) {
+  if (!date) return null;
+  const night = (saved || []).filter((r) => r.event_date === date);
+  const exact = night.find((r) => rosterOccasionKey(r) === (event || ''));
+  if (exact) return exact;
+  return !event && night.length === 1 ? night[0] : null;
+}
+
 // Everything a saved roster records, as one comparable string. The pool is
 // left out on purpose: it's whoever isn't placed, and its order means nothing.
 // Roles are left out too, because they're saved per member the moment they
