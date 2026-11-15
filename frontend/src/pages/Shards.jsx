@@ -4,6 +4,7 @@ import { useAuth } from '../auth';
 import {
   SOURCES, SOURCE, WEAPONS_BY_SOURCE, SHARD_LABEL, SHARD_ORDER, COSTS, shardFor, costFor,
 } from '../shardRules';
+import PriorityBoard from '../components/shards/PriorityBoard';
 import {
   Check, Loader2, AlertCircle, RefreshCw, Plus, X, ChevronDown, ChevronUp, GripVertical, ListOrdered,
 } from 'lucide-react';
@@ -257,7 +258,15 @@ export default function Shards() {
         <span className="block text-bone font-bold uppercase mt-1.5">Put how many you still need, not how many you have AND keep it updated</span>
       </p>
 
-      <Tabs variant="flat" active={view} onChange={setView} items={[{ key: 'member', label: 'By Member' }, { key: 'weapon', label: 'By Weapon' }]} />
+      <Tabs
+        variant="flat" active={view} onChange={setView}
+        items={[
+          { key: 'member', label: 'By Member' },
+          { key: 'weapon', label: 'By Weapon' },
+          // Officers only, like every other priority on this page.
+          ...(canPrioritize ? [{ key: 'priority', label: 'Priority' }] : []),
+        ]}
+      />
 
       <div className="flex flex-wrap items-center justify-between mb-5 gap-4">
         <div className="flex flex-wrap items-center gap-3 flex-1">
@@ -297,6 +306,8 @@ export default function Shards() {
 
       {loading ? (
         <EmptyState>Reading the vault…</EmptyState>
+      ) : view === 'priority' && canPrioritize ? (
+        <PriorityBoard members={members} onRefreshMembers={load} />
       ) : view === 'weapon' ? (
         <ByWeapon
           members={members} canPrioritize={canPrioritize} onPriority={setPriority}
