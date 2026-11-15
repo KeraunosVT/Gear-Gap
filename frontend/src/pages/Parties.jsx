@@ -531,16 +531,32 @@ export default function Parties() {
   // (asking first if the board has unsaved changes). load() moves the picker
   // itself once the roster is in, so it isn't moved here.
   //
-  // Otherwise moving the occasion changes who's flagged, but never moves
-  // anyone: the picker is a view onto a different night, and silently yanking
-  // people out of parties an officer just built (with no way back) loses real
-  // work. Conflicts surface in the status strip instead — see loaConflicts.
-  // That's also how a roster is reused: duplicate it, then move the date.
+  // Picking a specific event that has no roster yet starts a blank board for
+  // it (openBlank), so the board always shows that event's roster or nothing.
+  //
+  // Moving only the NIGHT, or back to "All events", changes who's flagged but
+  // never moves anyone: silently yanking people out of parties an officer just
+  // built loses real work. Conflicts surface in the status strip instead — see
+  // loaConflicts. That's also how a roster is reused on another night:
+  // duplicate it, then move the date.
   const openLinked = (date, event) => {
     const linked = rosterForOccasion(saved, date, event);
     if (!linked || linked.id === rosterId || !okToDiscard()) return false;
     load(linked.id, { confirmed: true });
     return true;
+  };
+  // A fresh board for this night and event. LOA and signups are fetched here
+  // rather than by the occasion effect, so anyone definitely out goes straight
+  // to Absent for the event being opened, not the one being left.
+  const openBlank = (date, event) => {
+    const key = `${date}|${event}`;
+    loaFetchedFor.current = key;
+    setLoaDate(date); setLoaEvent(event); setLoaDiff(null);
+    Promise.all([fetchLoa(date, event), fetchSignups(date, event)]).then(([out, up]) => {
+      if (loaFetchedFor.current !== key) return; // the picker moved on meanwhile
+      setLoaById(out); setSignupById(up);
+      resetBoard(out);
+    });
   };
   const changeLoaDate = (date) => {
     if (openLinked(date, '')) return;
@@ -551,7 +567,11 @@ export default function Parties() {
     setLoaDate(date); setLoaEvent(''); setLoaDiff(null);
   };
   const changeLoaEvent = (event) => {
-    if (openLinked(loaDate, event)) return;
+    const linked = rosterForOccasion(saved, loaDate, event);
+    if (linked ? openLinked(loaDate, event) : event && okToDiscard()) {
+      if (!linked) openBlank(loaDate, event);
+      return;
+    }
     setLoaEvent(event); setLoaDiff(null);
   };
 
@@ -758,10 +778,12 @@ export default function Parties() {
       id, name: byId[id]?.name || 'Unknown', why: absentWhy[id] || 'benched',
     }));
 
-  const resetBoard = () => {
+  // `loa`: absences to bench by; the current occasion's unless a caller has
+  // just fetched another's (openBlank).
+  const resetBoard = (loa = loaById) => {
     const next = initItems();
     members.forEach((m) => {
-      if (isFullyOut(loaById, m.id)) next.absent.push(m.id);
+      if (isFullyOut(loa, m.id)) next.absent.push(m.id);
       else next.pool.push(m.id);
     });
     setItems(next);
