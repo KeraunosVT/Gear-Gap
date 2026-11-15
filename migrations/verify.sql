@@ -299,6 +299,19 @@ select '15 · rosters.signup_event_id',
         where table_schema = 'public' and table_name = 'rosters' and column_name = 'signup_event_id') = 1
 union all
 
+-- ── 16_shard_priority ───────────────────────────────────────────────────────
+select '16 · shard_priority table',
+       (select count(*) from information_schema.columns
+        where table_schema = 'public' and table_name = 'shard_priority'
+          and column_name in ('requests', 'weapon_order', 'boss_order', 'posted_requests', 'posted_at',
+                              'posted_by_name', 'posted_channel_id')) = 7
+union all
+select '16 · shard_need_confirmations table',
+       (select count(*) from information_schema.columns
+        where table_schema = 'public' and table_name = 'shard_need_confirmations'
+          and column_name in ('discord_id', 'boss', 'weapon', 'need', 'confirmed_by', 'confirmed_by_name', 'confirmed_at')) = 7
+union all
+
 -- ── 12_lock_down_anon ───────────────────────────────────────────────────────
 -- These are standing checks, not one-offs: a table or function added by a
 -- LATER migration without the same treatment turns its row false. Re-running
