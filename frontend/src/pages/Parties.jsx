@@ -18,7 +18,9 @@ import {
 } from 'lucide-react';
 import { BUILD_CHIP_ON, KIND_BUILD } from '../buildColors';
 import ErrorBanner from '../components/ui/ErrorBanner';
-import { ROLES, PARTY_SIZE, partyMakeup, poolView, boardSignature } from '../partyBoard';
+import {
+  ROLES, PARTY_SIZE, partyMakeup, poolView, boardSignature, rosterForOccasion, rosterOccasionKey,
+} from '../partyBoard';
 
 const DAY_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 // Tank blue, healer green, DPS orange. Red is kept for problems only (LOA,
@@ -280,6 +282,7 @@ export default function Parties() {
   // classAssignments — someone can be a Tank for one and a Healer for the other.
   const [rolesByMode, setRolesByMode] = useState({ pvp: {}, pve: {} });
   const [saved, setSaved] = useState([]);
+  const [savedReady, setSavedReady] = useState(false);
   const [rosterId, setRosterId] = useState(null);
   const [rosterName, setRosterName] = useState('');
   const [filter, setFilter] = useState('');
@@ -428,7 +431,9 @@ export default function Parties() {
       .finally(() => setLoadingMembers(false));
   };
   const loadSaved = () => {
-    axios.get('/api/admin/rosters').then((res) => setSaved(res.data.rosters || [])).catch(() => {});
+    axios.get('/api/admin/rosters').then((res) => setSaved(res.data.rosters || []))
+      .catch(() => {})
+      .finally(() => setSavedReady(true));
   };
 
   const loadSchedule = () => {
@@ -508,18 +513,44 @@ export default function Parties() {
     fetchSignups(loaDate, loaEvent).then(setSignupById);
   }, [loaDate, loaEvent]);
 
-  // Moving the occasion changes who's flagged, but never moves anyone: the
-  // picker is a view onto a different night, and silently yanking people out of
-  // parties an officer just built (with no way back) loses real work. Conflicts
-  // surface in the status strip instead — see loaConflicts.
+  // Picking a night or event that has a roster linked to it opens that roster
+  // (asking first if the board has unsaved changes). load() moves the picker
+  // itself once the roster is in, so it isn't moved here.
+  //
+  // Otherwise moving the occasion changes who's flagged, but never moves
+  // anyone: the picker is a view onto a different night, and silently yanking
+  // people out of parties an officer just built (with no way back) loses real
+  // work. Conflicts surface in the status strip instead — see loaConflicts.
+  // That's also how a roster is reused: duplicate it, then move the date.
+  const openLinked = (date, event) => {
+    const linked = rosterForOccasion(saved, date, event);
+    if (!linked || linked.id === rosterId || !okToDiscard()) return false;
+    load(linked.id, { confirmed: true });
+    return true;
+  };
   const changeLoaDate = (date) => {
+    if (openLinked(date, '')) return;
     // Events are tied to one weekday, so a previously picked one may not exist
     // on the new date. Both setters land in the same React batch, so the fetch
     // effect fires once with the new pair rather than once with a stale event
     // id and again with the cleared one.
     setLoaDate(date); setLoaEvent(''); setLoaDiff(null);
   };
-  const changeLoaEvent = (event) => { setLoaEvent(event); setLoaDiff(null); };
+  const changeLoaEvent = (event) => {
+    if (openLinked(loaDate, event)) return;
+    setLoaEvent(event); setLoaDiff(null);
+  };
+
+  // Opening the page opens the roster linked to the night it starts on, once
+  // both the members and the saved list are in. autoOpenRef is filled in after
+  // load() is defined, below the permission check.
+  const autoOpened = useRef(false);
+  const autoOpenRef = useRef(null);
+  useEffect(() => {
+    if (autoOpened.current || loadingMembers || !savedReady || members.length === 0) return;
+    autoOpened.current = true;
+    autoOpenRef.current?.();
+  }, [loadingMembers, savedReady, members]);
 
   // Anyone on LOA for the current occasion who's still sitting on the board,
   // split by how definite the absence is (see isFullyOut). Only `full` is ever
@@ -831,8 +862,9 @@ export default function Parties() {
     // The occasion the board is currently set to is the occasion the roster is
     // for — that's what makes re-checking LOA on load possible.
     event_date: loaDate || null,
-    // A one-off has no schedule id; the roster keeps just its night.
+    // The event it's linked to: weekly by schedule id, one-off by signup id.
     event_schedule_id: loaEvent && !loaEvent.startsWith('signup:') ? loaEvent : null,
+    signup_event_id: loaEvent.startsWith('signup:') ? loaEvent.slice('signup:'.length) : null,
   });
 
   const save = async () => {
@@ -880,8 +912,9 @@ export default function Parties() {
     finally { setBusy(false); }
   };
 
-  const load = async (id) => {
-    if (!id || !okToDiscard()) return;
+  // `confirmed`: the caller already asked about unsaved changes.
+  const load = async (id, { confirmed = false } = {}) => {
+    if (!id || (!confirmed && !okToDiscard())) return;
     try {
       const res = await axios.get(`/api/admin/rosters/${id}`);
       const r = res.data.roster;
@@ -890,7 +923,7 @@ export default function Parties() {
       // occasion was recorded have none — leave the picker alone and skip the
       // diff, since there's no date to say "since you saved this" about.
       const date = r.event_date || null;
-      const event = r.event_schedule_id || '';
+      const event = rosterOccasionKey(r);
       const loa = date ? await fetchLoa(date, event) : loaById;
 
       const nextItems = initItems();
@@ -953,6 +986,13 @@ export default function Parties() {
       markClean();
       flash(`Loaded "${r.name}".`);
     } catch (err) { flash(err.response?.data?.error || 'Load failed.', false); }
+  };
+
+  // See autoOpened above. Only a fresh, untouched board is replaced.
+  autoOpenRef.current = () => {
+    if (rosterId || dirty) return;
+    const linked = rosterForOccasion(saved, loaDate, loaEvent);
+    if (linked) load(linked.id, { confirmed: true });
   };
 
   const del = async () => {
