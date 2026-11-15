@@ -293,6 +293,12 @@ select '14 · transfer_cooldowns table',
           and column_name in ('discord_id', 'display_name', 'ends_at', 'updated_at')) = 4
 union all
 
+-- ── 15_roster_one_off_events ────────────────────────────────────────────────
+select '15 · rosters.signup_event_id',
+       (select count(*) from information_schema.columns
+        where table_schema = 'public' and table_name = 'rosters' and column_name = 'signup_event_id') = 1
+union all
+
 -- ── 12_lock_down_anon ───────────────────────────────────────────────────────
 -- These are standing checks, not one-offs: a table or function added by a
 -- LATER migration without the same treatment turns its row false. Re-running

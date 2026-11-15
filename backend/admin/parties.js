@@ -33,21 +33,27 @@ module.exports = function registerParties(router, ctx) {
   const { supabase, loa, signups } = ctx;
 
   // ── Roster CRUD ─────────────────────────────────────────────────────────────
-  // A roster is bound to the occasion it was built for (event_date, and
-  // optionally one event_schedule_id) so loading it can re-check LOA against
-  // that date instead of against today. Both are nullable — rosters saved
-  // before the binding existed simply have no occasion to re-check.
+  // A roster is linked to the occasion it was built for: its night
+  // (event_date) and at most one event, weekly (event_schedule_id) or one-off
+  // (signup_event_id). Loading it re-checks LOA against that occasion, and the
+  // Parties board opens it when that event is picked. All nullable — rosters
+  // saved before the link existed simply have no occasion.
   // Returns the columns to write, or null if the date is malformed.
   const rosterOccasion = (body) => {
     const date = body.event_date || null;
     if (date && !DATE_RE.test(date)) return null;
-    return { event_date: date, event_schedule_id: body.event_schedule_id || null };
+    const signupEventId = body.signup_event_id || null;
+    return {
+      event_date: date,
+      event_schedule_id: signupEventId ? null : body.event_schedule_id || null,
+      signup_event_id: signupEventId,
+    };
   };
 
   router.get('/rosters', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
     const { data, error } = await supabase
-      .from('rosters').select('id, name, updated_at, event_date, event_schedule_id')
+      .from('rosters').select('id, name, updated_at, event_date, event_schedule_id, signup_event_id')
       .order('updated_at', { ascending: false });
     if (error) return res.status(500).json({ error: 'Failed to load rosters.' });
     res.json({ rosters: data || [] });
