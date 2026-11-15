@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef, forwardRef } from 'react';
 import axios from 'axios';
 import {
-  DndContext, DragOverlay, PointerSensor, useSensor, useSensors, useDroppable, closestCorners,
+  DndContext, DragOverlay, PointerSensor, useSensor, useSensors, useDroppable, closestCorners, pointerWithin,
 } from '@dnd-kit/core';
 import {
   SortableContext, useSortable, arrayMove, verticalListSortingStrategy, rectSortingStrategy,
@@ -65,6 +65,15 @@ const readPoolCollapsed = () => {
     const v = JSON.parse(localStorage.getItem(POOL_COLLAPSED_KEY) || '[]');
     return Array.isArray(v) ? v : [];
   } catch { return []; }
+};
+// Where a drag is over: whatever is under the pointer (the smallest thing
+// first, so a member card beats the box it's in), and only when the pointer
+// is in a gap, the nearest by corners. closestCorners alone ignores what the
+// pointer is inside, so the wide, short Fill and Absent boxes lost to a party
+// card or member nearby even with the pointer right over them.
+const collisionDetection = (args) => {
+  const under = pointerWithin(args);
+  return under.length ? under : closestCorners(args);
 };
 const findContainer = (id, src) => {
   if (id in src) return id;
@@ -1207,7 +1216,7 @@ export default function Parties() {
         </span>
       </div>
 
-      <DndContext sensors={sensors} collisionDetection={closestCorners}
+      <DndContext sensors={sensors} collisionDetection={collisionDetection}
         onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd} onDragCancel={endDrag}>
         <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-4 items-start">
           {/* The pool: everyone not placed, in a box per role. Search and
