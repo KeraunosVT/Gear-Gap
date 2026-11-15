@@ -97,6 +97,10 @@ const ROUTE_PERMISSIONS = [
   { prefix: '/loot/fairness', permission: 'loot.awards' },
   { prefix: '/loot', permission: 'loot.catalog' },
   { prefix: '/currency-awards', permission: 'loot.currency' },
+  // The Shards page's Priority tab. Same capability as the per-member shard
+  // priorities and weapon ranking on that page — deciding whose shards go out
+  // first is one job.
+  { prefix: '/shard-priority', permission: 'loot.awards' },
   { prefix: '/lucent-requests', permission: 'loot.requests' },
 ].sort((a, b) => b.prefix.length - a.prefix.length);
 

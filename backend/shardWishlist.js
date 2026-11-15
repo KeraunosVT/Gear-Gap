@@ -177,4 +177,8 @@ function cleanRanking(raw) {
   return [...new Set(raw.filter((k) => typeof k === 'string' && VALID.has(k)))].slice(0, VALID.size);
 }
 
-module.exports = { read, normalize, fromLegacy, keepPriorities, stampChanges, hidePriorities, cleanRanking, shardFor, costFor };
+// Is this a weapon the wishlist knows, under that source? The one list every
+// stored key is checked against.
+const isWeapon = (boss, weapon) => VALID.has(`${boss}|${weapon}`);
+
+module.exports = { read, normalize, fromLegacy, keepPriorities, stampChanges, hidePriorities, cleanRanking, shardFor, costFor, isWeapon };

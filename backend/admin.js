@@ -26,6 +26,7 @@ const FEATURES = [
   require('./admin/members'),
   require('./admin/loot'),
   require('./admin/lootCurrency'),
+  require('./admin/shardPriority'),
   require('./admin/names'),
   require('./admin/lootItems'),
   require('./admin/parties'),
