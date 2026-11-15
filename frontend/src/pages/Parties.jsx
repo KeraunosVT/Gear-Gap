@@ -14,7 +14,7 @@ import { PageShell } from '../components/ui/PageShell';
 import { todayInGuildTz, fmtTimeEst, eventsForGuildDay, isAfterMidnight } from '../timeUtils';
 import {
   Save, Trash2, Send, Plus, Copy, RefreshCw, CalendarOff, CalendarDays, CalendarCheck, ClipboardList, X,
-  MoreHorizontal, Check, AlertTriangle, Clock, Pencil, ChevronDown,
+  AlertTriangle, Clock, Pencil, ChevronDown, FolderOpen,
 } from 'lucide-react';
 import { BUILD_CHIP_ON, KIND_BUILD } from '../buildColors';
 import ErrorBanner from '../components/ui/ErrorBanner';
@@ -292,6 +292,9 @@ export default function Parties() {
   const [rolesByMode, setRolesByMode] = useState({ pvp: {}, pve: {} });
   const [saved, setSaved] = useState([]);
   const [savedReady, setSavedReady] = useState(false);
+  // The roster picked in the dropdown, waiting for Load. Follows whichever
+  // roster is open, so after a load, save or delete it shows the board's own.
+  const [pickId, setPickId] = useState('');
   const [rosterId, setRosterId] = useState(null);
   const [rosterName, setRosterName] = useState('');
   const [filter, setFilter] = useState('');
@@ -343,6 +346,8 @@ export default function Parties() {
   const [signupById, setSignupById] = useState(() => new Map());
   const signupRef = useRef(signupById);
   useEffect(() => { signupRef.current = signupById; }, [signupById]);
+
+  useEffect(() => { setPickId(rosterId || ''); }, [rosterId]);
 
   const rolesByModeRef = useRef(rolesByMode);
   useEffect(() => { rolesByModeRef.current = rolesByMode; }, [rolesByMode]);
@@ -1052,8 +1057,8 @@ export default function Parties() {
   return (
     <PageShell width="full" paddingX="px-2">
       {/* Header, split by job: the night you're building for, the roster
-          itself, then what you do with it. Load, New, Duplicate and Delete
-          live in the ⋯ menu. */}
+          itself, then what you do with it: the saved-roster dropdown with
+          Load, New, Duplicate and Delete, then Save and Post. */}
       <header className="panel rounded-lg p-3 mb-3 flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
         <div className="flex flex-col gap-1">
           <span className="eyebrow text-[10px] text-ash flex items-center gap-1.5">
@@ -1105,8 +1110,36 @@ export default function Parties() {
               </button>
             ))}
           </div>
-          <RosterMenu saved={saved} rosterId={rosterId} loaDate={loaDate} busy={busy}
-            onLoad={load} onNew={newBoard} onDuplicate={duplicate} onDelete={del} />
+          {/* Pick a saved roster, then Load it. New starts an empty board;
+              Duplicate and Delete act on the roster that's open. */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <select value={pickId} onChange={(e) => setPickId(e.target.value)} aria-label="Saved rosters"
+              className="bg-hall border border-line rounded-lg px-2 py-2 text-bone text-sm focus:outline-none focus:border-brass w-52 max-w-full">
+              <option value="">{saved.length ? 'Choose a roster…' : 'No saved rosters'}</option>
+              {saved.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.name}{r.event_date === loaDate ? ' · this night' : r.event_date ? ` · ${r.event_date}` : ''}
+                </option>
+              ))}
+            </select>
+            <button type="button" onClick={() => load(pickId)} disabled={!pickId || busy}
+              title={pickId === rosterId ? 'Reload the saved copy of this roster' : 'Open the chosen roster'}
+              className={HEADER_BTN}>
+              <FolderOpen className="w-4 h-4" /> Load
+            </button>
+            <button type="button" onClick={newBoard} disabled={busy} title="Start an empty board" className={HEADER_BTN}>
+              <Plus className="w-4 h-4" /> New
+            </button>
+            <button type="button" onClick={duplicate} disabled={!rosterId || busy} className={HEADER_BTN}
+              title={rosterId ? 'Save this board as a new roster, leaving the original untouched' : 'Load or save a roster first'}>
+              <Copy className="w-4 h-4" /> Duplicate
+            </button>
+            <button type="button" onClick={del} disabled={!rosterId || busy}
+              title={rosterId ? 'Delete this roster' : 'Load or save a roster first'}
+              className={`${HEADER_BTN} text-oxblood hover:border-oxblood/50`}>
+              <Trash2 className="w-4 h-4" /> Delete
+            </button>
+          </div>
           <Button size="none" className="px-4 py-2" disabled={busy} onClick={save}><Save className="w-4 h-4" /> Save</Button>
           <Button variant="secondary" size="none" className="px-4 py-2" disabled={busy} onClick={post}><Send className="w-4 h-4" /> Post to Discord</Button>
         </div>
@@ -1331,65 +1364,9 @@ function StatusChip({ tone = 'neutral', title, children }) {
   );
 }
 
-// Load, New, Duplicate and Delete, out of the header's way.
-function RosterMenu({ saved, rosterId, loaDate, busy, onLoad, onNew, onDuplicate, onDelete }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-
-  useEffect(() => {
-    if (!open) return undefined;
-    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
-    document.addEventListener('mousedown', onDoc);
-    document.addEventListener('keydown', onKey);
-    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
-  }, [open]);
-
-  const pick = (fn) => () => { setOpen(false); fn(); };
-  const item = 'w-full text-left px-2 py-1.5 rounded text-sm flex items-center gap-2 hover:bg-panelup disabled:opacity-40 disabled:hover:bg-transparent';
-
-  return (
-    <div ref={ref} className="relative">
-      <button type="button" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}
-        aria-label="Roster menu: load, new, duplicate, delete" title="Load, new, duplicate, delete"
-        className="w-9 h-9 inline-flex items-center justify-center rounded-lg border border-line text-ash hover:text-bone">
-        <MoreHorizontal className="w-4 h-4" />
-      </button>
-      {open && (
-        <div role="menu" className="absolute right-0 top-11 z-30 w-72 max-w-[calc(100vw-2rem)] bg-panel border border-line rounded-lg p-1.5 shadow-xl">
-          <div className="eyebrow text-[10px] text-ash px-2 py-1.5">Load roster</div>
-          <div className="max-h-72 overflow-auto">
-            {saved.length === 0 && <div className="px-2 py-1.5 text-sm text-ash/70">No saved rosters yet.</div>}
-            {saved.map((r) => (
-              <button key={r.id} type="button" role="menuitem" onClick={pick(() => onLoad(r.id))}
-                className={`${item} ${r.id === rosterId ? 'text-bone font-semibold' : 'text-ash hover:text-bone'}`}>
-                <span className="truncate flex-1">{r.name}</span>
-                {r.event_date === loaDate
-                  ? <span className={`text-xs shrink-0 ${GOOD_TEXT}`}>this night</span>
-                  : r.event_date && <span className="text-xs font-mono text-ash/70 shrink-0">{r.event_date}</span>}
-                {r.id === rosterId && <Check className="w-3.5 h-3.5 shrink-0" aria-label="Open now" />}
-              </button>
-            ))}
-          </div>
-          <div className="h-px bg-line my-1.5" />
-          <button type="button" role="menuitem" onClick={pick(onNew)} className={`${item} text-bone`}>
-            <Plus className="w-4 h-4 text-ash" /> New board
-          </button>
-          <button type="button" role="menuitem" onClick={pick(onDuplicate)} disabled={!rosterId || busy}
-            title={rosterId ? 'Save this board as a new roster, leaving the original untouched' : 'Load or save a roster first'}
-            className={`${item} text-bone`}>
-            <Copy className="w-4 h-4 text-ash" /> Duplicate
-          </button>
-          {rosterId && (
-            <button type="button" role="menuitem" onClick={pick(onDelete)} className={`${item} text-oxblood`}>
-              <Trash2 className="w-4 h-4" /> Delete roster…
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
+// The header's quieter buttons beside the roster dropdown: Load, New,
+// Duplicate and Delete. Save and Post keep the stronger styles.
+const HEADER_BTN = 'h-9 px-3 inline-flex items-center gap-1.5 rounded-lg border border-line text-sm text-bone hover:bg-panelup disabled:opacity-40 disabled:hover:bg-transparent';
 
 // One party: six seats, always. Pips show the makeup at a glance, a missing
 // tank or healer is called out (and named in the empty seat it belongs in),
