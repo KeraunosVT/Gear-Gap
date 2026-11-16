@@ -4,6 +4,7 @@
 const {
   Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, MessageFlags, ChannelType,
   ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle,
+  ContextMenuCommandBuilder, ApplicationCommandType,
 } = require('discord.js');
 const createEliteTimers = require('./eliteTimers');
 const createLoa = require('./loa');
@@ -258,6 +259,13 @@ async function registerCommands() {
     );
   commands.push(announceCommand.toJSON());
 
+  // Right-click a poll → Apps → Check poll votes. Officers only, checked when
+  // it runs (like /announce), and the answer is only ever shown to them.
+  commands.push(new ContextMenuCommandBuilder()
+    .setName(POLL_CHECK_COMMAND)
+    .setType(ApplicationCommandType.Message)
+    .toJSON());
+
   try {
     const rest = new REST({ version: '10' }).setToken(BOT_TOKEN);
     await rest.put(Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID), { body: commands });
@@ -279,6 +287,10 @@ async function handleInteraction(interaction) {
   // The only modal is the signup post's LOA reason box.
   if (interaction.isModalSubmit()) {
     if (interaction.customId.startsWith('sg:loaform:')) return handleSignupLoaForm(interaction);
+    return;
+  }
+  if (interaction.isMessageContextMenuCommand()) {
+    if (interaction.commandName === POLL_CHECK_COMMAND) return handlePollCheck(interaction);
     return;
   }
   if (!interaction.isChatInputCommand()) return;
@@ -1196,6 +1208,114 @@ async function notifyLateAttendance(request) {
 }
 
 // ── /announce ─────────────────────────────────────────────────────────────
+// ── CHECK POLL VOTES ────────────────────────────────────────────────────────
+// Who has and hasn't voted in a Discord poll, measured against the member
+// role list the site uses everywhere else. A member can appear under several
+// answers in a multiple-choice poll. Voters without the member role are still
+// listed under what they picked — a vote is a vote — but only members can be
+// "not voted".
+const POLL_CHECK_COMMAND = 'Check poll votes';
+const DISCORD_MESSAGE_LIMIT = 2000;
+
+// Discord hands voters out 100 at a time.
+async function fetchAllVoters(answer) {
+  const ids = [];
+  let after;
+  for (let page = 0; page < 50; page++) {
+    const batch = await answer.voters.fetch({ after, limit: 100 });
+    batch.forEach((u) => { if (!u.bot) ids.push(u.id); });
+    if (batch.size < 100) break;
+    after = batch.lastKey();
+  }
+  return ids;
+}
+
+// The report as Discord messages, each under the 2000-character limit. Pure,
+// so it can be tested: `answers` is [{ text, voterIds }], `roster` the member
+// list [{ id, name }], `nameFor(id)` resolves anyone, member or not.
+function pollReport({ question, answers, roster, nameFor, closed = false }) {
+  const byName = (a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' });
+  const memberIds = new Set(roster.map((m) => String(m.id)));
+  const voted = new Set(answers.flatMap((a) => a.voterIds.map(String)));
+  const membersVoted = roster.filter((m) => voted.has(String(m.id))).length;
+  const notVoted = roster.filter((m) => !voted.has(String(m.id))).map((m) => nameFor(m.id)).sort(byName);
+
+  const lines = [
+    `📊 **${question || 'Poll'}**${closed ? ' (closed)' : ''}`,
+    `**${membersVoted} of ${roster.length}** members have voted.`,
+    '',
+  ];
+  answers.forEach((a) => {
+    const names = a.voterIds.map((id) => nameFor(id) + (memberIds.has(String(id)) ? '' : ' *(not a member)*')).sort(byName);
+    lines.push(`**${a.text || 'Option'} (${names.length})**`, names.length ? names.join(', ') : '—', '');
+  });
+  lines.push(`**❌ Haven't voted (${notVoted.length})**`, notVoted.length ? notVoted.join(', ') : 'Everyone has voted 🎉');
+
+  // Split on line breaks, and a line that is itself too long on its commas.
+  const pieces = lines.flatMap((line) => {
+    if (line.length <= DISCORD_MESSAGE_LIMIT - 10) return [line];
+    const parts = [];
+    let cur = '';
+    line.split(', ').forEach((name) => {
+      const next = cur ? `${cur}, ${name}` : name;
+      if (next.length > DISCORD_MESSAGE_LIMIT - 10) { parts.push(cur); cur = name; } else cur = next;
+    });
+    if (cur) parts.push(cur);
+    return parts;
+  });
+  const messages = [];
+  let msg = '';
+  pieces.forEach((p) => {
+    const next = msg ? `${msg}\n${p}` : p;
+    if (next.length > DISCORD_MESSAGE_LIMIT) { messages.push(msg); msg = p; } else msg = next;
+  });
+  if (msg.trim()) messages.push(msg);
+  return messages;
+}
+
+async function handlePollCheck(interaction) {
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  if (!isAdminMember(interaction)) return interaction.editReply('Officers only.');
+
+  const poll = interaction.targetMessage?.poll;
+  if (!poll) return interaction.editReply("That message isn't a poll. Right-click the poll itself and pick Apps → Check poll votes.");
+
+  try {
+    const [roster, ids] = await Promise.all([
+      listMembers(),
+      identities ? identities.load().catch(() => null) : null,
+    ]);
+    const answers = [];
+    for (const answer of poll.answers.values()) {
+      answers.push({ text: answer.text, voterIds: await fetchAllVoters(answer) });
+    }
+
+    // Names as the site shows them: the alias if there is one, else the
+    // member's server name, else whatever Discord calls a non-member.
+    const rosterName = new Map(roster.map((m) => [String(m.id), m.name]));
+    const userName = new Map();
+    for (const answer of poll.answers.values()) {
+      answer.voters?.cache?.forEach((u) => userName.set(u.id, displayNameFor(u)));
+    }
+    const nameFor = (id) => {
+      const fallback = rosterName.get(String(id)) || userName.get(String(id)) || `<@${id}>`;
+      return ids ? ids.displayNameFor(String(id), fallback) || fallback : fallback;
+    };
+
+    const messages = pollReport({
+      question: poll.question?.text, answers, roster, nameFor,
+      closed: Boolean(poll.resultsFinalized || (poll.expiresAt && poll.expiresAt.getTime() <= Date.now())),
+    });
+    await interaction.editReply({ content: messages[0], allowedMentions: { parse: [] } });
+    for (const extra of messages.slice(1)) {
+      await interaction.followUp({ content: extra, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
+    }
+  } catch (err) {
+    console.error('Poll check error:', err.message);
+    await interaction.editReply("Couldn't read that poll's votes. Check the bot can see that channel and read its message history.");
+  }
+}
+
 async function handleAnnounce(interaction) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   if (!isAdminMember(interaction)) return interaction.editReply('Officers only.');
@@ -1781,8 +1901,8 @@ module.exports = {
   notifyLateAttendance,
 };
 
-// Exposed for backend/test/eliteButtons.test.js and loaDateChoices.test.js, and
-// for nothing else. The
+// Exposed for backend/test/eliteButtons.test.js, loaDateChoices.test.js and
+// pollReport.test.js, and for nothing else. The
 // gateway's own `eliteTimers` is set by start(), which opens a websocket and
 // logs in — so a test can't reach the board rendering or the button branching
 // any other way. Same motivation as gearIlvl exporting parseGearScreenshot for
@@ -1791,5 +1911,6 @@ module.exports.__test = {
   setEliteTimers: (t) => { eliteTimers = t; },
   eliteBoard,
   handleEliteButton,
+  pollReport,
   loaDateChoices,
 };
