@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const Papa = require('papaparse');
 const perms = require('../permissions');
 const SHARDS = require('../../shared/shards.json');
+const shardWishlist = require('../shardWishlist');
 const { listMembers } = require('../discord');
 const { fetchAll } = require('../pagedRead');
 const { norm, upload, clean } = require('./helpers');
@@ -64,9 +65,52 @@ module.exports = function registerLootCurrency(router, ctx) {
     return s ? s.slice(0, 60) : null;
   };
 
+  // A member's wishlisted weapons that take each shard, with what each still
+  // needs — the grant form's "Toward" list. Priority stays hidden: it isn't
+  // this capability's to see.
+  router.get('/currency-awards/wishlist/:discordId', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const { data, error } = await supabase.from('shard_counts')
+      .select('shards').eq('discord_id', String(req.params.discordId)).maybeSingle();
+    if (error) {
+      console.error('grant wishlist load error:', error.message);
+      return res.status(500).json({ error: "Failed to load that member's shards." });
+    }
+    const list = shardWishlist.read(data?.shards);
+    res.json({
+      weapons: list.weapons.map((w) => ({
+        boss: w.boss, weapon: w.weapon, build: w.build, need: w.need, shard: shardWishlist.shardFor(w.boss, w.weapon),
+      })),
+      unlinked: list.unlinked,
+    });
+  });
+
+  // Shards given come off the member's wishlist: the weapon the officer picked
+  // first, the rest of that shard's weapons after, and a weapon brought to 0
+  // comes off the list (shardWishlist.applyGrant). Best-effort and after the
+  // grant: the grant is the record of what was paid, and a wishlist that
+  // couldn't be updated is reported, not a reason to refuse the payment.
+  // Editing or revoking a grant later doesn't put shards back — the member or
+  // an officer fixes the wishlist by hand, the same as before this existed.
+  async function deductFromWishlist(discordId, shard, amount, target) {
+    const { data: row, error: readErr } = await supabase.from('shard_counts')
+      .select('shards').eq('discord_id', discordId).maybeSingle();
+    if (readErr) throw new Error(readErr.message);
+    if (!row) return { applied: [], removed: [], fromUnlinked: 0, unused: amount };
+    const now = new Date().toISOString();
+    const result = shardWishlist.applyGrant(row.shards, { shard, amount, target }, now);
+    if (result.applied.length || result.fromUnlinked) {
+      const { error } = await supabase.from('shard_counts')
+        .update({ shards: result.shards, updated_at: now }).eq('discord_id', discordId);
+      if (error) throw new Error(error.message);
+    }
+    const { shards: _stored, ...summary } = result;
+    return summary;
+  }
+
   router.post('/currency-awards', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
-    const { discord_id, display_name, currency, amount, reason } = req.body || {};
+    const { discord_id, display_name, currency, amount, reason, weapon } = req.body || {};
     if (!discord_id) return res.status(400).json({ error: 'Member is required.' });
     if (!CURRENCIES.has(currency)) return res.status(400).json({ error: 'Unknown currency type.' });
     const amt = parseInt(amount, 10);
@@ -80,7 +124,14 @@ module.exports = function registerLootCurrency(router, ctx) {
       awarded_at: new Date().toISOString(),
     });
     if (error) return res.status(500).json({ error: 'Failed to record grant.' });
-    res.json({ id });
+    if (currency === 'lucent') return res.json({ id });
+    try {
+      const target = typeof weapon === 'string' ? weapon : null;
+      res.json({ id, deducted: await deductFromWishlist(String(discord_id), currency, amt, target) });
+    } catch (err) {
+      console.error('grant wishlist deduction error:', err.message);
+      res.json({ id, deduction_error: "The grant was recorded, but their shard list couldn't be updated — adjust it by hand." });
+    }
   });
 
   // Correct a grant in place — a typo'd amount, the wrong shard type, a missing

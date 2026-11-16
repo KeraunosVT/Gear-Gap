@@ -263,11 +263,22 @@ export default function LootLucent() {
   };
 
   // ── Grant actions ─────────────────────────────────────────────────────────
-  const giveGrant = (discordId, currency, amount, reason) => {
+  // Shards also come off the member's wishlist (server side); the message says
+  // what changed, so nobody has to open their list to check.
+  const giveGrant = (discordId, currency, amount, reason, weapon = null) => {
     const member = members.find((m) => m.id === discordId);
     setBusy(true);
-    axios.post('/api/admin/currency-awards', { discord_id: discordId, display_name: member?.name, currency, amount, reason })
-      .then(() => { load(); flash(`Gave ${fmt(amount)} ${CURRENCY_LABEL[currency] || currency} to ${member?.name || 'member'}.`); })
+    axios.post('/api/admin/currency-awards', { discord_id: discordId, display_name: member?.name, currency, amount, reason, weapon })
+      .then((res) => {
+        load();
+        const gave = `Gave ${fmt(amount)} ${CURRENCY_LABEL[currency] || currency} to ${member?.name || 'member'}.`;
+        const d = res.data?.deducted;
+        if (res.data?.deduction_error) { flash(`${gave} ${res.data.deduction_error}`, false); return; }
+        if (!d) { flash(gave); return; }
+        const parts = d.applied.map((a) => (a.to === 0 ? `${a.weapon} is done and came off their list` : `${a.weapon} now needs ${a.to}`));
+        if (d.fromUnlinked) parts.push(`${d.fromUnlinked} off their unlinked count`);
+        flash(parts.length ? `${gave} ${parts.join('; ')}.` : `${gave} Nothing on their list needed it.`);
+      })
       .catch((err) => flash(err.response?.data?.error || 'Failed to record grant.', false))
       .finally(() => setBusy(false));
   };
