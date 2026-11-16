@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
+import axios from 'axios';
 import { X, Coins } from 'lucide-react';
 import { CURRENCY_TYPES } from '../../currencies';
 
@@ -11,6 +12,30 @@ export default function GrantForm({ members, busy, onGive }) {
   const [currency, setCurrency] = useState('lucent');
   const [amount, setAmount] = useState('');
   const [reason, setReason] = useState('');
+  // Shards come off the member's wishlist: this is their list, fetched when a
+  // member is picked, and the weapon the grant goes toward first.
+  const [wishlist, setWishlist] = useState(null);
+  const [toward, setToward] = useState('');
+  const isShard = currency !== 'lucent';
+
+  useEffect(() => {
+    setWishlist(null);
+    if (!memberId) return undefined;
+    let live = true;
+    axios.get(`/api/admin/currency-awards/wishlist/${encodeURIComponent(memberId)}`)
+      .then((res) => { if (live) setWishlist(res.data); })
+      .catch(() => { if (live) setWishlist({ weapons: [], unlinked: {}, failed: true }); });
+    return () => { live = false; };
+  }, [memberId]);
+
+  // Their weapons that take this shard and still need some, in list order.
+  const towardOptions = useMemo(
+    () => (wishlist?.weapons || []).filter((w) => w.shard === currency && w.need > 0),
+    [wishlist, currency],
+  );
+  useEffect(() => {
+    setToward(towardOptions[0] ? `${towardOptions[0].boss}|${towardOptions[0].weapon}` : '');
+  }, [towardOptions]);
 
   const suggestions = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -47,7 +72,7 @@ export default function GrantForm({ members, busy, onGive }) {
   const submit = () => {
     const amt = parseInt(amount, 10);
     if (!memberId || !Number.isFinite(amt) || amt <= 0) return;
-    onGive(memberId, currency, amt, reason.trim());
+    onGive(memberId, currency, amt, reason.trim(), isShard ? toward || null : null);
     // Member and currency stay put — grants tend to come in runs for the same
     // person or the same payout, so only the per-grant fields reset.
     setAmount(''); setReason('');
@@ -85,6 +110,23 @@ export default function GrantForm({ members, busy, onGive }) {
         className="bg-hall border border-line rounded-lg px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass">
         {CURRENCY_TYPES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
       </select>
+      {/* Which weapon the shards go toward. Anything past its need goes to
+          their other weapons on the same shard; a weapon that reaches 0 comes
+          off their list. */}
+      {isShard && memberId && wishlist && (towardOptions.length > 0 ? (
+        <select value={toward} onChange={(e) => setToward(e.target.value)} title="Comes off this weapon's need first"
+          className="bg-hall border border-line rounded-lg px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass max-w-[260px]">
+          {towardOptions.map((w) => (
+            <option key={`${w.boss}|${w.weapon}`} value={`${w.boss}|${w.weapon}`}>
+              Toward {w.weapon}{w.build ? ` (${w.build})` : ''} — needs {w.need}
+            </option>
+          ))}
+        </select>
+      ) : (
+        <span className="text-xs text-ash/70 max-w-[220px]">
+          {wishlist.failed ? "Couldn't load their shard list." : 'No weapon on their list needs this shard — nothing will be deducted.'}
+        </span>
+      ))}
       <input
         type="number" min={1} value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="Amount"
         className="bg-hall border border-line rounded-lg px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass w-28"

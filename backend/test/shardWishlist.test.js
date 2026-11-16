@@ -3,7 +3,9 @@
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
-const { read, normalize, keepPriorities, stampChanges, hidePriorities, cleanRanking, shardFor, costFor } = require('../shardWishlist');
+const {
+  read, normalize, keepPriorities, stampChanges, hidePriorities, cleanRanking, shardFor, costFor, applyGrant,
+} = require('../shardWishlist');
 
 const W = (boss, weapon, extra = {}) => ({ boss, weapon, build: '', ...extra });
 const needOf = (s, weapon) => s.weapons.find((w) => w.weapon === weapon)?.need;
@@ -154,5 +156,64 @@ describe('cleanRanking', () => {
   test('anything that isn\'t a list is an empty ranking', () => {
     assert.deepEqual(cleanRanking(undefined), []);
     assert.deepEqual(cleanRanking('Tevent|Warblade of Incineration'), []);
+  });
+});
+
+// Shards an officer gives come off the member's list. Two Tevent weapons share
+// Tevent Ashen; Queen Bellandir's weapon takes a different shard.
+describe('applyGrant', () => {
+  const NOW = '2026-11-16T12:00:00.000Z';
+  const list = () => ({
+    v: 2,
+    weapons: [
+      W('Tevent', 'Warblade of Incineration', { need: 60 }),
+      W('Tevent', 'Inferno Fangs', { need: 30 }),
+      W('Queen Bellandir', 'Incandescent Blade', { need: 90 }),
+    ],
+    unlinked: {},
+  });
+  const give = (amount, target = null, stored = list()) => applyGrant(stored, { shard: 'tevent_ashen', amount, target }, NOW);
+
+  test('comes off the picked weapon and stamps it', () => {
+    const r = give(20, 'Tevent|Inferno Fangs');
+    assert.equal(needOf(r.shards, 'Inferno Fangs'), 10);
+    assert.equal(needOf(r.shards, 'Warblade of Incineration'), 60);
+    assert.equal(r.shards.weapons.find((w) => w.weapon === 'Inferno Fangs').updated, NOW);
+    assert.deepEqual(r.applied, [{ boss: 'Tevent', weapon: 'Inferno Fangs', from: 30, to: 10 }]);
+  });
+
+  test('a weapon brought to 0 comes off the list', () => {
+    const r = give(30, 'Tevent|Inferno Fangs');
+    assert.equal(r.shards.weapons.some((w) => w.weapon === 'Inferno Fangs'), false);
+    assert.deepEqual(r.removed, [{ boss: 'Tevent', weapon: 'Inferno Fangs' }]);
+    assert.equal(r.shards.weapons.length, 2);
+  });
+
+  test('more than the picked weapon needs spills onto their other weapons on that shard', () => {
+    const r = give(50, 'Tevent|Inferno Fangs');
+    assert.equal(r.shards.weapons.some((w) => w.weapon === 'Inferno Fangs'), false);
+    assert.equal(needOf(r.shards, 'Warblade of Incineration'), 40);
+    assert.equal(r.unused, 0);
+  });
+
+  test('with no pick, it goes down the list in order', () => {
+    const r = give(10);
+    assert.equal(needOf(r.shards, 'Warblade of Incineration'), 50);
+    assert.equal(needOf(r.shards, 'Inferno Fangs'), 30);
+  });
+
+  test("never touches a weapon on another shard, and reports what nothing needed", () => {
+    const r = give(200);
+    assert.equal(needOf(r.shards, 'Incandescent Blade'), 90);
+    assert.deepEqual(r.shards.weapons.map((w) => w.weapon), ['Incandescent Blade']);
+    assert.equal(r.unused, 110);
+  });
+
+  test('an unset need is left alone; an unlinked count takes what the weapons did not', () => {
+    const stored = { v: 2, weapons: [W('Tevent', 'Inferno Fangs', { need: null })], unlinked: { tevent_ashen: 25 } };
+    const r = give(10, null, stored);
+    assert.equal(needOf(r.shards, 'Inferno Fangs'), null);
+    assert.equal(r.shards.unlinked.tevent_ashen, 15);
+    assert.equal(r.fromUnlinked, 10);
   });
 });

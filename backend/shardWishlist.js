@@ -177,8 +177,53 @@ function cleanRanking(raw) {
   return [...new Set(raw.filter((k) => typeof k === 'string' && VALID.has(k)))].slice(0, VALID.size);
 }
 
+// Shards given to a member come off what they still need. `target`
+// ("boss|weapon", the officer's pick) goes first, then the member's other
+// weapons that take the same shard in list order, then any unlinked count of
+// that shard. A weapon brought to 0 by the grant comes off the list. Weapons
+// with no need set yet are left alone — there's nothing to deduct from.
+//
+// Returns the new stored shape, what came off which weapon, which weapons were
+// removed, and how many of the grant nothing on the list needed.
+function applyGrant(stored, { shard, amount, target = null }, now) {
+  const s = read(stored);
+  let left = Math.max(0, toInt(amount) || 0);
+  const uses = s.weapons.filter((w) => shardFor(w.boss, w.weapon) === shard && w.need > 0);
+  const first = uses.find((w) => `${w.boss}|${w.weapon}` === target);
+  const order = first ? [first, ...uses.filter((w) => w !== first)] : uses;
+
+  const applied = [];
+  for (const w of order) {
+    if (!left) break;
+    const took = Math.min(left, w.need);
+    applied.push({ boss: w.boss, weapon: w.weapon, from: w.need, to: w.need - took });
+    w.need -= took;
+    w.updated = now;
+    left -= took;
+  }
+  let fromUnlinked = 0;
+  if (left && s.unlinked[shard]) {
+    fromUnlinked = Math.min(left, s.unlinked[shard]);
+    s.unlinked[shard] -= fromUnlinked;
+    left -= fromUnlinked;
+  }
+
+  const done = new Set(applied.filter((a) => a.to === 0).map((a) => `${a.boss}|${a.weapon}`));
+  const shards = normalize({ ...s, weapons: s.weapons.filter((w) => !done.has(`${w.boss}|${w.weapon}`)) });
+  return {
+    shards,
+    applied,
+    removed: applied.filter((a) => a.to === 0).map(({ boss, weapon }) => ({ boss, weapon })),
+    fromUnlinked,
+    unused: left,
+  };
+}
+
 // Is this a weapon the wishlist knows, under that source? The one list every
 // stored key is checked against.
 const isWeapon = (boss, weapon) => VALID.has(`${boss}|${weapon}`);
 
-module.exports = { read, normalize, fromLegacy, keepPriorities, stampChanges, hidePriorities, cleanRanking, shardFor, costFor, isWeapon };
+module.exports = {
+  read, normalize, fromLegacy, keepPriorities, stampChanges, hidePriorities, cleanRanking, shardFor, costFor, isWeapon,
+  applyGrant,
+};
