@@ -19,7 +19,7 @@ import {
 import { BUILD_CHIP_ON, KIND_BUILD } from '../buildColors';
 import ErrorBanner from '../components/ui/ErrorBanner';
 import {
-  ROLES, PARTY_SIZE, partyMakeup, poolView, boardSignature, rosterForOccasion, rosterOccasionKey,
+  ROLES, PARTY_SIZE, partyMakeup, poolView, boardSignature, rosterForOccasion, rosterOccasionKey, loadsAsCopy,
 } from '../partyBoard';
 
 const DAY_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -949,17 +949,24 @@ export default function Parties() {
   };
 
   // `confirmed`: the caller already asked about unsaved changes.
+  //
+  // With a specific event picked, a roster saved for something else is copied
+  // in as a new roster for that event (see loadsAsCopy) — the picker stays
+  // where the officer put it, and Save creates a roster rather than overwriting
+  // the one it came from.
   const load = async (id, { confirmed = false } = {}) => {
     if (!id || (!confirmed && !okToDiscard())) return;
     try {
       const res = await axios.get(`/api/admin/rosters/${id}`);
       const r = res.data.roster;
+      const asCopy = loadsAsCopy(r, loaDate, loaEvent);
       // Re-check LOA against the occasion this roster was built for, not
       // whatever the picker happens to be showing. Rosters saved before the
       // occasion was recorded have none — leave the picker alone and skip the
       // diff, since there's no date to say "since you saved this" about.
-      const date = r.event_date || null;
-      const event = rosterOccasionKey(r);
+      // A copy is for the picked event, so it's checked against that instead.
+      const date = asCopy ? loaDate : r.event_date || null;
+      const event = asCopy ? loaEvent : rosterOccasionKey(r);
       const loa = date ? await fetchLoa(date, event) : loaById;
 
       const nextItems = initItems();
@@ -1013,7 +1020,21 @@ export default function Parties() {
       setItems(nextItems); setPartyNames(nextNames); setAbsentWhy(savedWhy);
       setRolesByMode(mergedRolesByMode); setExtra(nextExtra);
       setClassAssignments(r.layout?.classAssignments || { pvp: {}, pve: {} });
-      setRosterId(r.id); setRosterName(r.name); setSelected(null);
+      setSelected(null);
+      if (asCopy) {
+        // A new roster for the picked event: no id until it's saved, and left
+        // unsaved on purpose so the strip says so. Anyone on LOA for this event
+        // who came over in a party shows in the LOA chip, with its bench button;
+        // "since this was saved" would be about a different night.
+        setRosterId(null); setRosterName(copyName(r.name));
+        loaFetchedFor.current = `${date}|${event}`;
+        setLoaById(loa); setLoaDiff(null);
+        const target = [...eventsForDate, ...oneOffs.map((o) => ({ id: `signup:${o.id}`, name: o.title }))]
+          .find((e) => String(e.id) === String(loaEvent));
+        flash(`Copied "${r.name}" into ${target?.name || 'this event'} as a new roster. Save to keep it.`);
+        return;
+      }
+      setRosterId(r.id); setRosterName(r.name);
       if (date) {
         loaFetchedFor.current = `${date}|${event}`;
         setLoaDate(date); setLoaEvent(event); setLoaById(loa);
@@ -1145,7 +1166,10 @@ export default function Parties() {
               ))}
             </select>
             <button type="button" onClick={() => load(pickId)} disabled={!pickId || busy}
-              title={pickId === rosterId ? 'Reload the saved copy of this roster' : 'Open the chosen roster'}
+              title={pickId === rosterId ? 'Reload the saved copy of this roster'
+                : loadsAsCopy(saved.find((r) => String(r.id) === String(pickId)), loaDate, loaEvent)
+                  ? 'Copy the chosen roster into this event as a new roster. The original is left untouched.'
+                  : 'Open the chosen roster'}
               className={HEADER_BTN}>
               <FolderOpen className="w-4 h-4" /> Load
             </button>

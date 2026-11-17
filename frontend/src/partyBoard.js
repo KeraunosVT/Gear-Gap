@@ -72,6 +72,16 @@ export function rosterForOccasion(saved, date, event) {
   return !event && night.length === 1 ? night[0] : null;
 }
 
+// Does loading roster `r` copy it into the picked occasion rather than open it?
+// With a specific event picked, a roster saved for anything else — another
+// event, another night, no occasion at all — is brought in as a new, unsaved
+// roster for that event, so building from it can never overwrite it. Its own
+// roster, or anything with "All events" picked, opens as itself.
+export function loadsAsCopy(r, date, event) {
+  if (!event || !r) return false;
+  return !(r.event_date === date && rosterOccasionKey(r) === event);
+}
+
 // Everything a saved roster records, as one comparable string. The pool is
 // left out on purpose: it's whoever isn't placed, and its order means nothing.
 // Roles are left out too, because they're saved per member the moment they

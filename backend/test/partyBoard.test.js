@@ -107,6 +107,32 @@ describe('rosterForOccasion', () => {
   });
 });
 
+describe('loadsAsCopy', () => {
+  const TUE = '2026-11-17';
+  const raidTue = { id: 'r', event_date: TUE, event_schedule_id: 'raid' };
+
+  test("an event's own roster opens as itself", () => {
+    assert.equal(pb.loadsAsCopy(raidTue, TUE, 'raid'), false);
+    assert.equal(pb.loadsAsCopy({ id: 'f', event_date: TUE, signup_event_id: 'ff' }, TUE, 'signup:ff'), false);
+  });
+
+  test('any other roster is copied into the picked event', () => {
+    assert.equal(pb.loadsAsCopy(raidTue, TUE, 'boss'), true, 'another event that night');
+    assert.equal(pb.loadsAsCopy(raidTue, '2026-11-24', 'raid'), true, 'the same event another week');
+    assert.equal(pb.loadsAsCopy({ id: 'w', event_date: TUE, event_schedule_id: null }, TUE, 'raid'), true, 'a whole-night roster');
+    assert.equal(pb.loadsAsCopy({ id: 'old', event_date: null }, TUE, 'raid'), true, 'saved with no occasion');
+  });
+
+  test('with All events picked, everything opens as itself', () => {
+    assert.equal(pb.loadsAsCopy(raidTue, TUE, ''), false);
+    assert.equal(pb.loadsAsCopy(raidTue, '2026-11-24', ''), false);
+  });
+
+  test('no roster, no copy', () => {
+    assert.equal(pb.loadsAsCopy(undefined, TUE, 'raid'), false);
+  });
+});
+
 describe('boardSignature', () => {
   const base = () => ({
     items: { pool: ['z'], absent: ['y'], p1: ['a', 'b'], p2: [] },
