@@ -14,7 +14,7 @@ import { PageShell } from '../components/ui/PageShell';
 import { todayInGuildTz, fmtTimeEst, eventsForGuildDay, isAfterMidnight } from '../timeUtils';
 import {
   Save, Trash2, Send, Plus, Copy, RefreshCw, CalendarOff, CalendarDays, CalendarCheck, ClipboardList, X,
-  AlertTriangle, Clock, Pencil, ChevronDown, FolderOpen,
+  AlertTriangle, Clock, Pencil, ChevronDown,
 } from 'lucide-react';
 import { BUILD_CHIP_ON, KIND_BUILD } from '../buildColors';
 import ErrorBanner from '../components/ui/ErrorBanner';
@@ -292,8 +292,9 @@ export default function Parties() {
   const [rolesByMode, setRolesByMode] = useState({ pvp: {}, pve: {} });
   const [saved, setSaved] = useState([]);
   const [savedReady, setSavedReady] = useState(false);
-  // The roster picked in the dropdown, waiting for Load. Follows whichever
-  // roster is open, so after a load, save or delete it shows the board's own.
+  // The roster the saved-rosters dropdown shows: whichever is open, or the one
+  // a copy was just made from. Set when a load succeeds, never by the select
+  // itself, so a cancelled load leaves it showing what's on the board.
   const [pickId, setPickId] = useState('');
   const [rosterId, setRosterId] = useState(null);
   const [rosterName, setRosterName] = useState('');
@@ -787,7 +788,7 @@ export default function Parties() {
       else next.pool.push(m.id);
     });
     setItems(next);
-    setPartyNames(initNames()); setRosterId(null); setRosterName(''); setExtra({});
+    setPartyNames(initNames()); setRosterId(null); setPickId(''); setRosterName(''); setExtra({});
     setClassAssignments({ pvp: {}, pve: {} }); setLoaDiff(null); setAbsentWhy({}); setSelected(null);
     markClean();
   };
@@ -1026,7 +1027,10 @@ export default function Parties() {
         // unsaved on purpose so the strip says so. Anyone on LOA for this event
         // who came over in a party shows in the LOA chip, with its bench button;
         // "since this was saved" would be about a different night.
-        setRosterId(null); setRosterName(copyName(r.name));
+        // The dropdown keeps showing the roster it came from, so it can still be
+        // deleted from here (Delete names it before it goes). Picking it is the
+        // only way to reach a roster for another night with an event picked.
+        setRosterId(null); setPickId(r.id); setRosterName(copyName(r.name));
         loaFetchedFor.current = `${date}|${event}`;
         setLoaById(loa); setLoaDiff(null);
         const target = [...eventsForDate, ...oneOffs.map((o) => ({ id: `signup:${o.id}`, name: o.title }))]
@@ -1034,7 +1038,9 @@ export default function Parties() {
         flash(`Copied "${r.name}" into ${target?.name || 'this event'} as a new roster. Save to keep it.`);
         return;
       }
-      setRosterId(r.id); setRosterName(r.name);
+      // pickId set too, not left to the rosterId effect: reloading the roster
+      // that's already open doesn't change rosterId.
+      setRosterId(r.id); setPickId(r.id); setRosterName(r.name);
       if (date) {
         loaFetchedFor.current = `${date}|${event}`;
         setLoaDate(date); setLoaEvent(event); setLoaById(loa);
@@ -1052,12 +1058,11 @@ export default function Parties() {
     if (linked) load(linked.id, { confirmed: true });
   };
 
-  // Deletes the roster chosen in the saved-rosters dropdown, which follows the
-  // open roster after a load or save — so with nothing else chosen it's the one
-  // on the board. It has to be the dropdown's: with an event picked, Load copies
-  // a roster in rather than opening it (loadsAsCopy), so a roster for another
-  // night may never be the open one. Only deleting the open roster clears the
-  // board; deleting another leaves the board as it is.
+  // Deletes the roster the saved-rosters dropdown shows: the open one, or the
+  // one a copy was just made from. It has to be the dropdown's: with an event
+  // picked, picking a roster copies it in rather than opening it (loadsAsCopy),
+  // so a roster for another night may never be the open one. Only deleting the
+  // open roster clears the board; deleting another leaves the board as it is.
   const deleteId = pickId || rosterId;
   const deleteName = saved.find((r) => String(r.id) === String(deleteId))?.name
     || (deleteId === rosterId ? rosterName : '') || 'this roster';
@@ -1167,11 +1172,15 @@ export default function Parties() {
               </button>
             ))}
           </div>
-          {/* Pick a saved roster, then Load it. New starts an empty board;
-              Duplicate acts on the roster that's open, Delete on the one
-              chosen here (which is the open one unless another is picked). */}
+          {/* Picking a saved roster loads it. New starts an empty board;
+              Duplicate acts on the roster that's open, Delete on the one shown
+              here — the open one, or the one a copy was just made from. */}
           <div className="flex flex-wrap items-center gap-1.5">
-            <select value={pickId} onChange={(e) => setPickId(e.target.value)} aria-label="Saved rosters"
+            {/* Picking a roster loads it. The select only shows what's loaded:
+                pickId moves when a load succeeds, so cancelling the unsaved-
+                changes prompt leaves it showing the board's roster. */}
+            <select value={pickId} onChange={(e) => load(e.target.value)} disabled={busy} aria-label="Saved rosters"
+              title={loaEvent ? 'Pick a roster to load. One saved for another event or night is copied into this event as a new roster.' : 'Pick a roster to load'}
               className="bg-hall border border-line rounded-lg px-2 py-2 text-bone text-sm focus:outline-none focus:border-brass w-52 max-w-full">
               <option value="">{saved.length ? 'Choose a roster…' : 'No saved rosters'}</option>
               {saved.map((r) => (
@@ -1180,14 +1189,6 @@ export default function Parties() {
                 </option>
               ))}
             </select>
-            <button type="button" onClick={() => load(pickId)} disabled={!pickId || busy}
-              title={pickId === rosterId ? 'Reload the saved copy of this roster'
-                : loadsAsCopy(saved.find((r) => String(r.id) === String(pickId)), loaDate, loaEvent)
-                  ? 'Copy the chosen roster into this event as a new roster. The original is left untouched.'
-                  : 'Open the chosen roster'}
-              className={HEADER_BTN}>
-              <FolderOpen className="w-4 h-4" /> Load
-            </button>
             <button type="button" onClick={newBoard} disabled={busy} title="Start an empty board" className={HEADER_BTN}>
               <Plus className="w-4 h-4" /> New
             </button>
