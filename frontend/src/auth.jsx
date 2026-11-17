@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
+import { getMemberTimezone } from './timeUtils';
 
 const AuthContext = createContext(null);
 
@@ -19,6 +20,22 @@ export function AuthProvider({ children }) {
   }, []);
 
   useEffect(() => { refresh(); }, [refresh]);
+
+  // Tells the server which timezone this member is in, so the /loa Discord
+  // command can read their times on their own clock without asking — Discord
+  // never tells a bot where someone is. Only sent when it changed since the
+  // last successful save from this browser; a failure just retries next visit.
+  useEffect(() => {
+    if (!user?.id) return;
+    const tz = getMemberTimezone();
+    const key = `syncedTimezone:${user.id}`;
+    let last = null;
+    try { last = localStorage.getItem(key); } catch { /* storage blocked */ }
+    if (!tz || last === tz) return;
+    axios.put('/api/my-timezone', { timezone: tz })
+      .then(() => { try { localStorage.setItem(key, tz); } catch { /* storage blocked */ } })
+      .catch(() => {});
+  }, [user?.id]);
 
   const login = () => { window.location.href = '/api/auth/login'; };
 

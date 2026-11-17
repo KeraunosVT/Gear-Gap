@@ -35,6 +35,7 @@ const createMemberTenure = require('./memberTenure');
 const { countsFor } = createMemberTenure;
 const createBuilds = require('./builds');
 const createTransferCooldowns = require('./transferCooldowns');
+const createMemberTimezones = require('./memberTimezones');
 
 const gearUpload = multer({
   storage: multer.memoryStorage(),
@@ -120,6 +121,7 @@ const identities = supabase ? createIdentities(supabase) : null;
 const loa = supabase ? createLoa(supabase, identities) : null;
 const builds = supabase ? createBuilds(supabase, identities) : null;
 const transferCooldowns = supabase ? createTransferCooldowns(supabase, identities) : null;
+const memberTimezones = supabase ? createMemberTimezones(supabase) : null;
 // Takes loa so "is this person out?" has one answer across signups, the party
 // builder and the attendance breakdown.
 const signups = supabase ? createEventSignups(supabase, identities, loa) : null;
@@ -230,6 +232,19 @@ app.put('/api/my-classes', async (req, res) => {
     }, { onConflict: 'discord_id', ignoreDuplicates: false });
   if (error) return res.status(500).json({ error: 'Failed to save classes.' });
   res.json({ ok: true });
+});
+
+// ── MEMBERS AREA: my timezone ────────────────────────────────────────────────
+// The website sends the member's browser timezone (or the one they picked in
+// Settings) so the /loa Discord command can read their times on their own
+// clock too. Always the caller's own row; there is no member id to pass.
+app.put('/api/my-timezone', async (req, res) => {
+  if (!memberTimezones) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    res.json({ timezone: await memberTimezones.set(req.user.id, req.body?.timezone) });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
 });
 
 // ── MEMBERS AREA: my own player profile ──────────────────────────────────────
