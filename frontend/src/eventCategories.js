@@ -13,6 +13,10 @@
 // Every colour sits under white 11px text on the calendar, so each is dark
 // enough to hold roughly 4.5:1 against white.
 export const CATEGORIES = [
+  // First, so "In-House Wargame" or "In-House Siege" reads as In-House. Its
+  // signup post goes to its own channel (Guild Settings → In-House signups);
+  // backend/eventSignups.js TYPE_BY_NAME matches the same names, in the same order.
+  { key: 'in_house', label: 'In-House', color: '#5c6b1e', match: /in[\s-]*house/i },
   { key: 'world_dungeon', label: 'World Dungeon', color: '#94600f', match: /dungeon/i },
   { key: 'world_boss', label: 'World Boss', color: '#a8352f', match: /world\s*boss|field\s*boss/i },
   { key: 'arch_boss', label: 'Arch Boss', color: '#24734a', match: /arch\s*boss/i },

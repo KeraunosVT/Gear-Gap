@@ -10,7 +10,7 @@ const path = require('node:path');
 const { pathToFileURL } = require('node:url');
 
 const createEventSignups = require('../eventSignups');
-const { closeEarlyMinutes, closesAt } = createEventSignups;
+const { closeEarlyMinutes, closesAt, eventTypeOf } = createEventSignups;
 
 const HOUR = 3_600_000;
 const iso = (ms) => new Date(ms).toISOString();
@@ -32,6 +32,11 @@ describe('closeEarlyMinutes', () => {
     assert.equal(closeEarlyMinutes({ title: 'War Games warm-up raid', category: 'raid' }), 0);
   });
 
+  test('In-House closes at the start, even an In-House War Games', () => {
+    assert.equal(closeEarlyMinutes({ title: 'Scrims', category: 'in_house' }), 0);
+    assert.equal(closeEarlyMinutes({ title: 'In-House Wargame' }), 0);
+  });
+
   test('closesAt is the start minus the lead, or null with no start', () => {
     assert.equal(closesAt({ title: 'War Games', starts_at: '2026-11-07T01:00:00Z' }).toISOString(), '2026-11-06T22:00:00.000Z');
     assert.equal(closesAt({ title: 'Raid', starts_at: '2026-11-07T01:00:00Z' }).toISOString(), '2026-11-07T01:00:00.000Z');
@@ -48,11 +53,27 @@ describe('name matching agrees with the calendar', () => {
     ({ categoryOf } = await import(pathToFileURL(file).href));
   });
 
-  for (const title of ['War Games', 'war game', 'Wargames', 'Wargame vs Red', 'Guild War', 'Siege', 'Arch Boss', 'Riftstone']) {
+  for (const title of ['War Games', 'war game', 'Wargames', 'Wargame vs Red', 'Guild War', 'Siege', 'Arch Boss', 'Riftstone', 'In-House Wargame']) {
     test(title, () => {
       assert.equal(closeEarlyMinutes({ title }) > 0, categoryOf(title).key === 'war_games');
     });
   }
+
+  // Which channel an untyped event's signup posts to depends on this.
+  for (const title of ['In-House', 'in house scrims', 'Inhouse PvP', 'In-House Wargame', 'Wargame', 'Housing tour']) {
+    test(`In-House: ${title}`, () => {
+      assert.equal(eventTypeOf({ title }) === 'in_house', categoryOf(title).key === 'in_house');
+    });
+  }
+});
+
+describe('eventTypeOf', () => {
+  test('the picked type, else the name, else null', () => {
+    assert.equal(eventTypeOf({ title: 'Wargame', category: 'in_house' }), 'in_house');
+    assert.equal(eventTypeOf({ title: 'In-House scrims' }), 'in_house');
+    assert.equal(eventTypeOf({ title: 'War Games' }), 'war_games');
+    assert.equal(eventTypeOf({ title: 'Arch Boss' }), null);
+  });
 });
 
 // Just enough of supabase-js: chained filters that are recorded and applied,

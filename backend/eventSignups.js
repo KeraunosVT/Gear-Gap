@@ -35,15 +35,25 @@ const MEMBER_OPEN_HORIZON_DAYS = 30;
 const CLOSE_EARLY_MINUTES = { war_games: 180 };
 const MAX_CLOSE_EARLY_MINUTES = Math.max(0, ...Object.values(CLOSE_EARLY_MINUTES));
 // An event with no type picked is typed by its name, as the calendar does.
-// Mirrors the war_games pattern in frontend/src/eventCategories.js; the
-// signupCutoff test holds the two in step.
-const TYPE_BY_NAME = [['war_games', /war\s*games?|wargame/i]];
+// Mirrors the in_house and war_games patterns in frontend/src/eventCategories.js,
+// in the same order — "In-House Wargame" is In-House, not War Games; the
+// signupCutoff test holds the two in step. Only the types the server acts on
+// are here: War Games close early, In-House posts to its own channel.
+const TYPE_BY_NAME = [
+  ['in_house', /in[\s-]*house/i],
+  ['war_games', /war\s*games?|wargame/i],
+];
+
+// An occurrence's type: the one it was given, else read off its name. Null
+// for a name no server-side type matches.
+function eventTypeOf(row) {
+  return categoryKey(row?.category) || (TYPE_BY_NAME.find(([, re]) => re.test(String(row?.title || ''))) || [])[0] || null;
+}
 
 // How many minutes before its start an occurrence's signups close: its stored
 // type, else its name. 0 for most events.
 function closeEarlyMinutes(row) {
-  const key = categoryKey(row?.category) || (TYPE_BY_NAME.find(([, re]) => re.test(String(row?.title || ''))) || [])[0];
-  return CLOSE_EARLY_MINUTES[key] || 0;
+  return CLOSE_EARLY_MINUTES[eventTypeOf(row)] || 0;
 }
 
 // The instant signups close, or null when the occurrence has no start time
@@ -763,6 +773,7 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
 
 // For the schedule routes in admin/schedule.js, which take the same field.
 module.exports.categoryKey = categoryKey;
+module.exports.eventTypeOf = eventTypeOf;
 module.exports.closeEarlyMinutes = closeEarlyMinutes;
 module.exports.closesAt = closesAt;
 

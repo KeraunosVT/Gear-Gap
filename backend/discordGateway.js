@@ -1721,14 +1721,26 @@ async function signupChannel(channelId) {
   return channel?.isTextBased() ? channel : null;
 }
 
+// Which channel an occurrence's signup post goes to. In-House events have their
+// own (Guild Settings), so they stay out of the War Games schedule; everything
+// else, and In-House with no channel set, goes to the signup channel.
+function signupChannelFor(event) {
+  if (createEventSignups.eventTypeOf(event) === 'in_house' && guildConfig.inHouseChannelId()) {
+    return guildConfig.inHouseChannelId();
+  }
+  return signupChannelId();
+}
+
 // Posts (or re-posts) the announcement and records where it landed. Called when
-// a signup opens, and again by hand if someone deletes the message.
+// a signup opens, and again by hand if someone deletes the message. Edits and
+// deletes later go to the channel recorded here, wherever it was.
 async function announceSignup(signupEventId) {
-  const target = signupChannelId();
-  if (!ready || !signups || !target) return null;
+  if (!ready || !signups) return null;
   try {
     const detail = await signups.detail(signupEventId);
-    const channel = await signupChannel(null);
+    const target = signupChannelFor(detail.event);
+    if (!target) return null;
+    const channel = await signupChannel(target);
     if (!channel) {
       console.error(`Signup announce error: channel ${target} not found or not text-based.`);
       return null;
@@ -2071,6 +2083,8 @@ module.exports.__test = {
   handleEliteButton,
   pollReport,
   loaDateChoices,
+  // inHouseChannel.test.js
+  signupChannelFor,
   // loaTimezones.test.js
   resolveTimezoneInput,
   timezoneChoices,

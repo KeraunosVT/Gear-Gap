@@ -153,6 +153,7 @@ export default {
   'cat.arch_boss': 'Arch Boss',
   'cat.boonstone': 'Boonstone',
   'cat.riftstone': 'Riftstone',
+  'cat.in_house': 'In-House',
   'cat.war_games': 'War Games',
   'cat.siege': 'Cerco',
   'cat.war': 'Guerra',
