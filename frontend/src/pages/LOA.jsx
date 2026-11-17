@@ -4,7 +4,10 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../auth';
 import { CalendarOff, CalendarX2, Trash2, Settings, X, Repeat, ChevronDown, CalendarCheck, Undo2, Pencil } from 'lucide-react';
 
-import { fmtTimeEst, fmtDatetime, todayInGuildTz, eventsForGuildDay, loaSkipsDate } from '../timeUtils';
+import {
+  fmtTimeEst, fmtDatetime, todayInGuildTz, eventsForGuildDay, loaSkipsDate,
+  getMemberTimezone, getGuildTz, localToGuildTime, guildToLocalTime, nextNightOn, zoneLabel, TIMEZONE_OPTIONS,
+} from '../timeUtils';
 import Tabs from '../components/ui/Tabs';
 import LoaWeekGrid from '../components/LoaWeekGrid';
 import { PageShell } from '../components/ui/PageShell';
@@ -49,6 +52,26 @@ export default function LOA() {
   const [recurEndTime, setRecurEndTime] = useState('');
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  // The clock the start/end boxes are on: the member's own (Settings, else
+  // their browser), changeable here for one-off cases. Converted to the
+  // guild's clock on submit, and back again when an edit fills the form — the
+  // server, the board and Discord only ever see guild time.
+  const [inputTz, setInputTz] = useState(getMemberTimezone);
+  const guildTz = getGuildTz();
+  const tzOptions = useMemo(() => (TIMEZONE_OPTIONS.some((o) => o.value === inputTz)
+    ? TIMEZONE_OPTIONS
+    : [{ value: inputTz, label: inputTz.replace(/_/g, ' ') }, ...TIMEZONE_OPTIONS]), [inputTz]);
+  // The night a time is converted against: the picked date for a single event,
+  // the next such night for a recurring day. Falls back to tonight before a
+  // date or day is picked, so the preview still shows something sensible.
+  const eventNight = () => eventDate || todayInGuildTz();
+  const recurNight = (day) => nextNightOn(day ?? [...recurDays][0] ?? new Date(`${todayInGuildTz()}T12:00:00Z`).getUTCDay());
+  const toGuild = (hhmm, night) => (hhmm ? localToGuildTime(hhmm, inputTz, night) : undefined);
+  // "= 9:00 PM ET" under a time box, when the member isn't on guild time.
+  const guildPreview = (hhmm, night) => (hhmm && inputTz !== guildTz
+    ? t('loapage.inGuildTime', { time: fmtTimeEst(localToGuildTime(hhmm, inputTz, night)) })
+    : null);
 
   // Officers can submit an LOA on someone else's behalf; '' means "myself".
   // submitFor is the resolved member id (only ever set by picking a suggestion
@@ -217,8 +240,8 @@ export default function LOA() {
           type: 'event',
           event_date: eventDate,
           ...pickedEvent(),
-          start_time: eventStartTime || undefined,
-          end_time: eventEndTime || undefined,
+          start_time: toGuild(eventStartTime, eventDate),
+          end_time: toGuild(eventEndTime, eventDate),
           reason,
           discord_id: submitTarget?.id,
           display_name: submitTarget?.name,
@@ -233,8 +256,9 @@ export default function LOA() {
           type: 'recurring',
           day_of_week: day,
           event_schedule_id: days.length === 1 ? (recurEventScheduleId || undefined) : undefined,
-          start_time: recurStartTime || undefined,
-          end_time: recurEndTime || undefined,
+          // Per day: each weekday's next night decides its own DST offset.
+          start_time: toGuild(recurStartTime, recurNight(day)),
+          end_time: toGuild(recurEndTime, recurNight(day)),
           reason,
           discord_id: submitTarget?.id,
           display_name: submitTarget?.name,
@@ -273,7 +297,9 @@ export default function LOA() {
   // from My LOAs, which still has it.
   const startEdit = (entry) => {
     const e = myEntries.find((m) => m.id === entry.id) || entry;
-    const hhmm = (v) => (v ? String(v).slice(0, 5) : '');
+    // Stored on the guild's clock; shown on the clock the form is typed in.
+    const night = e.type === 'recurring' ? nextNightOn(e.day_of_week) : e.event_date;
+    const hhmm = (v) => (v ? guildToLocalTime(String(v).slice(0, 5), inputTz, night) || '' : '');
     resetForm();
     setLoaType(e.type);
     if (e.type === 'event') {
@@ -307,11 +333,12 @@ export default function LOA() {
     setSubmitting(true);
     const body = { reason };
     if (loaType === 'event') {
-      Object.assign(body, { event_date: eventDate, ...pickedEvent(), start_time: eventStartTime || undefined, end_time: eventEndTime || undefined });
+      Object.assign(body, { event_date: eventDate, ...pickedEvent(), start_time: toGuild(eventStartTime, eventDate), end_time: toGuild(eventEndTime, eventDate) });
     } else if (loaType === 'range') {
       Object.assign(body, { start_date: startDate, end_date: endDate });
     } else {
-      Object.assign(body, { day_of_week: [...recurDays][0], event_schedule_id: recurEventScheduleId || undefined, start_time: recurStartTime || undefined, end_time: recurEndTime || undefined });
+      const day = [...recurDays][0];
+      Object.assign(body, { day_of_week: day, event_schedule_id: recurEventScheduleId || undefined, start_time: toGuild(recurStartTime, recurNight(day)), end_time: toGuild(recurEndTime, recurNight(day)) });
     }
     try {
       await axios.patch(`/api/loa/${editing.id}`, body);
@@ -680,6 +707,21 @@ export default function LOA() {
                 </button>
               </div>
 
+              {/* Whose clock the start/end boxes are on. Defaults to the
+                  member's own, so nobody converts their evening by hand. */}
+              {loaType !== 'range' && (
+                <div className="flex items-center gap-2 flex-wrap">
+                  <label htmlFor="loa-tz" className="eyebrow text-[10px] text-ash">{t('loapage.timesIn')}</label>
+                  <select id="loa-tz" value={inputTz} onChange={(e) => setInputTz(e.target.value)}
+                    className="bg-hall border border-line rounded-md px-2.5 py-1.5 text-sm text-bone focus:outline-none focus:border-brass">
+                    {tzOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                  {inputTz !== guildTz && (
+                    <span className="text-ash/60 text-xs">{t('loapage.timesInHint', { zone: zoneLabel(guildTz) })}</span>
+                  )}
+                </div>
+              )}
+
               {loaType === 'event' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
@@ -707,12 +749,14 @@ export default function LOA() {
                     <input type="time" value={eventStartTime}
                       onChange={(e) => { setEventStartTime(e.target.value); if (!e.target.value) setEventEndTime(''); }}
                       className="w-full bg-hall border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass" />
+                    {guildPreview(eventStartTime, eventNight()) && <p className="text-brass/80 text-xs mt-1">{guildPreview(eventStartTime, eventNight())}</p>}
                     <p className="text-ash/50 text-xs mt-1">{t('loapage.startExampleEvent')}</p>
                   </div>
                   <div>
                     <label className="eyebrow text-[10px] text-ash block mb-2">{t('loapage.endTime')} <span className="text-ash/50">{t('loapage.endHint')}</span></label>
                     <input type="time" value={eventEndTime} onChange={(e) => setEventEndTime(e.target.value)} disabled={!eventStartTime}
                       className="w-full bg-hall border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass disabled:opacity-40" />
+                    {guildPreview(eventEndTime, eventNight()) && <p className="text-brass/80 text-xs mt-1">{guildPreview(eventEndTime, eventNight())}</p>}
                     <p className="text-ash/50 text-xs mt-1">{t('loapage.endExampleEvent')}</p>
                   </div>
                 </div>
@@ -764,12 +808,14 @@ export default function LOA() {
                     <input type="time" value={recurStartTime}
                       onChange={(e) => { setRecurStartTime(e.target.value); if (!e.target.value) setRecurEndTime(''); }}
                       className="w-full bg-hall border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass" />
+                    {guildPreview(recurStartTime, recurNight()) && <p className="text-brass/80 text-xs mt-1">{guildPreview(recurStartTime, recurNight())}</p>}
                     <p className="text-ash/50 text-xs mt-1">{t('loapage.startNoteRecurring')}</p>
                   </div>
                   <div>
                     <label className="eyebrow text-[10px] text-ash block mb-2">{t('loapage.endTime')} <span className="text-ash/50">{t('loapage.endHint')}</span></label>
                     <input type="time" value={recurEndTime} onChange={(e) => setRecurEndTime(e.target.value)} disabled={!recurStartTime}
                       className="w-full bg-hall border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass disabled:opacity-40" />
+                    {guildPreview(recurEndTime, recurNight()) && <p className="text-brass/80 text-xs mt-1">{guildPreview(recurEndTime, recurNight())}</p>}
                     <p className="text-ash/50 text-xs mt-1">{t('loapage.endNoteRecurring')}</p>
                   </div>
                 </div>
