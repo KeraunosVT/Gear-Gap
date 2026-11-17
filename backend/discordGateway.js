@@ -12,6 +12,7 @@ const createIdentities = require('./identities');
 const createAttendance = require('./attendance');
 const createEventSignups = require('./eventSignups');
 const createLateAttendance = require('./lateAttendance');
+const createMemberTimezones = require('./memberTimezones');
 const { listMembers } = require('./discord');
 const guildConfig = require('./guildConfig');
 const { postScouting, SCOUTING_LEAD_MINUTES } = require('./scouting');
@@ -57,6 +58,130 @@ function fmt12h(hhmm) {
   return `${h12}:${String(m).padStart(2, '0')} ${period}`;
 }
 
+// ── A MEMBER'S OWN CLOCK, IN /loa ────────────────────────────────────────────
+// /loa times are typed on the member's clock and stored on the guild's. Discord
+// never tells a bot where a user is, so the zone comes from the `timezone`
+// option (remembered once given) or from the website, which saves each
+// member's browser timezone whenever they visit (member_timezones).
+const TIMEZONE_OPTION_HELP = 'Your timezone — only needed once, it’s remembered (blank = the one saved for you)';
+
+// The zones offered first, before the full IANA list. Mirrors the Settings
+// picker on the website (TIMEZONE_OPTIONS in frontend/src/timeUtils.js).
+const COMMON_TIMEZONES = [
+  ['America/New_York', 'Eastern (ET)'],
+  ['America/Chicago', 'Central (CT)'],
+  ['America/Denver', 'Mountain (MT)'],
+  ['America/Phoenix', 'Arizona (MST)'],
+  ['America/Los_Angeles', 'Pacific (PT)'],
+  ['America/Anchorage', 'Alaska (AKT)'],
+  ['Pacific/Honolulu', 'Hawaii (HST)'],
+  ['America/Mexico_City', 'Mexico City'],
+  ['America/Sao_Paulo', 'Brasília (BRT)'],
+  ['UTC', 'UTC'],
+  ['Europe/London', 'London (GMT/BST)'],
+  ['Europe/Paris', 'Central Europe (CET)'],
+  ['Europe/Moscow', 'Moscow (MSK)'],
+  ['Asia/Dubai', 'Dubai (GST)'],
+  ['Asia/Kolkata', 'India (IST)'],
+  ['Asia/Shanghai', 'China (CST)'],
+  ['Asia/Tokyo', 'Japan (JST)'],
+  ['Australia/Sydney', 'Sydney (AET)'],
+];
+
+// What people actually type for the North American zones.
+const ZONE_ABBREVIATIONS = {
+  et: 'America/New_York', est: 'America/New_York', edt: 'America/New_York', eastern: 'America/New_York',
+  ct: 'America/Chicago', cst: 'America/Chicago', cdt: 'America/Chicago', central: 'America/Chicago',
+  mt: 'America/Denver', mst: 'America/Denver', mdt: 'America/Denver', mountain: 'America/Denver',
+  pt: 'America/Los_Angeles', pst: 'America/Los_Angeles', pdt: 'America/Los_Angeles', pacific: 'America/Los_Angeles',
+  gmt: 'Europe/London', bst: 'Europe/London', utc: 'UTC',
+};
+
+let allZones = null;
+const ianaZones = () => {
+  if (!allZones) {
+    try { allZones = Intl.supportedValuesOf('timeZone'); } catch { allZones = COMMON_TIMEZONES.map(([v]) => v); }
+  }
+  return allZones;
+};
+
+// A typed or picked timezone to an IANA name, or null. Autocomplete hands back
+// the IANA value, but a member can also just type "CST" or "chicago".
+function resolveTimezoneInput(input) {
+  const s = String(input || '').trim();
+  if (!s) return null;
+  const abbreviated = ZONE_ABBREVIATIONS[s.toLowerCase()];
+  if (abbreviated) return abbreviated;
+  if (createLoa.isValidTimeZone(s)) {
+    // Intl accepts any casing; store the canonical spelling.
+    return ianaZones().find((z) => z.toLowerCase() === s.toLowerCase()) || s;
+  }
+  const q = s.toLowerCase().replace(/\s+/g, '_');
+  const common = COMMON_TIMEZONES.find(([v, label]) => label.toLowerCase().includes(s.toLowerCase()) || v.toLowerCase().includes(q));
+  if (common) return common[0];
+  return ianaZones().find((z) => z.toLowerCase().includes(q)) || null;
+}
+
+function timezoneChoices(query) {
+  const q = String(query || '').trim().toLowerCase();
+  const qz = q.replace(/\s+/g, '_');
+  const label = (tz) => {
+    const common = COMMON_TIMEZONES.find(([v]) => v === tz);
+    return common ? `${common[1]} — ${tz}` : tz.replace(/_/g, ' ');
+  };
+  const abbreviated = ZONE_ABBREVIATIONS[q];
+  const common = COMMON_TIMEZONES.map(([v]) => v)
+    .filter((v) => !q || v === abbreviated || label(v).toLowerCase().includes(q) || v.toLowerCase().includes(qz));
+  const rest = q ? ianaZones().filter((z) => z.toLowerCase().includes(qz) && !common.includes(z)) : [];
+  return [...common, ...rest].slice(0, 25).map((tz) => ({ name: label(tz).slice(0, 100), value: tz }));
+}
+
+// Whose clock the typed times are on. Always the person typing them — an
+// officer filing for someone else types on their own clock, same as on the
+// website. The option wins (and is remembered); otherwise the saved zone;
+// otherwise null, which means the guild's clock.
+async function invokerTimezone(interaction) {
+  const raw = interaction.options.getString('timezone');
+  if (raw) {
+    const tz = resolveTimezoneInput(raw);
+    if (!tz) return { error: `I don't recognise "${raw}" as a timezone. Pick one from the list.` };
+    // Best-effort: a failed save costs them typing it again next time.
+    if (memberTimezones) memberTimezones.set(interaction.user.id, tz).catch(() => {});
+    return { tz };
+  }
+  return { tz: memberTimezones ? await memberTimezones.get(interaction.user.id) : null };
+}
+
+// The guild's zone name for a night ("ET"), or for now when there's no date.
+function guildZoneLabelFor(dateStr) {
+  const ms = dateStr ? Date.parse(`${dateStr}T17:00:00Z`) : Date.now();
+  return createLoa.zoneLabel(createLoa.guildTz(), Number.isFinite(ms) ? ms : Date.now());
+}
+
+// "from **9:00 PM ET** to **10:00 PM ET**" — guild-clock times, labelled.
+function guildTimeRange(startTime, endTime, dateStr) {
+  if (!startTime) return '';
+  const zone = guildZoneLabelFor(dateStr);
+  const at = (t) => `**${fmt12h(t)}${zone ? ` ${zone}` : ''}**`;
+  return endTime ? ` from ${at(startTime)} to ${at(endTime)}` : ` from ${at(startTime)}`;
+}
+
+// The same times back on the member's clock, for the reply only they see:
+// " (8:00 PM – 9:00 PM your time)". Empty when they're on the guild's clock.
+function localTimeNote(startTime, endTime, tz, nightDate) {
+  if (!startTime || !tz || tz === createLoa.guildTz()) return '';
+  const local = (t) => fmt12h(createLoa.guildToLocalTime(t, tz, nightDate));
+  return endTime ? ` (${local(startTime)} – ${local(endTime)} your time)` : ` (${local(startTime)} your time)`;
+}
+
+// When times were given but nothing says where the member is, they were read
+// on the guild's clock — say so, and how to fix it for next time.
+function unknownZoneHint(startTime, tz) {
+  if (!startTime || tz) return '';
+  const zone = guildZoneLabelFor(null) || 'guild time';
+  return `\nTimes were read as ${zone}. In another timezone? Add the \`timezone\` option once and I'll remember it (visiting the website sets it too).`;
+}
+
 // Resolves a freeform time like "9:30pm", "930pm", "2130" or "930et" to the UTC
 // instant it occurs today in the guild's timezone, for the /announce command.
 // Strips a trailing ET/EST/EDT (redundant — the guild only operates in one zone)
@@ -83,6 +208,7 @@ let identities = null;
 let attendance = null;
 let signups = null;
 let lateAttendance = null;
+let memberTimezones = null;
 let sweepTimer = null;
 // Only the scouting post reads the database directly (through scouting.js);
 // everything else here goes through one of the modules above.
@@ -101,6 +227,7 @@ function start(supabase) {
   attendance = supabase ? createAttendance(supabase) : null;
   signups = supabase ? createEventSignups(supabase, identities, loa) : null;
   lateAttendance = supabase ? createLateAttendance(supabase, identities) : null;
+  memberTimezones = supabase ? createMemberTimezones(supabase) : null;
 
   client = new Client({
     intents: [
@@ -172,8 +299,9 @@ async function registerCommands() {
           // saves typing YYYY-MM-DD, since Discord has no date-picker option.
           .addStringOption((opt) => opt.setName('date').setDescription('Pick a date, or leave blank for today').setRequired(false).setAutocomplete(true))
           .addStringOption((opt) => opt.setName('event').setDescription('Which event (leave blank + set a start time for "everything after X")').setRequired(false).setAutocomplete(true))
-          .addStringOption((opt) => opt.setName('start_time').setDescription('Absent from this time onward, e.g. 9:00 PM (blank = just the picked event)').setRequired(false))
-          .addStringOption((opt) => opt.setName('end_time').setDescription('Back after this time, e.g. 10:00 PM (blank = out for the rest of the day)').setRequired(false))
+          .addStringOption((opt) => opt.setName('start_time').setDescription('Absent from this time onward, in your time, e.g. 9:00 PM (blank = just the picked event)').setRequired(false))
+          .addStringOption((opt) => opt.setName('end_time').setDescription('Back after this time, in your time, e.g. 10:00 PM (blank = out for the rest of the day)').setRequired(false))
+          .addStringOption((opt) => opt.setName('timezone').setDescription(TIMEZONE_OPTION_HELP).setRequired(false).setAutocomplete(true))
           .addUserOption((opt) => opt.setName('member').setDescription('Officers only: submit on behalf of this member').setRequired(false))
       )
       .addSubcommand((sub) =>
@@ -191,8 +319,9 @@ async function registerCommands() {
             .addChoices(...DAY_NAMES.map((name, value) => ({ name, value: String(value) }))))
           .addStringOption((opt) => opt.setName('reason').setDescription('Visible to officers only').setRequired(true))
           .addStringOption((opt) => opt.setName('event').setDescription('Leave blank for the whole day').setRequired(false).setAutocomplete(true))
-          .addStringOption((opt) => opt.setName('start_time').setDescription('Absent from this time onward, e.g. 9:00 PM (blank = all day)').setRequired(false))
-          .addStringOption((opt) => opt.setName('end_time').setDescription('Back after this time, e.g. 10:00 PM (blank = out for the rest of the day)').setRequired(false))
+          .addStringOption((opt) => opt.setName('start_time').setDescription('Absent from this time onward, in your time, e.g. 9:00 PM (blank = all day)').setRequired(false))
+          .addStringOption((opt) => opt.setName('end_time').setDescription('Back after this time, in your time, e.g. 10:00 PM (blank = out for the rest of the day)').setRequired(false))
+          .addStringOption((opt) => opt.setName('timezone').setDescription(TIMEZONE_OPTION_HELP).setRequired(false).setAutocomplete(true))
           .addUserOption((opt) => opt.setName('member').setDescription('Officers only: submit on behalf of this member').setRequired(false))
       )
       .addSubcommand((sub) =>
@@ -557,11 +686,12 @@ async function announceLoa(text) {
 // Renders the announcement line for an LOA entry. Kept in one place so an LOA
 // filed on the website reads exactly like one filed with /loa — the two paths
 // used to build this text separately, which is how they drift apart.
+//
+// Times are stored on the guild's clock and posted that way, labelled ("9:00 PM
+// ET"), whatever clock the member typed them on.
 function loaAnnouncement({ type, displayName, eventName, eventDate, startDate, endDate, dayOfWeek, startTime, endTime }) {
   const scope = eventName ? ` for **${eventName}**` : '';
-  const timeRange = startTime
-    ? (endTime ? ` from **${fmt12h(startTime)}** to **${fmt12h(endTime)}**` : ` from **${fmt12h(startTime)}**`)
-    : '';
+  const timeRange = guildTimeRange(startTime, endTime, type === 'event' ? eventDate : null);
   if (type === 'range') {
     return `📋 **${displayName}** is on LOA — ${discordDate(startDate)} to ${discordDate(endDate)}`;
   }
@@ -756,14 +886,19 @@ async function handleLoaEvent(interaction) {
   const reason = interaction.options.getString('reason') || '';
   if (!eventScheduleId && !startTimeRaw) return interaction.editReply('Pick an event, a start time, or both.');
 
-  const startTime = startTimeRaw ? loa.parseTimeOfDay(startTimeRaw) : null;
-  if (startTimeRaw && !startTime) {
+  const localStart = startTimeRaw ? loa.parseTimeOfDay(startTimeRaw) : null;
+  if (startTimeRaw && !localStart) {
     return interaction.editReply(`Couldn't read "${startTimeRaw}" as a time — try something like 9:00 PM or 21:00.`);
   }
-  const endTime = endTimeRaw ? loa.parseTimeOfDay(endTimeRaw) : null;
-  if (endTimeRaw && !endTime) {
+  const localEnd = endTimeRaw ? loa.parseTimeOfDay(endTimeRaw) : null;
+  if (endTimeRaw && !localEnd) {
     return interaction.editReply(`Couldn't read "${endTimeRaw}" as a time — try something like 9:00 PM or 21:00.`);
   }
+  const zone = await invokerTimezone(interaction);
+  if (zone.error) return interaction.editReply(zone.error);
+  // Typed on the member's clock; stored on the guild's.
+  const startTime = localStart && createLoa.localToGuildTime(localStart, zone.tz, date);
+  const endTime = localEnd && createLoa.localToGuildTime(localEnd, zone.tz, date);
 
   try {
     // displayName comes back resolved to the member's site alias — target's is
@@ -778,10 +913,10 @@ async function handleLoaEvent(interaction) {
       reason,
     });
     const scope = eventName ? ` for **${eventName}**` : '';
-    const timeRange = startTime ? (endTime ? ` from **${fmt12h(startTime)}** to **${fmt12h(endTime)}**` : ` from **${fmt12h(startTime)}**`) : '';
-    await interaction.editReply(target.onBehalf
+    const timeRange = guildTimeRange(startTime, endTime, date) + localTimeNote(startTime, endTime, zone.tz, date);
+    await interaction.editReply((target.onBehalf
       ? `Recorded ✅ — LOA submitted for **${displayName}** on ${date}${timeRange}${scope}.`
-      : `Recorded ✅ — LOA submitted for ${date}${timeRange}${scope}.`);
+      : `Recorded ✅ — LOA submitted for ${date}${timeRange}${scope}.`) + unknownZoneHint(startTime, zone.tz));
     const messageId = await announceLoaEntry({
       type: 'event', displayName, eventName, eventDate: date, startTime, endTime,
     });
@@ -833,14 +968,21 @@ async function handleLoaRecurring(interaction) {
   const endTimeRaw = interaction.options.getString('end_time') || null;
   const reason = interaction.options.getString('reason') || '';
 
-  const startTime = startTimeRaw ? loa.parseTimeOfDay(startTimeRaw) : null;
-  if (startTimeRaw && !startTime) {
+  const localStart = startTimeRaw ? loa.parseTimeOfDay(startTimeRaw) : null;
+  if (startTimeRaw && !localStart) {
     return interaction.editReply(`Couldn't read "${startTimeRaw}" as a time — try something like 9:00 PM or 21:00.`);
   }
-  const endTime = endTimeRaw ? loa.parseTimeOfDay(endTimeRaw) : null;
-  if (endTimeRaw && !endTime) {
+  const localEnd = endTimeRaw ? loa.parseTimeOfDay(endTimeRaw) : null;
+  if (endTimeRaw && !localEnd) {
     return interaction.editReply(`Couldn't read "${endTimeRaw}" as a time — try something like 9:00 PM or 21:00.`);
   }
+  const zone = await invokerTimezone(interaction);
+  if (zone.error) return interaction.editReply(zone.error);
+  // A weekly rule has no date of its own, so the next night it covers decides
+  // daylight saving. Not a valid day yet? submitRecurring rejects it below.
+  const night = Number.isInteger(dow) && dow >= 0 && dow <= 6 ? createLoa.nextNightOn(dow) : null;
+  const startTime = localStart && createLoa.localToGuildTime(localStart, zone.tz, night);
+  const endTime = localEnd && createLoa.localToGuildTime(localEnd, zone.tz, night);
 
   try {
     const { id, displayName, eventName } = await loa.submitRecurring({
@@ -853,10 +995,10 @@ async function handleLoaRecurring(interaction) {
       reason,
     });
     const scope = eventName ? ` for **${eventName}**` : '';
-    const timeRange = startTime ? (endTime ? ` from **${fmt12h(startTime)}** to **${fmt12h(endTime)}**` : ` from **${fmt12h(startTime)}**`) : '';
-    await interaction.editReply(target.onBehalf
+    const timeRange = guildTimeRange(startTime, endTime, null) + localTimeNote(startTime, endTime, zone.tz, night);
+    await interaction.editReply((target.onBehalf
       ? `Recorded ✅ — **${displayName}** is now always out on **${DAY_NAMES[dow]}**${timeRange}${scope}.`
-      : `Recorded ✅ — you're now always out on **${DAY_NAMES[dow]}**${timeRange}${scope}.`);
+      : `Recorded ✅ — you're now always out on **${DAY_NAMES[dow]}**${timeRange}${scope}.`) + unknownZoneHint(startTime, zone.tz));
     const messageId = await announceLoaEntry({
       type: 'recurring', displayName, eventName, dayOfWeek: dow, startTime, endTime,
     });
@@ -895,6 +1037,9 @@ async function handleAutocomplete(interaction) {
   if (interaction.commandName === 'attendance') return autocompleteAttendanceEvent(interaction);
   if (interaction.commandName === 'attendance-late') return autocompleteLateEvent(interaction);
   if (interaction.commandName !== 'loa') return interaction.respond([]).catch(() => {});
+  if (interaction.options.getFocused(true).name === 'timezone') {
+    return interaction.respond(timezoneChoices(interaction.options.getFocused())).catch(() => {});
+  }
   const sub = interaction.options.getSubcommand();
   if (sub === 'event') return autocompleteLoaEvent(interaction);
   if (sub === 'range') return autocompleteLoaRange(interaction);
@@ -1901,8 +2046,8 @@ module.exports = {
   notifyLateAttendance,
 };
 
-// Exposed for backend/test/eliteButtons.test.js, loaDateChoices.test.js and
-// pollReport.test.js, and for nothing else. The
+// Exposed for backend/test/eliteButtons.test.js, loaDateChoices.test.js,
+// pollReport.test.js and loaTimezones.test.js, and for nothing else. The
 // gateway's own `eliteTimers` is set by start(), which opens a websocket and
 // logs in — so a test can't reach the board rendering or the button branching
 // any other way. Same motivation as gearIlvl exporting parseGearScreenshot for
@@ -1913,4 +2058,8 @@ module.exports.__test = {
   handleEliteButton,
   pollReport,
   loaDateChoices,
+  // loaTimezones.test.js
+  resolveTimezoneInput,
+  timezoneChoices,
+  loaAnnouncement,
 };
