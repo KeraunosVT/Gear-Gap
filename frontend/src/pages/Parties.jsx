@@ -1052,11 +1052,25 @@ export default function Parties() {
     if (linked) load(linked.id, { confirmed: true });
   };
 
+  // Deletes the roster chosen in the saved-rosters dropdown, which follows the
+  // open roster after a load or save — so with nothing else chosen it's the one
+  // on the board. It has to be the dropdown's: with an event picked, Load copies
+  // a roster in rather than opening it (loadsAsCopy), so a roster for another
+  // night may never be the open one. Only deleting the open roster clears the
+  // board; deleting another leaves the board as it is.
+  const deleteId = pickId || rosterId;
+  const deleteName = saved.find((r) => String(r.id) === String(deleteId))?.name
+    || (deleteId === rosterId ? rosterName : '') || 'this roster';
   const del = async () => {
-    if (!rosterId) return;
-    if (!window.confirm(`Delete roster "${rosterName}"?`)) return;
-    try { await axios.delete(`/api/admin/rosters/${rosterId}`); loadSaved(); resetBoard(); flash('Roster deleted.'); }
-    catch (err) { flash(err.response?.data?.error || 'Delete failed.', false); }
+    if (!deleteId) return;
+    if (!window.confirm(`Delete roster "${deleteName}"?`)) return;
+    const wasOpen = String(deleteId) === String(rosterId);
+    try {
+      await axios.delete(`/api/admin/rosters/${deleteId}`);
+      loadSaved();
+      if (wasOpen) resetBoard(); else setPickId('');
+      flash(`Deleted "${deleteName}".`);
+    } catch (err) { flash(err.response?.data?.error || 'Delete failed.', false); }
   };
 
   const post = async () => {
@@ -1154,7 +1168,8 @@ export default function Parties() {
             ))}
           </div>
           {/* Pick a saved roster, then Load it. New starts an empty board;
-              Duplicate and Delete act on the roster that's open. */}
+              Duplicate acts on the roster that's open, Delete on the one
+              chosen here (which is the open one unless another is picked). */}
           <div className="flex flex-wrap items-center gap-1.5">
             <select value={pickId} onChange={(e) => setPickId(e.target.value)} aria-label="Saved rosters"
               className="bg-hall border border-line rounded-lg px-2 py-2 text-bone text-sm focus:outline-none focus:border-brass w-52 max-w-full">
@@ -1180,8 +1195,8 @@ export default function Parties() {
               title={rosterId ? 'Save this board as a new roster, leaving the original untouched' : 'Load or save a roster first'}>
               <Copy className="w-4 h-4" /> Duplicate
             </button>
-            <button type="button" onClick={del} disabled={!rosterId || busy}
-              title={rosterId ? 'Delete this roster' : 'Load or save a roster first'}
+            <button type="button" onClick={del} disabled={!deleteId || busy}
+              title={deleteId ? `Delete "${deleteName}"` : 'Choose a roster to delete'}
               className={`${HEADER_BTN} text-oxblood hover:border-oxblood/50`}>
               <Trash2 className="w-4 h-4" /> Delete
             </button>
