@@ -71,6 +71,11 @@ function fakeSupabase({ serverCap = 1000 } = {}) {
           }),
         };
       }
+      // No signups, so no LOA is overridden.
+      if (table === 'signup_events' || table === 'signup_entries') {
+        const q = { select: () => q, in: () => q, order: () => q, range: () => Promise.resolve({ data: [], error: null }) };
+        return q;
+      }
       throw new Error(`unexpected table ${table}`);
     },
   };

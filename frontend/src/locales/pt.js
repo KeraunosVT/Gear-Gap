@@ -253,8 +253,6 @@ export default {
   'cal.awayHeading_other': 'Ausentes ({count})',
   'cal.nobodyAway': 'Ninguém tem uma ausência cobrindo isto.',
   'cal.member': 'Membro',
-  'cal.signedUpCap': 'Inscrito',
-  'cal.onLoaAndSignedUp': 'Ausente <em>e</em> inscrito',
   'cal.loaFrom': 'A partir de {time}',
   'cal.allNight': 'A noite toda',
   'cal.everyDay': 'Toda {day}',
@@ -289,8 +287,6 @@ export default {
   'cal.afterMidnightTitle': 'Acontece depois da meia-noite — ainda faz parte desta noite',
   'cal.awayTitle': 'Você tem uma ausência cobrindo isto',
   'cal.youreAway': 'você falta',
-  'cal.awaySignedUpTitle': 'Você tem uma ausência cobrindo isto e está inscrito',
-  'cal.awaySignedUp': 'ausente e inscrito',
 
   // LOA for one event
   'cal.loaButton': 'Ausência',
@@ -506,7 +502,7 @@ export default {
   'signups.none': 'nenhuma',
   'signups.waitlistN_one': 'Lista de espera ({count})',
   'signups.waitlistN_other': 'Lista de espera ({count})',
-  'signups.conflicts': 'Inscritos mas com ausência registrada: {names}. Vale mandar uma mensagem antes de montar os grupos.',
+  'signups.conflicts': 'Inscritos com ausência registrada: {names}. A inscrição vale, então contam como presentes.',
   'signups.onLoaN_one': 'Ausentes ({count})',
   'signups.onLoaN_other': 'Ausentes ({count})',
   'signups.noResponseN_one': 'Sem resposta ({count})',

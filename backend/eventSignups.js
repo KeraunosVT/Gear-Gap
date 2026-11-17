@@ -377,11 +377,16 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
         });
         if (r.status === 'going') { t.going += 1; t.roles[roleOf(r.discord_id)] += 1; } else t.waitlist += 1;
         if (discordId && r.discord_id === discordId) t.mine = r.status;
+        (t.ids || (t.ids = [])).push(String(r.discord_id));
       });
       return events.map((e) => ({
         ...e,
         going_count: tally[e.id]?.going || 0,
         waitlist_count: tally[e.id]?.waitlist || 0,
+        // Going and waitlist both. A signup beats an LOA, so the calendar
+        // leaves these members out of its "away" list for the event. Who's
+        // signed up is no secret — "Who's coming?" shows it in Discord.
+        signed_up_ids: tally[e.id]?.ids || [],
         // Going only — the waitlist breakdown is detail-level, and a card that
         // showed both would need twice the room to say half as much.
         role_counts: tally[e.id]?.roles || { Tank: 0, DPS: 0, Healer: 0, Unassigned: 0 },
@@ -403,14 +408,17 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
       let noResponse = [];
       let conflicts = [];
       if (loa) {
-        const out = await loa.unavailableOn({ date: event.event_date, eventScheduleId: event.event_schedule_id, signupEventId: event.id })
-          .catch((err) => { console.error('signups.detail LOA lookup failed:', err.message); return []; });
+        // As filed, signups ignored: this view lists both, side by side.
+        const out = await loa.unavailableOn({
+          date: event.event_date, eventScheduleId: event.event_schedule_id, signupEventId: event.id, ignoreSignups: true,
+        }).catch((err) => { console.error('signups.detail LOA lookup failed:', err.message); return []; });
         const outById = new Map(out.map((e) => [e.discord_id, e]));
         const signedUp = new Set([...going, ...waitlist].map((e) => e.discord_id));
 
-        // Signed up AND on LOA. Surfaced, never resolved automatically — they
-        // may have signed up after filing, or filed a range and made an
-        // exception for this one night. The officer decides; we only flag it.
+        // Signed up AND on LOA. The signup wins — they count as coming
+        // everywhere (see signedUpAcross in loa.js) — so this is a note, not a
+        // problem: they may have signed up after filing, or filed a range and
+        // made an exception for this one night.
         conflicts = [...going, ...waitlist]
           .filter((e) => outById.has(e.discord_id))
           .map((e) => ({ ...e, loa: scrubReason(outById.get(e.discord_id), includeReasons) }));

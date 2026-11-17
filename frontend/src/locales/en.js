@@ -257,8 +257,6 @@ export default {
   'cal.awayHeading_other': 'Away ({count})',
   'cal.nobodyAway': 'Nobody has an LOA covering this.',
   'cal.member': 'Member',
-  'cal.signedUpCap': 'Signed up',
-  'cal.onLoaAndSignedUp': 'On LOA <em>and</em> signed up',
   'cal.loaFrom': 'From {time}',
   'cal.allNight': 'All night',
   'cal.everyDay': 'Every {day}',
@@ -293,8 +291,6 @@ export default {
   'cal.afterMidnightTitle': 'Runs after midnight — still part of this night',
   'cal.awayTitle': 'You have an LOA covering this',
   'cal.youreAway': "you're away",
-  'cal.awaySignedUpTitle': "You have an LOA covering this and you're signed up",
-  'cal.awaySignedUp': 'on LOA and signed up',
 
   // LOA for one event
   'cal.loaButton': 'LOA',
@@ -510,7 +506,7 @@ export default {
   'signups.none': 'none',
   'signups.waitlistN_one': 'Waitlist ({count})',
   'signups.waitlistN_other': 'Waitlist ({count})',
-  'signups.conflicts': 'Signed up but has an LOA on file: {names}. Worth a message before you build the roster.',
+  'signups.conflicts': 'Signed up with an LOA on file: {names}. The signup counts, so they are treated as coming.',
   'signups.onLoaN_one': 'On LOA ({count})',
   'signups.onLoaN_other': 'On LOA ({count})',
   'signups.noResponseN_one': 'No response ({count})',

@@ -1668,9 +1668,20 @@ async function handleSignupLoaForm(interaction) {
     const { event } = await signups.detail(id);
     if (event.status === 'cancelled') return interaction.editReply('This event was cancelled, so there\'s nothing to file an LOA for.');
 
-    const already = await loa.unavailableOn({ date: event.event_date, eventScheduleId: event.event_schedule_id, signupEventId: event.id })
-      .catch(() => []);
+    // As filed: a signed-up member's LOA is hidden by their signup otherwise.
+    const already = await loa.unavailableOn({
+      date: event.event_date, eventScheduleId: event.event_schedule_id, signupEventId: event.id, ignoreSignups: true,
+    }).catch(() => []);
     if (already.some((e) => e.discord_id === interaction.user.id)) {
+      // No second LOA. But a signup beats an LOA, so if they're still on the
+      // list they'd count as coming — take them off it, which is what pressing
+      // LOA means.
+      const left = await signups.withdraw({ id, discordId: interaction.user.id }).catch(() => null);
+      if (left?.removed) {
+        refreshSignupMessage(id);
+        if (left.promoted) notifySignupPromotion(left.promoted, id);
+        return interaction.editReply('You already have an LOA on file for this one, so you’re off the signup list now.');
+      }
       return interaction.editReply('You already have an LOA on file for this one. See it or cancel it with `/loa cancel`.');
     }
 
@@ -1833,15 +1844,17 @@ async function handleSignupButton(interaction) {
       });
       refreshSignupMessage(id);
 
-      // A member on LOA who signs up anyway is allowed — they may have filed a
-      // range and made an exception for this night. Flagged, not blocked.
+      // A member on LOA who signs up anyway is allowed, and the signup wins —
+      // they may have filed a range and made an exception for this night. Read
+      // as filed so the note can say the LOA is there.
       let note = '';
       if (loa) {
         const { event } = await signups.detail(id);
-        const out = await loa.unavailableOn({ date: event.event_date, eventScheduleId: event.event_schedule_id, signupEventId: event.id })
-          .catch(() => []);
+        const out = await loa.unavailableOn({
+          date: event.event_date, eventScheduleId: event.event_schedule_id, signupEventId: event.id, ignoreSignups: true,
+        }).catch(() => []);
         if (out.some((e) => e.discord_id === interaction.user.id)) {
-          note = "\n\n⚠️ Heads up — you still have an LOA on file for that night. Cancel it with `/loa cancel` if you're coming after all.";
+          note = '\n\nYou have an LOA on file for that night, but your signup counts: you’re down as coming to this one. The LOA still covers anything else it was for.';
         }
       }
 

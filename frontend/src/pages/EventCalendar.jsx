@@ -111,10 +111,14 @@ function describeLoa(e) {
 // One entry per member, for one event. A member can match several (a range
 // plus a standing night off); the one without a time window says the most, so
 // it wins — the same preference unavailableOn uses.
-function awayFor(entries, ctx) {
+//
+// Anyone signed up for the event (`signedUp`, a Set of discord ids) isn't away
+// from it, whatever LOA they have: a signup beats an LOA, the same rule
+// unavailableOn applies on the server.
+function awayFor(entries, ctx, signedUp = new Set()) {
   const byMember = new Map();
   entries.forEach((e) => {
-    if (!loaCovers(e, ctx)) return;
+    if (signedUp.has(String(e.discord_id)) || !loaCovers(e, ctx)) return;
     const prev = byMember.get(e.discord_id);
     if (!prev || (prev.start_time && !e.start_time)) byMember.set(e.discord_id, e);
   });
@@ -268,7 +272,11 @@ export default function EventCalendar() {
 
     const rows = [...scheduled, ...extra, ...loggedOnly]
       .map((r) => {
-        const awayList = awayFor(loaEntries, { date, dow, scheduleId: r.scheduleId, eventTime: r.eventTime, signupId: r.signupId });
+        const awayList = awayFor(
+          loaEntries,
+          { date, dow, scheduleId: r.scheduleId, eventTime: r.eventTime, signupId: r.signupId },
+          new Set(r.occ?.signed_up_ids || []),
+        );
         return {
           ...r,
           myStatus: r.occ?.my_status || null,
@@ -900,30 +908,13 @@ function Block({ row, fill = false, showAway = false, picked = false, onClick })
 // The row's own controls, then who is away for it. The away list is computed
 // here from everyone's LOAs; reasons only arrive for officers (/api/loa/all
 // strips them otherwise), so they show exactly when the server sent them.
-//
-// Who is signed up needs the signup's own detail — /api/signups carries only
-// counts — so it is fetched when the event has been opened. It is used for one
-// thing: flagging anyone who is both on LOA and signed up, which the officer
-// has to resolve and which the server already works out as `conflicts`.
+// Anyone signed up for the event is already left out of it (see awayFor): a
+// signup beats an LOA.
 function EventDetail({
   night, row, busy, onJoin, onLeave, loa, late,
   onDelete = null, onSkip = null, onEdit = null, onMakeWeekly = null, onRestore = null, onCancelEvent = null,
 }) {
-  const { t, rich } = useT();
-  const [conflictIds, setConflictIds] = useState(() => new Set());
-
-  useEffect(() => {
-    setConflictIds(new Set());
-    if (!row.signupId) return undefined;
-    let live = true;
-    axios.get(`/api/signups/${row.signupId}`)
-      .then((res) => {
-        if (live) setConflictIds(new Set((res.data.conflicts || []).map((c) => String(c.discord_id))));
-      })
-      .catch(() => {});
-    return () => { live = false; };
-  }, [row.signupId, row.going]);
-
+  const { t } = useT();
   const away = row.awayList || [];
   return (
     <div>
@@ -984,19 +975,13 @@ function EventDetail({
         <div className="space-y-1.5">
           {away.map((e) => {
             const { when, what } = describeLoa(e);
-            const clash = conflictIds.has(String(e.discord_id));
             return (
-              <div
-                key={e.discord_id}
-                className={`rounded-lg border px-3 py-2 text-sm ${clash ? 'border-oxblood/60 bg-oxblooddeep/30' : 'border-line bg-hall'}`}
-              >
+              <div key={e.discord_id} className="rounded-lg border border-line bg-hall px-3 py-2 text-sm">
                 <div className="flex items-baseline justify-between gap-3">
                   <span className="text-bone truncate">{e.display_name || t('cal.member')}</span>
-                  <span className={`text-xs shrink-0 ${clash ? 'text-brassbright' : 'text-ash'}`}>{clash ? t('cal.signedUpCap') : when}</span>
+                  <span className="text-xs shrink-0 text-ash">{when}</span>
                 </div>
-                <div className="text-xs text-ash mt-0.5">
-                  {clash ? <>{rich('cal.onLoaAndSignedUp', {}, { em: (x) => <em>{x}</em> })} · {when} · {what}</> : what}
-                </div>
+                <div className="text-xs text-ash mt-0.5">{what}</div>
                 {e.reason && <div className="text-xs text-ash/80 italic mt-0.5">“{e.reason}”</div>}
               </div>
             );
@@ -1519,17 +1504,12 @@ function EventRow({ row, busy, onJoin, onLeave, loa = null, showAway = false, on
             </span>
           )}
 
-          {/* LOA is surfaced, never resolved. Signing up while on leave is
-              allowed — you may have filed a range and made an exception for
-              this one night — so the pair shows as a warning, not a block. */}
+          {/* Signing up while on leave is allowed — you may have filed a range
+              and made an exception for this one night — and the signup wins,
+              so a signed-up row is never marked away (see awayFor). */}
           {row.away && !row.myStatus && (
             <span className="inline-flex items-center gap-1 text-brass" title={t('cal.awayTitle')}>
               <CalendarOff className="w-3 h-3" /> {t('cal.youreAway')}
-            </span>
-          )}
-          {row.away && row.myStatus && (
-            <span className="inline-flex items-center gap-1 text-oxblood" title={t('cal.awaySignedUpTitle')}>
-              <AlertTriangle className="w-3 h-3" /> {t('cal.awaySignedUp')}
             </span>
           )}
           {/* No number: the member list doesn't carry a waitlist position, and

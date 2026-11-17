@@ -220,6 +220,12 @@ function listSupabase(rows) {
           }),
         };
       }
+      // Nobody signed up for anything — signups overriding LOAs has its own
+      // test (loaSignupOverride.test.js).
+      if (table === 'signup_events' || table === 'signup_entries') {
+        const q = { select: () => q, in: () => q, order: () => q, range: () => Promise.resolve({ data: [], error: null }) };
+        return q;
+      }
       throw new Error(`unexpected table ${table}`);
     },
   };

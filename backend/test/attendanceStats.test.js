@@ -40,6 +40,8 @@ const TABLES = {
   member_tenure: [],
   loa_entries: [],
   event_schedule: [],
+  signup_events: [],
+  signup_entries: [],
 };
 
 function fakeSupabase() {

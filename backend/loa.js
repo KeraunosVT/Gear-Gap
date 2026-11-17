@@ -477,6 +477,71 @@ module.exports = function createLoa(supabase, identities = null) {
 
   const FIELDS_FOR = { event: eventFields, range: rangeFields, recurring: recurringFields };
 
+  // ── A SIGNUP BEATS AN LOA ─────────────────────────────────────────────────
+  // Someone who signed up for an event (going or waitlist) is coming to it,
+  // whatever LOA they have on file — a range with one night they can make
+  // after all, a standing night off they're skipping this week. So everything
+  // that asks "is this person out?" drops them, which is every roster, signup
+  // sweep and attendance split, because they all ask through here.
+  //
+  // Which signups count, per occasion:
+  //   a signup id           that one event's list
+  //   a weekly event        that night's signup for it, if one was opened
+  //   a one-off, no id      nothing (there's no telling which signup it is)
+  //   the whole night       a signup for any event that night
+  // Cancelled events' lists don't count: nobody is coming to those.
+  //
+  // Returns one Set of discord ids per occasion, in order. Throws on a failed
+  // read; callers treat that as "no overrides", so an LOA still stands when the
+  // signups can't be read.
+  async function signedUpAcross(occasions) {
+    const out = occasions.map(() => new Set());
+    const dates = [...new Set(occasions.map((o) => o.date).filter((d) => isValidDate(d)))];
+    const explicit = [...new Set(occasions.map((o) => o.signupEventId).filter(Boolean).map(String))];
+    if (!dates.length && !explicit.length) return out;
+
+    const nights = dates.length
+      ? await fetchAll(
+        () => supabase.from('signup_events').select('id, event_date, event_schedule_id, status')
+          .in('event_date', dates).order('id'),
+        { label: 'signup_events' },
+      )
+      : [];
+    const live = nights.filter((e) => e.status !== 'cancelled');
+    const ids = [...new Set([...live.map((e) => String(e.id)), ...explicit])];
+    if (!ids.length) return out;
+
+    const entries = await fetchAll(
+      () => supabase.from('signup_entries').select('signup_event_id, discord_id')
+        .in('signup_event_id', ids).order('id'),
+      { label: 'signup_entries' },
+    );
+    const byEvent = new Map();
+    entries.forEach((r) => {
+      const key = String(r.signup_event_id);
+      if (!byEvent.has(key)) byEvent.set(key, new Set());
+      byEvent.get(key).add(String(r.discord_id));
+    });
+
+    occasions.forEach((o, i) => {
+      let which;
+      if (o.signupEventId) which = [String(o.signupEventId)];
+      else if (o.oneOff) which = [];
+      else if (o.eventScheduleId) {
+        which = live.filter((e) => e.event_date === o.date && String(e.event_schedule_id) === String(o.eventScheduleId))
+          .map((e) => String(e.id));
+      } else which = live.filter((e) => e.event_date === o.date).map((e) => String(e.id));
+      which.forEach((id) => (byEvent.get(id) || []).forEach((d) => out[i].add(d)));
+    });
+    return out;
+  }
+
+  // The signed-up for each occasion, or empty Sets when they can't be read.
+  const signedUpOrNone = (occasions) => signedUpAcross(occasions).catch((err) => {
+    console.error('loa: signup lookup failed, LOAs stand as filed:', err.message);
+    return occasions.map(() => new Set());
+  });
+
   // The name of the event an entry is scoped to, for the Discord notices —
   // a weekly event's from the schedule, a one-off's from its signup. Never
   // throws: not knowing it costs a notice a few words, not the notice.
@@ -544,7 +609,13 @@ module.exports = function createLoa(supabase, identities = null) {
     // `signupEventId` is the opened occurrence being asked about, when there is
     // one. Passing it is what lets an LOA filed for that one occurrence count,
     // and keeps one filed for a different one-off that night from counting.
-    async unavailableOn({ date, eventScheduleId = null, eventTime: oneOffTime = null, oneOff = false, signupEventId = null }) {
+    //
+    // Anyone signed up for the occasion is left out — a signup beats an LOA
+    // (see signedUpAcross). `ignoreSignups` returns the LOAs as filed instead,
+    // for the few callers that show both side by side.
+    async unavailableOn({
+      date, eventScheduleId = null, eventTime: oneOffTime = null, oneOff = false, signupEventId = null, ignoreSignups = false,
+    }) {
       if (!isValidDate(date)) throw httpError(400, 'Date must be in YYYY-MM-DD format.');
       const dow = dayOfWeek(date);
       // Paged, because this reads EVERY entry and matches in JS — recurring
@@ -577,6 +648,10 @@ module.exports = function createLoa(supabase, identities = null) {
       }
       const eventTime = eventRow?.event_time || oneOffTime || null;
       const out = matchUnavailable(data, { date, dow, eventScheduleId, eventTime, oneOff, signupEventId });
+      if (out.size && !ignoreSignups) {
+        const [signed] = await signedUpOrNone([{ date, eventScheduleId, oneOff, signupEventId }]);
+        signed.forEach((id) => out.delete(id));
+      }
       return withNames([...out.values()]);
     },
 
@@ -598,12 +673,19 @@ module.exports = function createLoa(supabase, identities = null) {
         supabase.from('event_schedule').select('id, event_time').then((r) => r.data || []),
       ]);
       const timeOf = new Map(schedule.map((r) => [r.id, r.event_time || null]));
-      occasions.forEach(({ key, date, eventScheduleId = null }) => {
-        if (!isValidDate(date)) { out.set(key, new Set()); return; }
-        const matched = matchUnavailable(data, {
+      const matched = occasions.map(({ date, eventScheduleId = null }) => (isValidDate(date)
+        ? [...matchUnavailable(data, {
           date, dow: dayOfWeek(date), eventScheduleId, eventTime: (eventScheduleId && timeOf.get(eventScheduleId)) || null, oneOff: false,
-        });
-        out.set(key, new Set([...matched.keys()].map(String)));
+        }).keys()].map(String)
+        : []));
+      // Signed up for that night's event beats an LOA here too — one read of
+      // the signups for every night, like the LOA read above, and none at all
+      // when nobody was on LOA.
+      const signed = matched.some((m) => m.length)
+        ? await signedUpOrNone(occasions.map(({ date, eventScheduleId = null }) => ({ date, eventScheduleId })))
+        : occasions.map(() => new Set());
+      occasions.forEach(({ key }, i) => {
+        out.set(key, new Set(matched[i].filter((id) => !signed[i].has(id))));
       });
       return out;
     },

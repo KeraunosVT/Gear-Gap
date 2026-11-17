@@ -122,7 +122,9 @@ module.exports = function createEventDetail(supabase, deps) {
 
       const [unavailable, signupView, lateRequests] = await Promise.all([
         event.event_date && loa
-          ? loa.unavailableOn({ date: event.event_date, eventScheduleId: event.event_schedule_id || null })
+          // As filed: a signed-up member's LOA is still wanted, as the note on
+          // their no-show row. The signup already outranks it below.
+          ? loa.unavailableOn({ date: event.event_date, eventScheduleId: event.event_schedule_id || null, ignoreSignups: true })
             .catch((err) => { console.error('eventDetail: LOA lookup failed:', err.message); return []; })
           : Promise.resolve([]),
         event.event_date && signups
