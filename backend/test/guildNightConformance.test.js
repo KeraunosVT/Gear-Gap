@@ -220,6 +220,51 @@ describe('eventRunsThatWeek is identical on both sides', () => {
   });
 });
 
+describe('member-clock conversion is identical on both sides', () => {
+  // The website converts an LOA's times in the browser; /loa converts them on
+  // the server. A drift files the same "8pm" as two different guild times
+  // depending on where it was typed.
+  const ZONES = ['America/New_York', 'America/Chicago', 'America/Los_Angeles', 'Europe/London',
+    'Europe/Paris', 'Australia/Sydney', 'Asia/Kolkata', 'UTC', null, 'Not/A_Zone'];
+  // Ordinary nights plus both sides of the US and EU DST changes, where the
+  // offset to ET differs from the usual for a few weeks.
+  const NIGHTS = ['2026-11-21', '2026-03-07', '2026-03-08', '2026-03-14', '2026-03-28', '2026-03-29',
+    '2026-10-24', '2026-10-31', '2026-11-01', '2026-07-04'];
+
+  test('localToGuildTime and guildToLocalTime match for every zone, night and half hour', () => {
+    const mismatches = [];
+    for (const tz of ZONES) {
+      for (const night of NIGHTS) {
+        for (const t of CLOCK) {
+          const a = createLoa.localToGuildTime(t, tz, night);
+          const b = fe.localToGuildTime(t, tz, night);
+          if (a !== b) mismatches.push(`to guild ${tz} ${night} ${t}: backend=${a} frontend=${b}`);
+          const c = createLoa.guildToLocalTime(t, tz, night);
+          const d = fe.guildToLocalTime(t, tz, night);
+          if (c !== d) mismatches.push(`to local ${tz} ${night} ${t}: backend=${c} frontend=${d}`);
+        }
+      }
+    }
+    assert.deepEqual(mismatches.slice(0, 20), []);
+  });
+
+  test('nextNightOn matches for every weekday', () => {
+    for (let dow = 0; dow < 7; dow += 1) {
+      for (const from of ['2026-11-16', '2026-11-22', '2026-12-31']) {
+        assert.equal(createLoa.nextNightOn(dow, from), fe.nextNightOn(dow, from), `${dow} from ${from}`);
+      }
+    }
+  });
+
+  test('zoneLabel and isValidTimeZone match', () => {
+    const ms = Date.parse('2026-11-21T17:00:00Z');
+    for (const tz of ZONES) {
+      assert.equal(createLoa.zoneLabel(tz, ms), fe.zoneLabel(tz, ms), String(tz));
+      assert.equal(createLoa.isValidTimeZone(tz), fe.isValidTimeZone(tz), String(tz));
+    }
+  });
+});
+
 describe('a non-default rollover moves both the same way', () => {
   // Guild Settings can change day_start, and the two sides learn about it by
   // completely different routes — guild_config on the backend, GET /api/guild

@@ -262,15 +262,135 @@ export function setDisplayTimezone(tz) {
   localStorage.setItem(DISPLAY_TZ_KEY, tz);
 }
 
+// ── A MEMBER'S OWN CLOCK ─────────────────────────────────────────────────────
+// LOA times are stored on the guild's clock but typed on the member's, so the
+// LOA form converts before it submits and converts back to fill an edit.
+// Mirrors the functions of the same names in backend/loa.js (the /loa Discord
+// command's copy); guildNightConformance.test.js holds the two in step.
+
+export function isValidTimeZone(tz) {
+  if (!tz || typeof tz !== 'string' || tz.length > 64) return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// The zone the browser reports, or null if it reports nothing usable.
+export function browserTimezone() {
+  try {
+    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    return isValidTimeZone(tz) ? tz : null;
+  } catch {
+    return null;
+  }
+}
+
+// The clock this member types LOA times on: the zone they picked in Settings
+// if they picked one, else their browser's, else the guild's. Unlike
+// getDisplayTimezone, an untouched setting does NOT mean guild time here —
+// nobody should have to convert their own evening into ET.
+export function getMemberTimezone() {
+  let picked = null;
+  try { picked = localStorage.getItem(DISPLAY_TZ_KEY); } catch { /* storage blocked */ }
+  if (isValidTimeZone(picked)) return picked;
+  return browserTimezone() || guildTz;
+}
+
+const wallFormats = new Map();
+function wallClockAt(ms, tz) {
+  let f = wallFormats.get(tz);
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, hourCycle: 'h23',
+      year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
+    });
+    wallFormats.set(tz, f);
+  }
+  const p = Object.fromEntries(f.formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
+  const hour = p.hour === '24' ? '00' : p.hour;
+  return {
+    date: `${p.year}-${p.month}-${p.day}`,
+    hhmm: `${hour}:${p.minute}`,
+    asUtc: Date.UTC(+p.year, +p.month - 1, +p.day, +hour, +p.minute, +p.second),
+  };
+}
+
+// The instant a wall-clock date and time occur in `tz` (two passes, for DST).
+function instantIn(dateStr, hhmm, tz) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const [h, mi] = hhmm.split(':').map(Number);
+  const naive = Date.UTC(y, m - 1, d, h, mi);
+  let ms = naive - (wallClockAt(naive, tz).asUtc - naive);
+  ms = naive - (wallClockAt(ms, tz).asUtc - ms);
+  return ms;
+}
+
+const HHMM_RE = /^([01]\d|2[0-3]):([0-5]\d)(:[0-5]\d)?$/;
+const cleanHhmm = (t) => {
+  const m = HHMM_RE.exec(String(t || ''));
+  return m ? `${m[1]}:${m[2]}` : null;
+};
+
+// "HH:MM" on the member's clock to "HH:MM" on the guild's, for the guild night
+// `nightDate`. The time is placed inside that night (day_start to day_start on
+// the guild's clock), so "2am" typed in London for Saturday night is 9pm ET
+// Saturday. Unusable input passes through unchanged.
+export function localToGuildTime(hhmm, fromTz, nightDate) {
+  const clean = cleanHhmm(hhmm);
+  if (!clean) return null;
+  if (!fromTz || fromTz === guildTz || !isValidTimeZone(fromTz) || !/^\d{4}-\d{2}-\d{2}$/.test(nightDate || '')) return clean;
+  const start = instantIn(nightDate, guildDayStart, guildTz);
+  const end = instantIn(addDays(nightDate, 1), guildDayStart, guildTz);
+  let at = null;
+  for (const offset of [0, 1, -1, 2]) {
+    const ms = instantIn(addDays(nightDate, offset), clean, fromTz);
+    if (ms >= start && ms < end) { at = ms; break; }
+  }
+  if (at === null) at = instantIn(nightDate, clean, fromTz);
+  return wallClockAt(at, guildTz).hhmm;
+}
+
+// A stored guild-clock time as it reads on `toTz`'s clock that night.
+export function guildToLocalTime(hhmm, toTz, nightDate) {
+  const clean = cleanHhmm(hhmm);
+  if (!clean) return null;
+  if (!toTz || toTz === guildTz || !isValidTimeZone(toTz) || !/^\d{4}-\d{2}-\d{2}$/.test(nightDate || '')) return clean;
+  const day = minutesOf(clean) < guildDayStartMin ? addDays(nightDate, 1) : nightDate;
+  return wallClockAt(instantIn(day, clean, guildTz), toTz).hhmm;
+}
+
+// The next guild night (tonight included) on `dow` — the date a recurring
+// LOA's times are converted against, since the rule itself has none.
+export function nextNightOn(dow, from = todayInGuildTz()) {
+  const today = new Date(`${from}T12:00:00Z`).getUTCDay();
+  return addDays(from, (((dow - today) % 7) + 7) % 7);
+}
+
+// A zone's short name as people write it ("CT", "GMT", "GMT+10").
+export function zoneLabel(tz, ms = Date.now()) {
+  if (!isValidTimeZone(tz)) return '';
+  const raw = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' })
+    .formatToParts(new Date(ms)).find((p) => p.type === 'timeZoneName')?.value || '';
+  const seasonal = /^([A-Z])[SD]T$/.exec(raw);
+  return seasonal ? `${seasonal[1]}T` : raw;
+}
+
 // Curated list for the Settings picker — not every IANA zone, just enough to
-// cover where members are likely to be.
+// cover where members are likely to be. The /loa command's COMMON_TIMEZONES
+// (backend/discordGateway.js) offers the same ones first.
 export const TIMEZONE_OPTIONS = [
   { value: 'America/New_York', label: 'Eastern (ET)' },
   { value: 'America/Chicago', label: 'Central (CT)' },
   { value: 'America/Denver', label: 'Mountain (MT)' },
+  { value: 'America/Phoenix', label: 'Arizona (MST)' },
   { value: 'America/Los_Angeles', label: 'Pacific (PT)' },
   { value: 'America/Anchorage', label: 'Alaska (AKT)' },
   { value: 'Pacific/Honolulu', label: 'Hawaii (HST)' },
+  { value: 'America/Mexico_City', label: 'Mexico City' },
+  { value: 'America/Sao_Paulo', label: 'Brasília (BRT)' },
   { value: 'UTC', label: 'UTC' },
   { value: 'Europe/London', label: 'London (GMT/BST)' },
   { value: 'Europe/Paris', label: 'Central Europe (CET)' },

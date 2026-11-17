@@ -174,6 +174,119 @@ function guildDateOf(ms) {
   return shifted.toLocaleDateString('en-CA', { timeZone: guildTz() });
 }
 
+// ── A MEMBER'S OWN CLOCK ─────────────────────────────────────────────────────
+// LOA times are stored on the guild's clock, because that is what every event
+// time is compared against. Members enter them on their own clock instead —
+// someone in Chicago types "8pm", meaning 9pm ET — and these convert at the
+// edge, so nothing that reads loa_entries has to know a second timezone exists.
+//
+// Mirrored in frontend/src/timeUtils.js (the LOA form converts before it
+// submits) and held in step by guildNightConformance.test.js.
+
+function isValidTimeZone(tz) {
+  if (!tz || typeof tz !== 'string' || tz.length > 64) return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const wallFormats = new Map();
+// The wall clock in `tz` at instant `ms`: its date, its "HH:MM", and the same
+// reading as if it were UTC (which instantIn uses to work out the offset).
+function wallClockAt(ms, tz) {
+  let f = wallFormats.get(tz);
+  if (!f) {
+    f = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, hourCycle: 'h23',
+      year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
+    });
+    wallFormats.set(tz, f);
+  }
+  const p = Object.fromEntries(f.formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
+  const hour = p.hour === '24' ? '00' : p.hour;
+  return {
+    date: `${p.year}-${p.month}-${p.day}`,
+    hhmm: `${hour}:${p.minute}`,
+    asUtc: Date.UTC(+p.year, +p.month - 1, +p.day, +hour, +p.minute, +p.second),
+  };
+}
+
+// The instant a wall-clock date and time occur in `tz`. Two passes, so a date
+// either side of a DST change picks up that day's offset rather than the one
+// the first guess landed on.
+function instantIn(dateStr, hhmm, tz) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const [h, mi] = hhmm.split(':').map(Number);
+  const naive = Date.UTC(y, m - 1, d, h, mi);
+  let ms = naive - (wallClockAt(naive, tz).asUtc - naive);
+  ms = naive - (wallClockAt(ms, tz).asUtc - ms);
+  return ms;
+}
+
+function shiftDate(dateStr, n) {
+  const d = new Date(`${dateStr}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+
+// Turns "HH:MM" on the member's clock into "HH:MM" on the guild's, for the
+// guild night `nightDate`. The member's time is placed inside that night —
+// from day_start to the next day_start, on the guild's clock — so "2am" typed
+// in London for Saturday night is 9pm ET Saturday, not 9pm ET Friday.
+//
+// The night supplies the date that decides daylight saving. A recurring LOA has
+// no date, so its caller passes the next night it applies to (nextNightOn).
+// Anything unusable — no zone, the guild's own zone, no night — passes the time
+// through unchanged, which is exactly how LOAs were read before this existed.
+function localToGuildTime(hhmm, fromTz, nightDate) {
+  const clean = parseTimeOfDay(hhmm);
+  if (!clean) return null;
+  const tz = guildTz();
+  if (!fromTz || fromTz === tz || !isValidTimeZone(fromTz) || !DATE_RE.test(nightDate || '')) return clean;
+  const start = instantIn(nightDate, guildDayStart(), tz);
+  const end = instantIn(shiftDate(nightDate, 1), guildDayStart(), tz);
+  let at = null;
+  for (const offset of [0, 1, -1, 2]) {
+    const ms = instantIn(shiftDate(nightDate, offset), clean, fromTz);
+    if (ms >= start && ms < end) { at = ms; break; }
+  }
+  // Only a time skipped by a DST change can miss the night entirely.
+  if (at === null) at = instantIn(nightDate, clean, fromTz);
+  return wallClockAt(at, tz).hhmm;
+}
+
+// The reverse: a stored guild-clock time as it reads on `toTz`'s clock that
+// night. Used to fill the edit form, and to echo /loa back in the member's own
+// time.
+function guildToLocalTime(hhmm, toTz, nightDate) {
+  const clean = parseTimeOfDay(hhmm);
+  if (!clean) return null;
+  const tz = guildTz();
+  if (!toTz || toTz === tz || !isValidTimeZone(toTz) || !DATE_RE.test(nightDate || '')) return clean;
+  // An after-rollover time belongs to the night but falls on the next day.
+  const day = minutesOf(clean) < dayStartMin() ? shiftDate(nightDate, 1) : nightDate;
+  return wallClockAt(instantIn(day, clean, tz), toTz).hhmm;
+}
+
+// The next guild night (tonight included) that falls on `dow` — the date a
+// recurring LOA's times are converted against.
+function nextNightOn(dow, from = todayInGuildTz()) {
+  return shiftDate(from, (((dow - dayOfWeek(from)) % 7) + 7) % 7);
+}
+
+// A timezone's short name as people write it: "ET" rather than "EST"/"EDT",
+// "GMT", "CET", "GMT+10". Read at `ms` so a dated LOA gets that night's name.
+function zoneLabel(tz, ms = Date.now()) {
+  if (!isValidTimeZone(tz)) return '';
+  const raw = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' })
+    .formatToParts(new Date(ms)).find((p) => p.type === 'timeZoneName')?.value || '';
+  const seasonal = /^([A-Z])[SD]T$/.exec(raw);
+  return seasonal ? `${seasonal[1]}T` : raw;
+}
+
 // The matching half of unavailableOn(), split out so a caller checking many
 // nights (the officer Missed Events list) can read loa_entries once and apply
 // exactly the same rules to each. Returns discord_id -> the entry that
@@ -714,6 +827,13 @@ module.exports.loaSkipsDate = loaSkipsDate;
 module.exports.eventRunsThatWeek = eventRunsThatWeek;
 module.exports.guildDayOfWeek = guildDayOfWeek;
 module.exports.isAfterMidnight = isAfterMidnight;
+// Member-clock conversion, for the /loa command (and the conformance test
+// against the website's copy).
+module.exports.isValidTimeZone = isValidTimeZone;
+module.exports.localToGuildTime = localToGuildTime;
+module.exports.guildToLocalTime = guildToLocalTime;
+module.exports.nextNightOn = nextNightOn;
+module.exports.zoneLabel = zoneLabel;
 // Accessors, not constants — the rollover and timezone are configuration now.
 // Exporting the *values* here would hand every importer a copy frozen at
 // require time, which is the exact bug this whole conversion exists to remove.
