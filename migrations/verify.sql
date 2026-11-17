@@ -312,6 +312,13 @@ select '16 · shard_need_confirmations table',
           and column_name in ('discord_id', 'boss', 'weapon', 'need', 'confirmed_by', 'confirmed_by_name', 'confirmed_at')) = 7
 union all
 
+-- ── 17_member_timezones ─────────────────────────────────────────────────────
+select '17 · member_timezones table',
+       (select count(*) from information_schema.columns
+        where table_schema = 'public' and table_name = 'member_timezones'
+          and column_name in ('discord_id', 'timezone', 'updated_at')) = 3
+union all
+
 -- ── 12_lock_down_anon ───────────────────────────────────────────────────────
 -- These are standing checks, not one-offs: a table or function added by a
 -- LATER migration without the same treatment turns its row false. Re-running
