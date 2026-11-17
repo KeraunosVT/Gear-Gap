@@ -319,6 +319,13 @@ select '17 · member_timezones table',
           and column_name in ('discord_id', 'timezone', 'updated_at')) = 3
 union all
 
+-- ── 18_in_house_channel ─────────────────────────────────────────────────────
+-- Read by guildConfig.js on every load and written by Guild Settings.
+select '18 · guild_config.in_house_channel_id',
+       (select count(*) from information_schema.columns
+        where table_schema = 'public' and table_name = 'guild_config' and column_name = 'in_house_channel_id') = 1
+union all
+
 -- ── 12_lock_down_anon ───────────────────────────────────────────────────────
 -- These are standing checks, not one-offs: a table or function added by a
 -- LATER migration without the same treatment turns its row false. Re-running

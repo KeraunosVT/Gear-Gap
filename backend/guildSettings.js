@@ -25,7 +25,7 @@ const EDITABLE = [
   'timezone', 'day_start',
   'admin_role_ids', 'allowed_role_ids', 'member_role_ids',
   'roster_channel_id', 'loa_channel_id', 'announce_channel_id', 'signup_channel_id', 'calendar_channel_id',
-  'scouting_channel_id', 'attendance_voice_channel_id', 'loa_notify_discord_id',
+  'scouting_channel_id', 'in_house_channel_id', 'attendance_voice_channel_id', 'loa_notify_discord_id',
 ];
 
 function httpError(status, message) {
@@ -212,6 +212,7 @@ module.exports = function createGuildSettings(supabase) {
         signup_channel_id: channelId(b.signup_channel_id, 'Signup channel'),
         calendar_channel_id: channelId(b.calendar_channel_id, 'Calendar channel'),
         scouting_channel_id: channelId(b.scouting_channel_id, 'Scouting channel'),
+        in_house_channel_id: channelId(b.in_house_channel_id, 'In-House channel'),
         // A VOICE channel — the only one here that is. Same snowflake shape, so
         // the same validator; the difference is which list the picker offers,
         // which is the route's job, not this one's.

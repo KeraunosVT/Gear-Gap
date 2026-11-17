@@ -28,12 +28,17 @@ const CACHE_TTL_MS = (parseInt(process.env.GUILD_CONFIG_CACHE_SECONDS, 10) || 30
 
 // Selected explicitly rather than `*`, so a column added later can't start
 // silently arriving in places that log or serialise this row.
-const COLUMNS = [
+const BASE_COLUMNS = [
   'id', 'house', 'tag', 'aliases', 'motto', 'creed', 'timezone', 'day_start',
   'admin_role_ids', 'allowed_role_ids', 'member_role_ids',
   'roster_channel_id', 'loa_channel_id', 'announce_channel_id', 'signup_channel_id', 'calendar_channel_id',
   'scouting_channel_id', 'attendance_voice_channel_id', 'loa_notify_discord_id', 'dst_active', 'updated_at',
-].join(', ');
+];
+// Columns from migrations newer than the code may be deployed against. If one
+// is missing the whole select fails, and a failed config read means DEFAULTS —
+// nobody an officer — so fetchRow retries without these rather than fail.
+const OPTIONAL_COLUMNS = ['in_house_channel_id']; // migration 18
+const COLUMNS = [...BASE_COLUMNS, ...OPTIONAL_COLUMNS].join(', ');
 
 // What get() returns before the first load completes, or if the table is
 // unreachable on a cold cache.
@@ -63,6 +68,8 @@ const DEFAULTS = Object.freeze({
   calendar_channel_id: null,
   // Null means scouting reports are never posted automatically (migration 11).
   scouting_channel_id: null,
+  // Null means In-House signups post with every other signup (migration 18).
+  in_house_channel_id: null,
   attendance_voice_channel_id: null,
   // Null means nobody is DMed about LOA cancellations, which is what every
   // deployment did before migration 018.
@@ -98,8 +105,13 @@ function normalise(row) {
 
 async function fetchRow() {
   if (!supabase) return null;
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from('guild_config').select(COLUMNS).eq('id', 1).maybeSingle();
+  if (error && OPTIONAL_COLUMNS.some((c) => String(error.message).includes(c))) {
+    console.error(`guildConfig: ${error.message} — run the newest migration. Loading without it.`);
+    ({ data, error } = await supabase
+      .from('guild_config').select(BASE_COLUMNS.join(', ')).eq('id', 1).maybeSingle());
+  }
   if (error) {
     // A stale channel id is harmless; a config read that throws takes down
     // every request that touches it. Serve the last good copy and complain.
@@ -182,6 +194,10 @@ const calendarChannelId = () => get().calendar_channel_id || signupChannelId();
 // automatically; the Post to Discord buttons still work and ask for a channel.
 const scoutingChannelId = () => get().scouting_channel_id || null;
 
+// Where an In-House event's signup post goes: its own channel if set, else
+// wherever every other signup goes (discordGateway's signupChannelFor).
+const inHouseChannelId = () => get().in_house_channel_id || null;
+
 // The alias -> canonical-tag map server.js collapses `guild_name` through.
 // Built fresh on each call from the live config; the old module-scope version
 // of this map is precisely why a rename used to need a redeploy.
@@ -227,6 +243,7 @@ module.exports = {
   signupChannelId,
   calendarChannelId,
   scoutingChannelId,
+  inHouseChannelId,
   aliasMap,
   canonicalGuild,
   publicIdentity,
