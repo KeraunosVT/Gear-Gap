@@ -6,7 +6,9 @@ import {
   RefreshCw, Camera, Trash2, Users, CalendarDays, Loader2,
   BarChart3, Wand2, Swords, Check, X, Inbox, Volume2, AlertTriangle, Upload, UserPlus, Search, Clock,
 } from 'lucide-react';
-import { fmtTimeEst, fmtDatetime, guildDayOfWeek, isAfterMidnight, todayInGuildTz, eventsForGuildDay } from '../timeUtils';
+import {
+  fmtTimeEst, fmtDatetime, guildDayOfWeek, isAfterMidnight, todayInGuildTz, eventsForGuildDay, zoneLabel, getGuildTz,
+} from '../timeUtils';
 import RestrictedGate from '../components/ui/RestrictedGate';
 import Tabs from '../components/ui/Tabs';
 import Modal from '../components/ui/Modal';
@@ -92,8 +94,8 @@ export default function Attendance() {
   const [missedSort, setMissedSort] = useState('missed'); // 'name' or any count column's field
   const [missedDir, setMissedDir] = useState('desc');
 
-  // Attendance by weekly event slot. Its own window, like Missed Events: "which
-  // slot is weakest" wants a few weeks of nights per slot, so it starts at 30.
+  // Attendance by hour of the night. Its own window, like Missed Events: "which
+  // hour is weakest" wants a few weeks of nights per hour, so it starts at 30.
   const [slotWindow, setSlotWindow] = useState('30');
   const [slotReport, setSlotReport] = useState({ totalEvents: 0, slots: [] });
   const [loadingSlots, setLoadingSlots] = useState(true);
@@ -1032,12 +1034,13 @@ export default function Attendance() {
         </Table>
       )}
 
-      {/* ── By timeslot ───────────────────────────────────────────────
-          Each weekly event slot's nights, split the same way as Missed
-          Events: attended, away on an LOA, or missed with nothing filed. */}
+      {/* ── By hour ───────────────────────────────────────────────────
+          Nights grouped by the hour their event starts (guild time), split
+          the same way as Missed Events: attended, away on an LOA, or missed
+          with nothing filed. */}
       <div className="flex items-center justify-between gap-4 mt-12 mb-2">
         <h2 className="font-display text-2xl text-bone tracking-[0.08em] flex items-center gap-3">
-          <Clock className="w-5 h-5 text-brass" /> By Timeslot
+          <Clock className="w-5 h-5 text-brass" /> By Hour
         </h2>
         <button onClick={loadSlots} className="inline-flex items-center gap-2 text-sm text-ash hover:text-brass" title="Refresh">
           <RefreshCw className="w-4 h-4" />
@@ -1058,7 +1061,7 @@ export default function Attendance() {
         <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-400/70" /> Attended</span>
         <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-brass/70" /> On LOA</span>
         <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-oxblood" /> Missed, no LOA</span>
-        <span className="text-ash/60">· % of member-nights, current members only · click a slot for who</span>
+        <span className="text-ash/60">· by the hour each event starts · % of member-nights, current members only · click an hour for who</span>
       </div>
       {!loadingSlots && slotReport.loa_checked === false && (
         <div className="mb-3 text-xs text-brassbright inline-flex items-center gap-1.5">
@@ -1069,13 +1072,13 @@ export default function Attendance() {
       {loadingSlots ? (
         <div className="py-16 text-center text-ash"><Loader2 className="w-5 h-5 animate-spin inline" /></div>
       ) : slotReport.failed ? (
-        <div className="py-16 text-center text-oxblood">Couldn’t load attendance by timeslot.</div>
+        <div className="py-16 text-center text-oxblood">Couldn’t load attendance by hour.</div>
       ) : slotReport.slots.length === 0 ? (
         <div className="py-16 text-center text-ash">Nothing logged in the {WINDOW_LABEL[slotWindow]}.</div>
       ) : (
         <Table minWidth="min-w-[640px]">
           <Thead>
-            <th className="p-4 font-normal">Timeslot</th>
+            <th className="p-4 font-normal">Hour</th>
             <th className="p-4 font-normal text-right">Nights</th>
             <th className="p-4 font-normal text-right" title="Members present on an average night">Avg present</th>
             <th className="p-4 font-normal w-[30%]">Split</th>
@@ -1097,9 +1100,9 @@ export default function Attendance() {
   );
 }
 
-// ── ONE TIMESLOT ────────────────────────────────────────────────────────────
-// A slot's row, and when opened, each member's record for that slot — most
-// missed first, so the people a late slot loses are at the top.
+// ── ONE HOUR ────────────────────────────────────────────────────────────────
+// An hour's row, and when opened, each member's record for the nights in it —
+// most missed first, so the people a late hour loses are at the top.
 const pctTone = (p) => (p === null ? 'text-ash/40' : p >= 75 ? 'text-emerald-400' : p >= 40 ? 'text-brassbright' : 'text-oxblood');
 
 function SplitBar({ attended, loa, missed }) {
@@ -1115,18 +1118,29 @@ function SplitBar({ attended, loa, missed }) {
   );
 }
 
+// "8–9 PM", "11 PM–12 AM", "12–1 AM" — an hour of the night on the guild's clock.
+const hour12 = (h) => h % 12 || 12;
+const meridiem = (h) => (h < 12 ? 'AM' : 'PM');
+function hourLabel(h) {
+  const next = (h + 1) % 24;
+  return meridiem(h) === meridiem(next)
+    ? `${hour12(h)}–${hour12(next)} ${meridiem(h)}`
+    : `${hour12(h)} ${meridiem(h)}–${hour12(next)} ${meridiem(next)}`;
+}
+
 function SlotRows({ slot, open, onToggle }) {
-  const label = slot.night === null
-    ? slot.name
-    : `${DAYS[slot.night].slice(0, 3)}${slot.event_time ? ` ${fmtTimeEst(slot.event_time)}` : ''} · ${slot.name}`;
+  const zone = zoneLabel(getGuildTz());
   return (
     <>
       <Tr>
         <td className="p-4">
           <button onClick={onToggle} aria-expanded={open} className="text-left text-bone hover:text-brass transition-colors">
-            {label}
-            {slot.retired && <span className="ml-2 text-[11px] text-ash/60">no longer scheduled</span>}
+            {slot.hour === null ? 'Time unknown' : `${hourLabel(slot.hour)}${zone ? ` ${zone}` : ''}`}
           </button>
+          {/* Which events made up the hour, with how many nights each. */}
+          <div className="text-[11px] text-ash/70 mt-0.5">
+            {slot.events.map((e) => (e.nights > 1 ? `${e.name} ×${e.nights}` : e.name)).join(' · ')}
+          </div>
         </td>
         <td className="p-4 text-right font-mono text-xs text-ash">{slot.nights}</td>
         <td className="p-4 text-right font-mono text-xs text-ash">{slot.avg_present}</td>

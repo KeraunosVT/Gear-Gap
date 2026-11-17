@@ -548,15 +548,15 @@ module.exports = function registerAttendance(router, ctx) {
     }
   });
 
-  // Attendance and LOA by weekly event slot — "how does the Tuesday 9pm do
-  // compared with the Saturday 12:30am". People, join dates and LOAs are
-  // resolved exactly as for /missed above; timeslotReport.js does the split.
+  // Attendance and LOA by hour of the night — "how does 9–10 PM do compared
+  // with 11 PM–midnight". People, join dates and LOAs are resolved exactly as
+  // for /missed above; timeslotReport.js does the split.
   router.get('/attendance-stats/timeslots', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
     try {
       const { days, since } = attendanceWindow(req);
       const evts = await fetchAll(() => {
-        let q = supabase.from('events').select('id, title, event_date, event_schedule_id').order('id');
+        let q = supabase.from('events').select('id, title, event_date, event_schedule_id, created_at').order('id');
         if (since) q = q.gte('event_date', since);
         return q;
       }, { label: 'events' });
@@ -568,7 +568,7 @@ module.exports = function registerAttendance(router, ctx) {
             .in('event_id', eventIds).order('id'),
           { label: 'event_attendance' },
         ),
-        supabase.from('event_schedule').select('id, name, day_of_week, event_time'),
+        supabase.from('event_schedule').select('id, name, event_time'),
         listMembers().catch((err) => { console.error('timeslots listMembers failed:', err.message); return null; }),
         identities.load(),
         loadTenure(),

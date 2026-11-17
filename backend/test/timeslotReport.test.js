@@ -1,29 +1,35 @@
-// backend/test/timeslotReport.test.js — attendance and LOA by weekly event slot.
+// backend/test/timeslotReport.test.js — attendance and LOA by hour of the night
+// (guild clock: America/New_York, day_start 01:00 — guildConfig's defaults).
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { buildTimeslotReport, ONE_OFF } = require('../timeslotReport');
+const { buildTimeslotReport, UNKNOWN } = require('../timeslotReport');
 
 const schedule = [
-  { id: 'sat-late', name: 'Field Boss', day_of_week: 0, event_time: '00:30' }, // Saturday night
-  { id: 'tue', name: 'Wargame', day_of_week: 2, event_time: '21:00' },
-  { id: 'tue-early', name: 'Archboss', day_of_week: 2, event_time: '19:00' },
+  { id: 'wargame', name: 'Wargame', event_time: '21:00' },
+  { id: 'siege', name: 'Siege', event_time: '21:30' },
+  { id: 'boss', name: 'Field Boss', event_time: '00:30' },
+  { id: 'ab', name: 'Archboss', event_time: '20:00' },
 ];
 const people = [{ id: 'ana', name: 'Ana' }, { id: 'bo', name: 'Bo' }, { id: 'cy', name: 'Cy' }];
 
 const events = [
-  { id: 1, title: 'Wargame', event_date: '2026-11-03', event_schedule_id: 'tue' },
-  { id: 2, title: 'Wargame', event_date: '2026-11-10', event_schedule_id: 'tue' },
-  { id: 3, title: 'Field Boss', event_date: '2026-11-07', event_schedule_id: 'sat-late' },
-  { id: 4, title: 'Siege practice', event_date: '2026-11-08', event_schedule_id: null },
-  { id: 5, title: 'Old raid', event_date: '2026-11-05', event_schedule_id: 'gone' },
+  { id: 1, title: 'Wargame', event_date: '2026-11-03', event_schedule_id: 'wargame' },
+  { id: 2, title: 'Siege', event_date: '2026-11-05', event_schedule_id: 'siege' },
+  { id: 3, title: 'Field Boss', event_date: '2026-11-07', event_schedule_id: 'boss' },
+  // A one-off snapped at 10:40 PM ET that night (EST, UTC-5).
+  { id: 4, title: 'Siege practice', event_date: '2026-11-08', event_schedule_id: null, created_at: '2026-11-09T03:40:00Z' },
+  // A one-off logged two days later: no usable time.
+  { id: 5, title: 'Pickup raid', event_date: '2026-11-10', event_schedule_id: null, created_at: '2026-11-12T20:00:00Z' },
+  { id: 6, title: 'Archboss', event_date: '2026-11-11', event_schedule_id: 'ab' },
 ];
 const attendance = [
   { event_id: 1, discord_id: 'ana' }, { event_id: 1, discord_id: 'bo' },
   { event_id: 2, discord_id: 'ana' },
   { event_id: 3, discord_id: 'cy' },
   { event_id: 4, discord_id: 'bo' },
+  { event_id: 6, discord_id: 'ana' }, { event_id: 6, discord_id: 'bo' }, { event_id: 6, discord_id: 'cy' },
 ];
 
 const report = (over = {}) => buildTimeslotReport({
@@ -34,57 +40,48 @@ const report = (over = {}) => buildTimeslotReport({
 const slot = (slots, key) => slots.find((s) => s.key === key);
 
 describe('buildTimeslotReport', () => {
-  test('splits each slot into attended, LOA and missed member-nights', () => {
-    const tue = slot(report(), 'tue');
-    assert.equal(tue.nights, 2);
-    // Night 1: ana, bo there, cy missed. Night 2: ana there, bo on LOA, cy missed.
-    assert.deepEqual([tue.attended, tue.loa, tue.missed], [3, 1, 2]);
-    assert.equal(tue.member_nights, 6);
-    assert.deepEqual([tue.attended_pct, tue.loa_pct, tue.missed_pct], [50, 17, 33]);
-    assert.equal(tue.avg_present, 1.5);
+  test('a 9:00 and a 9:30 start share the 9–10 PM hour', () => {
+    const nine = slot(report(), '21');
+    assert.equal(nine.nights, 2);
+    assert.deepEqual(nine.events.map((e) => e.name).sort(), ['Siege', 'Wargame']);
+    // Wargame: ana, bo there, cy missed. Siege: ana there, bo on LOA, cy missed.
+    assert.deepEqual([nine.attended, nine.loa, nine.missed], [3, 1, 2]);
+    assert.deepEqual([nine.attended_pct, nine.loa_pct, nine.missed_pct], [50, 17, 33]);
+    assert.equal(nine.avg_present, 1.5);
   });
 
-  test('labels a slot by the guild night it belongs to', () => {
-    const late = slot(report(), 'sat-late');
-    assert.equal(late.night, 6, 'the 00:30 Sunday event is Saturday night');
-    assert.equal(late.event_time, '00:30');
+  test('hours run in night order: evening, then after midnight, unknown last', () => {
+    assert.deepEqual(report().map((s) => s.key), ['20', '21', '22', '0', UNKNOWN]);
   });
 
-  test('orders slots Monday first, then by time within the night, one-offs last', () => {
-    assert.deepEqual(report().map((s) => s.key), ['tue', 'sat-late', 'gone', ONE_OFF]);
+  test('a one-off takes the hour attendance was taken, on the same night', () => {
+    const ten = slot(report(), '22');
+    assert.deepEqual(ten.events, [{ name: 'Siege practice', nights: 1 }]);
+    assert.equal(ten.attended, 1);
   });
 
-  test('one-offs share a row; a deleted schedule entry keeps its own, flagged', () => {
-    const slots = report();
-    assert.equal(slot(slots, ONE_OFF).name, 'One-off events');
-    assert.equal(slot(slots, ONE_OFF).attended, 1);
-    const gone = slot(slots, 'gone');
-    assert.equal(gone.retired, true);
-    assert.equal(gone.name, 'Old raid');
-    assert.equal(gone.missed, 3);
+  test('a one-off logged on another day has no hour', () => {
+    const unknown = slot(report(), UNKNOWN);
+    assert.equal(unknown.hour, null);
+    assert.deepEqual(unknown.events, [{ name: 'Pickup raid', nights: 1 }]);
+    assert.equal(unknown.missed, 3);
   });
 
   test('nights before someone joined do not count for them, unless they attended', () => {
-    const tenures = new Map([['cy', { since: '2026-11-09', until: null }]]);
-    const tue = slot(report({ tenures }), 'tue');
-    // cy's 3 Nov night drops out; their 10 Nov miss stays.
-    assert.deepEqual([tue.attended, tue.loa, tue.missed], [3, 1, 1]);
-    const late = slot(report({ tenures }), 'sat-late');
-    assert.equal(late.attended, 1, 'attended before joining still counts');
+    const tenures = new Map([['cy', { since: '2026-11-04', until: null }]]);
+    const nine = slot(report({ tenures }), '21');
+    // cy's 3 Nov Wargame drops out; their 5 Nov Siege miss stays.
+    assert.deepEqual([nine.attended, nine.loa, nine.missed], [3, 1, 1]);
   });
 
   test('per-member breakdown, most missed first', () => {
-    const tue = slot(report(), 'tue');
-    assert.deepEqual(tue.members.map((m) => m.discord_id), ['cy', 'bo', 'ana']);
-    const bo = tue.members.find((m) => m.discord_id === 'bo');
+    const nine = slot(report(), '21');
+    assert.deepEqual(nine.members.map((m) => m.discord_id), ['cy', 'bo', 'ana']);
+    const bo = nine.members.find((m) => m.discord_id === 'bo');
     assert.deepEqual([bo.attended, bo.loa, bo.missed, bo.attended_pct], [1, 1, 0, 50]);
   });
 
-  test('a scheduled slot with no logged nights does not appear', () => {
-    assert.equal(slot(report(), 'tue-early'), undefined);
-  });
-
-  test('no events, no slots', () => {
+  test('no events, no hours', () => {
     assert.deepEqual(report({ events: [] }), []);
   });
 });
