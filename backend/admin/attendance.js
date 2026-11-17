@@ -8,6 +8,7 @@ const { fetchAll } = require('../pagedRead');
 const { parseTlgm } = require('../attendanceHistory');
 const { countsFor } = require('../memberTenure');
 const { eligibleCount, upload } = require('./helpers');
+const { buildTimeslotReport } = require('../timeslotReport');
 
 module.exports = function registerAttendance(router, ctx) {
   const { supabase, gateway, identities, attendance, loa, lateAttendance, attendanceHistory, tenure, loadTenure, eventDetail, attendanceWindow } = ctx;
@@ -544,6 +545,51 @@ module.exports = function registerAttendance(router, ctx) {
     } catch (err) {
       console.error('Missed attendance error:', err.message);
       res.status(500).json({ error: 'Failed to compute missed events.' });
+    }
+  });
+
+  // Attendance and LOA by weekly event slot — "how does the Tuesday 9pm do
+  // compared with the Saturday 12:30am". People, join dates and LOAs are
+  // resolved exactly as for /missed above; timeslotReport.js does the split.
+  router.get('/attendance-stats/timeslots', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    try {
+      const { days, since } = attendanceWindow(req);
+      const evts = await fetchAll(() => {
+        let q = supabase.from('events').select('id, title, event_date, event_schedule_id').order('id');
+        if (since) q = q.gte('event_date', since);
+        return q;
+      }, { label: 'events' });
+
+      const eventIds = evts.map((e) => e.id);
+      const [att, schedRes, roster, ids, tenures, onLoa] = await Promise.all([
+        eventIds.length === 0 ? [] : fetchAll(
+          () => supabase.from('event_attendance').select('discord_id, display_name, event_id')
+            .in('event_id', eventIds).order('id'),
+          { label: 'event_attendance' },
+        ),
+        supabase.from('event_schedule').select('id, name, day_of_week, event_time'),
+        listMembers().catch((err) => { console.error('timeslots listMembers failed:', err.message); return null; }),
+        identities.load(),
+        loadTenure(),
+        loaByEvent(evts),
+      ]);
+      if (schedRes.error) throw schedRes.error;
+
+      const seenName = new Map();
+      att.forEach((a) => { if (a.display_name) seenName.set(String(a.discord_id), a.display_name); });
+      const people = (roster
+        ? roster.map((m) => ({ id: String(m.id), name: m.name }))
+        : [...seenName].map(([id, name]) => ({ id, name })))
+        .map((p) => ({ id: p.id, name: ids.displayNameFor(p.id, seenName.get(p.id) || p.name || p.id) }));
+
+      const slots = buildTimeslotReport({
+        events: evts, attendance: att, schedule: schedRes.data || [], people, tenures, loaByEvent: onLoa.byEvent,
+      });
+      res.json({ window: days, totalEvents: evts.length, loa_checked: onLoa.ok, slots });
+    } catch (err) {
+      console.error('Timeslot attendance error:', err.message);
+      res.status(500).json({ error: 'Failed to compute attendance by timeslot.' });
     }
   });
 

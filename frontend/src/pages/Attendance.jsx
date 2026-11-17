@@ -4,7 +4,7 @@ import axios from 'axios';
 import { useAuth } from '../auth';
 import {
   RefreshCw, Camera, Trash2, Users, CalendarDays, Loader2,
-  BarChart3, Wand2, Swords, Check, X, Inbox, Volume2, AlertTriangle, Upload, UserPlus, Search,
+  BarChart3, Wand2, Swords, Check, X, Inbox, Volume2, AlertTriangle, Upload, UserPlus, Search, Clock,
 } from 'lucide-react';
 import { fmtTimeEst, fmtDatetime, guildDayOfWeek, isAfterMidnight, todayInGuildTz, eventsForGuildDay } from '../timeUtils';
 import RestrictedGate from '../components/ui/RestrictedGate';
@@ -92,6 +92,13 @@ export default function Attendance() {
   const [missedSort, setMissedSort] = useState('missed'); // 'name' or any count column's field
   const [missedDir, setMissedDir] = useState('desc');
 
+  // Attendance by weekly event slot. Its own window, like Missed Events: "which
+  // slot is weakest" wants a few weeks of nights per slot, so it starts at 30.
+  const [slotWindow, setSlotWindow] = useState('30');
+  const [slotReport, setSlotReport] = useState({ totalEvents: 0, slots: [] });
+  const [loadingSlots, setLoadingSlots] = useState(true);
+  const [openSlot, setOpenSlot] = useState(null); // key of the slot whose members are shown
+
   // A TLGM import is previewed before anything is written: the file and the
   // server's dry-run result are held here until the officer confirms.
   const [tlgmFile, setTlgmFile] = useState(null);
@@ -142,6 +149,14 @@ export default function Attendance() {
       .finally(() => setLoadingMissed(false));
   }, [missedWindow]);
 
+  const loadSlots = useCallback(() => {
+    setLoadingSlots(true);
+    axios.get('/api/admin/attendance-stats/timeslots', { params: { window: slotWindow } })
+      .then((res) => setSlotReport(res.data || { totalEvents: 0, slots: [] }))
+      .catch(() => setSlotReport({ totalEvents: 0, slots: [], failed: true }))
+      .finally(() => setLoadingSlots(false));
+  }, [slotWindow]);
+
   const loadLate = useCallback(() => {
     axios.get('/api/admin/attendance/late-requests', { params: { status: 'pending' } })
       .then((res) => setLateRequests(res.data.requests || []))
@@ -157,6 +172,7 @@ export default function Attendance() {
 
   useEffect(() => { loadEvents(); loadStats(); }, [loadEvents, loadStats]);
   useEffect(() => { loadMissed(); }, [loadMissed]);
+  useEffect(() => { loadSlots(); }, [loadSlots]);
 
   useEffect(() => {
     if (!eventDate) { setOneOffs([]); return undefined; }
@@ -772,7 +788,7 @@ export default function Attendance() {
           disagree with the list explaining it. */}
       <div className="flex items-center justify-between gap-4 mb-2">
         <h2 className="font-display text-2xl text-bone tracking-[0.08em]">Roster Attendance</h2>
-        <button onClick={() => { loadEvents(); loadStats(); loadMissed(); }} className="inline-flex items-center gap-2 text-sm text-ash hover:text-brass" title="Refresh">
+        <button onClick={() => { loadEvents(); loadStats(); loadMissed(); loadSlots(); }} className="inline-flex items-center gap-2 text-sm text-ash hover:text-brass" title="Refresh">
           <RefreshCw className="w-4 h-4" />
         </button>
       </div>
@@ -1016,8 +1032,140 @@ export default function Attendance() {
         </Table>
       )}
 
+      {/* ── By timeslot ───────────────────────────────────────────────
+          Each weekly event slot's nights, split the same way as Missed
+          Events: attended, away on an LOA, or missed with nothing filed. */}
+      <div className="flex items-center justify-between gap-4 mt-12 mb-2">
+        <h2 className="font-display text-2xl text-bone tracking-[0.08em] flex items-center gap-3">
+          <Clock className="w-5 h-5 text-brass" /> By Timeslot
+        </h2>
+        <button onClick={loadSlots} className="inline-flex items-center gap-2 text-sm text-ash hover:text-brass" title="Refresh">
+          <RefreshCw className="w-4 h-4" />
+        </button>
+      </div>
+      <div className="rule-fade mb-4" />
+
+      <Tabs
+        variant="flat" active={slotWindow} onChange={(k) => { setSlotWindow(k); setOpenSlot(null); }}
+        items={WINDOWS.map((w) => ({
+          key: w.key,
+          label: w.key === slotWindow && !loadingSlots ? `${w.label} (${slotReport.totalEvents})` : w.label,
+        }))}
+      />
+
+      <div className="flex items-center gap-x-4 gap-y-1 flex-wrap mb-3 text-xs text-ash">
+        <span>{slotReport.totalEvents} event{slotReport.totalEvents === 1 ? '' : 's'} · {WINDOW_LABEL[slotWindow]}</span>
+        <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-400/70" /> Attended</span>
+        <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-brass/70" /> On LOA</span>
+        <span className="inline-flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-oxblood" /> Missed, no LOA</span>
+        <span className="text-ash/60">· % of member-nights, current members only · click a slot for who</span>
+      </div>
+      {!loadingSlots && slotReport.loa_checked === false && (
+        <div className="mb-3 text-xs text-brassbright inline-flex items-center gap-1.5">
+          <AlertTriangle className="w-3.5 h-3.5" /> LOAs couldn’t be loaded, so every absence is counted as missed.
+        </div>
+      )}
+
+      {loadingSlots ? (
+        <div className="py-16 text-center text-ash"><Loader2 className="w-5 h-5 animate-spin inline" /></div>
+      ) : slotReport.failed ? (
+        <div className="py-16 text-center text-oxblood">Couldn’t load attendance by timeslot.</div>
+      ) : slotReport.slots.length === 0 ? (
+        <div className="py-16 text-center text-ash">Nothing logged in the {WINDOW_LABEL[slotWindow]}.</div>
+      ) : (
+        <Table minWidth="min-w-[640px]">
+          <Thead>
+            <th className="p-4 font-normal">Timeslot</th>
+            <th className="p-4 font-normal text-right">Nights</th>
+            <th className="p-4 font-normal text-right" title="Members present on an average night">Avg present</th>
+            <th className="p-4 font-normal w-[30%]">Split</th>
+            <th className="p-4 font-normal text-right">Attended</th>
+            <th className="p-4 font-normal text-right">On LOA</th>
+            <th className="p-4 font-normal text-right">Missed</th>
+          </Thead>
+          <tbody>
+            {slotReport.slots.map((s) => (
+              <SlotRows key={s.key} slot={s} open={openSlot === s.key}
+                onToggle={() => setOpenSlot(openSlot === s.key ? null : s.key)} />
+            ))}
+          </tbody>
+        </Table>
+      )}
+
       {viewing && <MemberNights member={viewing} window_={viewingWindow || window_} onClose={() => setViewing(null)} />}
     </PageShell>
+  );
+}
+
+// ── ONE TIMESLOT ────────────────────────────────────────────────────────────
+// A slot's row, and when opened, each member's record for that slot — most
+// missed first, so the people a late slot loses are at the top.
+const pctTone = (p) => (p === null ? 'text-ash/40' : p >= 75 ? 'text-emerald-400' : p >= 40 ? 'text-brassbright' : 'text-oxblood');
+
+function SplitBar({ attended, loa, missed }) {
+  const total = attended + loa + missed;
+  if (!total) return <div className="h-2 rounded-full bg-hall" />;
+  const w = (n) => `${(n / total) * 100}%`;
+  return (
+    <div className="h-2 rounded-full bg-hall overflow-hidden flex">
+      <div className="h-full bg-emerald-400/70" style={{ width: w(attended) }} />
+      <div className="h-full bg-brass/70" style={{ width: w(loa) }} />
+      <div className="h-full bg-oxblood" style={{ width: w(missed) }} />
+    </div>
+  );
+}
+
+function SlotRows({ slot, open, onToggle }) {
+  const label = slot.night === null
+    ? slot.name
+    : `${DAYS[slot.night].slice(0, 3)}${slot.event_time ? ` ${fmtTimeEst(slot.event_time)}` : ''} · ${slot.name}`;
+  return (
+    <>
+      <Tr>
+        <td className="p-4">
+          <button onClick={onToggle} aria-expanded={open} className="text-left text-bone hover:text-brass transition-colors">
+            {label}
+            {slot.retired && <span className="ml-2 text-[11px] text-ash/60">no longer scheduled</span>}
+          </button>
+        </td>
+        <td className="p-4 text-right font-mono text-xs text-ash">{slot.nights}</td>
+        <td className="p-4 text-right font-mono text-xs text-ash">{slot.avg_present}</td>
+        <td className="p-4"><SplitBar attended={slot.attended} loa={slot.loa} missed={slot.missed} /></td>
+        <td className={`p-4 text-right font-mono text-xs ${pctTone(slot.attended_pct)}`}>
+          {slot.attended_pct === null ? '—' : `${slot.attended_pct}%`}
+        </td>
+        <td className="p-4 text-right font-mono text-xs text-ash">{slot.loa_pct === null ? '—' : `${slot.loa_pct}%`}</td>
+        <td className={`p-4 text-right font-mono text-xs ${slot.missed_pct ? 'text-oxblood' : 'text-ash'}`}>
+          {slot.missed_pct === null ? '—' : `${slot.missed_pct}%`}
+        </td>
+      </Tr>
+      {open && (
+        <tr className="border-b border-line/60 bg-hall/40">
+          <td colSpan={7} className="px-4 py-3">
+            {slot.members.length === 0 ? (
+              <p className="text-xs text-ash">No current members had a night here.</p>
+            ) : (
+              <div className="grid gap-x-6 gap-y-1 sm:grid-cols-2 xl:grid-cols-3">
+                {slot.members.map((m) => (
+                  <div key={m.discord_id} className="flex items-center gap-2 text-xs py-0.5 min-w-0">
+                    <span className="text-bone truncate flex-1 min-w-0">{m.display_name}</span>
+                    <span className="font-mono text-ash/70 shrink-0" title={`${m.attended} attended · ${m.loa} on LOA · ${m.missed} missed`}>
+                      <span className="text-emerald-400/90">{m.attended}</span>
+                      {' / '}<span className="text-brass/90">{m.loa}</span>
+                      {' / '}<span className={m.missed ? 'text-oxblood' : ''}>{m.missed}</span>
+                    </span>
+                    <span className={`font-mono w-10 text-right shrink-0 ${pctTone(m.attended_pct)}`}>
+                      {m.attended_pct === null ? '—' : `${m.attended_pct}%`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="text-[11px] text-ash/60 mt-2">attended / on LOA / missed · % attended</p>
+          </td>
+        </tr>
+      )}
+    </>
   );
 }
 
