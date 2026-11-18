@@ -29,6 +29,7 @@ const FEATURE_PREFIXES = [
   { prefix: '/event-schedule', label: 'LOA Schedule' },
   { prefix: '/members', label: 'Members' },
   { prefix: '/settings', label: 'Guild Settings' },
+  { prefix: '/polls', label: 'Polls' },
 ];
 
 function featureFor(path) {

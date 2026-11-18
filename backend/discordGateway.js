@@ -12,6 +12,7 @@ const createIdentities = require('./identities');
 const createAttendance = require('./attendance');
 const createEventSignups = require('./eventSignups');
 const createLateAttendance = require('./lateAttendance');
+const createPolls = require('./polls');
 const createMemberTimezones = require('./memberTimezones');
 const { listMembers } = require('./discord');
 const guildConfig = require('./guildConfig');
@@ -209,6 +210,7 @@ let attendance = null;
 let signups = null;
 let lateAttendance = null;
 let memberTimezones = null;
+let polls = null;
 let sweepTimer = null;
 // Only the scouting post reads the database directly (through scouting.js);
 // everything else here goes through one of the modules above.
@@ -228,6 +230,7 @@ function start(supabase) {
   signups = supabase ? createEventSignups(supabase, identities, loa) : null;
   lateAttendance = supabase ? createLateAttendance(supabase, identities) : null;
   memberTimezones = supabase ? createMemberTimezones(supabase) : null;
+  polls = supabase ? createPolls(supabase) : null;
 
   client = new Client({
     intents: [
@@ -411,6 +414,7 @@ async function handleInteraction(interaction) {
   // rather than being handed to whichever handler happens to be first.
   if (interaction.isButton()) {
     if (interaction.customId.startsWith('et:')) return handleEliteButton(interaction);
+    if (interaction.customId.startsWith('pl:')) return handlePollButton(interaction);
     return handleSignupButton(interaction);
   }
   // The only modal is the signup post's LOA reason box.
@@ -1461,6 +1465,152 @@ async function handlePollCheck(interaction) {
   }
 }
 
+// ── POLLS ───────────────────────────────────────────────────────────────────
+// The bot's own polls (backend/polls.js), made on the website's Polls page.
+// The post shows only how many votes each option has. A vote is a button
+// click, confirmed privately to the voter; who voted for what is shown only to
+// officers, privately, through the "Who voted" button — the same report as the
+// "Check poll votes" command on Discord's own polls.
+const escapeMd = (text) => String(text).replace(/([\\*_`~|>])/g, '\\$1');
+
+function pollEmbed(poll, votes) {
+  const { counts, voters } = createPolls.tally(poll, votes);
+  const open = createPolls.isOpen(poll);
+  const options = poll.options.map((opt, i) => {
+    const n = counts[i];
+    const filled = voters ? Math.round((n / voters) * 10) : 0;
+    const share = voters ? ` (${Math.round((n / voters) * 100)}%)` : '';
+    return `**${i + 1}. ${escapeMd(opt)}**\n${'▰'.repeat(filled)}${'▱'.repeat(10 - filled)}  ${n} vote${n === 1 ? '' : 's'}${share}`;
+  });
+  const closes = poll.closes_at ? Math.floor(Date.parse(poll.closes_at) / 1000) : null;
+  const status = open
+    ? (closes ? ` · closes <t:${closes}:R>` : '')
+    : ' · **Poll closed**';
+  return {
+    title: `📊 ${poll.question}`.slice(0, 256),
+    description: `${options.join('\n\n')}\n\n${voters} voted${status}`,
+    color: open ? 0xc9973a : 0x6b7280,
+    footer: {
+      text: `${open ? (poll.multi ? 'Pick as many as you like · ' : 'Pick one · ') : ''}Votes are private — only officers can see who voted`,
+    },
+  };
+}
+
+// A button per option while open (five to a row), and the officers' "Who
+// voted" button, which stays after it closes.
+function pollComponents(poll) {
+  const rows = [];
+  if (createPolls.isOpen(poll)) {
+    for (let i = 0; i < poll.options.length; i += 5) {
+      rows.push(new ActionRowBuilder().addComponents(poll.options.slice(i, i + 5).map((opt, j) => new ButtonBuilder()
+        .setCustomId(`pl:v:${poll.id}:${i + j}`).setLabel(String(opt).slice(0, 80)).setStyle(ButtonStyle.Primary))));
+    }
+  }
+  rows.push(new ActionRowBuilder().addComponents(new ButtonBuilder()
+    .setCustomId(`pl:who:${poll.id}`).setLabel('Who voted (officers)').setEmoji('🔒').setStyle(ButtonStyle.Secondary)));
+  return rows;
+}
+
+async function pollChannel(channelId) {
+  const channel = getGuild()?.channels.cache.get(channelId);
+  return channel?.isTextBased() ? channel : null;
+}
+
+// Posts a new poll and records where. Throws, so the website can say why.
+async function postPoll(pollId) {
+  if (!ready || !polls) throw new Error('The Discord bot is not connected right now.');
+  const poll = await polls.load(pollId);
+  const channel = await pollChannel(poll.channel_id);
+  if (!channel) throw new Error("That channel wasn't found, or the bot can't see it.");
+  const message = await channel.send({ embeds: [pollEmbed(poll, [])], components: pollComponents(poll) });
+  await polls.setMessage(poll.id, channel.id, message.id);
+  return message.id;
+}
+
+async function renderPoll(pollId) {
+  if (!ready || !polls) return;
+  try {
+    const poll = await polls.load(pollId);
+    if (!poll.message_id) return;
+    const channel = await pollChannel(poll.channel_id);
+    if (!channel) return;
+    await channel.messages.edit(poll.message_id, {
+      embeds: [pollEmbed(poll, await polls.votesFor(pollId))],
+      components: pollComponents(poll),
+    });
+  } catch (err) {
+    console.error('Poll render error:', err.message);
+  }
+}
+
+// Same coalescing as refreshSignupMessage, so a burst of votes is one edit.
+function refreshPoll(pollId) {
+  const key = `poll:${pollId}`;
+  if (!pollId || pendingRenders.has(key)) return;
+  pendingRenders.set(key, setTimeout(() => {
+    pendingRenders.delete(key);
+    renderPoll(pollId);
+  }, RENDER_DEBOUNCE_MS));
+}
+
+async function deletePollMessage(poll) {
+  if (!ready || !poll?.message_id) return;
+  try {
+    const channel = await pollChannel(poll.channel_id);
+    if (channel) await channel.messages.delete(poll.message_id);
+  } catch (err) {
+    console.error('Poll message delete error:', err.message);
+  }
+}
+
+async function handlePollButton(interaction) {
+  const [, action, id, index] = interaction.customId.split(':');
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  if (!polls) return interaction.editReply('Polls are not available right now.');
+
+  try {
+    if (action === 'v') {
+      const { poll, choices } = await polls.vote(id, interaction.user.id, displayNameFor(interaction.user), Number(index));
+      refreshPoll(id);
+      if (!choices.length) return interaction.editReply('Your vote was removed.');
+      const picked = choices.map((i) => `**${escapeMd(poll.options[i])}**`).join(', ');
+      return interaction.editReply(`🗳️ You voted for ${picked}. Only officers can see it.\n`
+        + (poll.multi
+          ? '-# Click an option again to take it off, or another to add it.'
+          : '-# Click another option to switch, or the same one again to take your vote back.'));
+    }
+
+    if (action === 'who') {
+      if (!isAdminMember(interaction)) return interaction.editReply('Only officers can see who voted.');
+      const [poll, votes, roster, ids] = await Promise.all([
+        polls.load(id),
+        polls.votesFor(id),
+        listMembers(),
+        identities ? identities.load().catch(() => null) : null,
+      ]);
+      const rosterName = new Map(roster.map((m) => [String(m.id), m.name]));
+      const votedAs = new Map(votes.map((v) => [String(v.discord_id), v.display_name]));
+      const nameFor = (who) => {
+        const fallback = rosterName.get(String(who)) || votedAs.get(String(who)) || `<@${who}>`;
+        return ids ? ids.displayNameFor(String(who), fallback) || fallback : fallback;
+      };
+      const answers = poll.options.map((text, i) => ({
+        text, voterIds: votes.filter((v) => v.option_index === i).map((v) => String(v.discord_id)),
+      }));
+      const messages = pollReport({ question: poll.question, answers, roster, nameFor, closed: !createPolls.isOpen(poll) });
+      await interaction.editReply({ content: messages[0], allowedMentions: { parse: [] } });
+      for (const extra of messages.slice(1)) {
+        await interaction.followUp({ content: extra, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
+      }
+      return undefined;
+    }
+    return interaction.editReply('That button is out of date.');
+  } catch (err) {
+    if (!err.status) console.error('Poll button error:', err.message);
+    return interaction.editReply(err.status ? err.message : 'Something went wrong — try again.');
+  }
+}
+
 async function handleAnnounce(interaction) {
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   if (!isAdminMember(interaction)) return interaction.editReply('Officers only.');
@@ -2005,6 +2155,16 @@ function startSignupSweep() {
     } catch (err) {
       console.error('Signup sweep error:', err.message);
     }
+    // Polls with a close time, in their own try so a poll problem can't stop
+    // signups closing, or the other way round.
+    try {
+      for (const poll of polls ? await polls.dueToClose() : []) {
+        await polls.close(poll.id);
+        await renderPoll(poll.id);
+      }
+    } catch (err) {
+      console.error('Poll sweep error:', err.message);
+    }
   }, SWEEP_INTERVAL_MS);
 }
 
@@ -2069,6 +2229,9 @@ module.exports = {
   notifySignupPromotion,
   sendSignupReminder,
   notifyLateAttendance,
+  postPoll,
+  refreshPoll,
+  deletePollMessage,
 };
 
 // Exposed for backend/test/eliteButtons.test.js, loaDateChoices.test.js,
@@ -2082,6 +2245,8 @@ module.exports.__test = {
   eliteBoard,
   handleEliteButton,
   pollReport,
+  pollEmbed,
+  pollComponents,
   loaDateChoices,
   // inHouseChannel.test.js
   signupChannelFor,

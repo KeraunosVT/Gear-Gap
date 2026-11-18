@@ -3,7 +3,7 @@ import { NavLink, Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Swords, Users, Gem, Package, CalendarRange, Layers, Gauge,
   Upload, LayoutGrid, Tag, Gavel, ScrollText, ShieldCheck, LogOut, Settings, ChevronDown,
-  BarChart3, ArrowRightLeft,
+  BarChart3, ArrowRightLeft, Vote,
 } from 'lucide-react';
 import Sigil from './Sigil';
 import { useGuild } from '../guild';
@@ -73,6 +73,8 @@ export const adminLinks = [
     { to: '/admin/loot/items', label: 'Manage Items', perm: 'loot.catalog' },
   ] },
   { to: '/admin/gear-levels', label: 'Gear Levels', icon: Gauge, perm: 'gear' },
+  // Private polls. Who voted is seen on Discord, not here.
+  { to: '/admin/polls', label: 'Polls', icon: Vote, perm: 'polls' },
   { to: '/admin/permissions', label: 'Permissions', icon: ShieldCheck, perm: 'permissions' },
   { to: '/admin/audit-log', label: 'Audit Log', icon: ScrollText, perm: 'audit' },
   // Last, and deliberately: it is the only page here whose settings gate every
