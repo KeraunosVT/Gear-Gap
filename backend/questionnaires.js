@@ -2,9 +2,11 @@
 //
 // A questionnaire is up to five questions, each either picked from a list
 // (one, or several) or typed. Members answer in a Discord form opened from the
-// bot's post, and can open it again to change their answers. Like polls
-// (polls.js), who answered what is read back only for the officers'
-// "Responses" button; the website gets counts and typed answers, never names.
+// bot's post, and can open it again to change their answers. Members never
+// see each other's answers. Officers see who answered what through the post's
+// "Responses" button and, for those with the Polls permission, the website's
+// Responses page (responseSheet); the questionnaire list itself carries only
+// counts and typed answers, never names.
 // The rules are plain functions below so they can be tested without a
 // database; discordGateway.js draws the post and the form.
 
@@ -100,6 +102,38 @@ function summarize(questionnaire, responses) {
       }));
       return { counts };
     }),
+  };
+}
+
+// The officers' Responses page: everyone who responded, by name, with their
+// answers lined up with the questions (picked choice positions, or the typed
+// text), then the members who haven't. `nameFor(id)` resolves anyone;
+// `roster` is the member list [{ id, avatar }].
+function responseSheet({ questions, responses, roster, nameFor }) {
+  const byName = (a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
+  const avatarOf = new Map(roster.map((m) => [String(m.id), m.avatar || null]));
+  const responded = new Set(responses.map((r) => String(r.discord_id)));
+  return {
+    member_count: roster.length,
+    members_responded: roster.filter((m) => responded.has(String(m.id))).length,
+    responses: responses.map((r) => {
+      const id = String(r.discord_id);
+      return {
+        id,
+        name: nameFor(id),
+        avatar: avatarOf.get(id) || null,
+        member: avatarOf.has(id),
+        responded_at: r.responded_at || null,
+        answers: questions.map((q, i) => {
+          const a = r.answers?.[i];
+          if (q.type === 'text') return typeof a === 'string' ? a : '';
+          return (Array.isArray(a) ? a : []).filter((p) => Number.isInteger(p) && p >= 0 && p < q.options.length);
+        }),
+      };
+    }).sort(byName),
+    not_responded: roster.filter((m) => !responded.has(String(m.id)))
+      .map((m) => ({ id: String(m.id), name: nameFor(m.id), avatar: m.avatar || null }))
+      .sort(byName),
   };
 }
 
@@ -217,6 +251,7 @@ module.exports = function createQuestionnaires(supabase) {
 module.exports.cleanQuestionnaire = cleanQuestionnaire;
 module.exports.cleanAnswers = cleanAnswers;
 module.exports.summarize = summarize;
+module.exports.responseSheet = responseSheet;
 module.exports.isBlank = isBlank;
 module.exports.LIMITS = {
   questions: MAX_QUESTIONS, title: MAX_TITLE, intro: MAX_INTRO, question: MAX_QUESTION,

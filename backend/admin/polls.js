@@ -3,14 +3,18 @@
 // (backend/questionnaires.js). Registered onto the one admin router by
 // ../admin.js; gated on 'polls' by route prefix in ../permissions.js.
 //
-// Nothing here returns who voted for what. Officers see that only on Discord,
-// privately, through the poll's "Who voted" button.
+// Nothing here returns who voted for what in a poll; officers see that only on
+// Discord, privately, through the poll's "Who voted" button. The one route
+// that names people is a questionnaire's Responses page.
 const createPolls = require('../polls');
 const createQuestionnaires = require('../questionnaires');
 const guildConfig = require('../guildConfig');
+const { listMembers } = require('../discord');
+
+const { isOpen } = createPolls;
 
 module.exports = function registerPolls(router, ctx) {
-  const { supabase, gateway } = ctx;
+  const { supabase, gateway, identities } = ctx;
   const polls = supabase ? createPolls(supabase) : null;
   const questionnaires = supabase ? createQuestionnaires(supabase) : null;
 
@@ -61,8 +65,8 @@ module.exports = function registerPolls(router, ctx) {
   });
 
   // ── Questionnaires ─────────────────────────────────────────────────────
-  // Under /polls so they share its permission and audit-log label. Like
-  // polls, nothing here returns who answered what.
+  // Under /polls so they share its permission and audit-log label. The list
+  // carries counts and typed answers only; names are on the Responses route.
   router.get('/polls/questionnaires', async (req, res) => {
     if (!questionnaires) return res.status(503).json({ error: 'Database not configured.' });
     try {
@@ -94,6 +98,35 @@ module.exports = function registerPolls(router, ctx) {
     } catch (err) {
       await questionnaires.remove(questionnaire.id).catch(() => {});
       res.status(502).json({ error: `The questionnaire couldn't be posted: ${err.message}` });
+    }
+  });
+
+  // The Responses page: who answered what, by name — the one route here that
+  // returns that, for officers holding the Polls permission.
+  router.get('/polls/questionnaires/:id/responses', async (req, res) => {
+    if (!questionnaires) return res.status(503).json({ error: 'Database not configured.' });
+    try {
+      const [questionnaire, responses, roster, ids] = await Promise.all([
+        questionnaires.load(req.params.id),
+        questionnaires.responsesFor(req.params.id),
+        listMembers().catch(() => []),
+        identities ? identities.load().catch(() => null) : null,
+      ]);
+      const rosterName = new Map(roster.map((m) => [String(m.id), m.name]));
+      const answeredAs = new Map(responses.map((r) => [String(r.discord_id), r.display_name]));
+      const nameFor = (id) => {
+        const fallback = rosterName.get(String(id)) || answeredAs.get(String(id)) || 'Unknown';
+        return ids ? ids.displayNameFor(String(id), fallback) || fallback : fallback;
+      };
+      const { id, title, intro, questions, status, closes_at: closesAt, created_at: createdAt } = questionnaire;
+      res.json({
+        questionnaire: {
+          id, title, intro, questions, status, closes_at: closesAt, created_at: createdAt, open: isOpen(questionnaire),
+        },
+        ...createQuestionnaires.responseSheet({ questions, responses, roster, nameFor }),
+      });
+    } catch (err) {
+      res.status(err.status || 500).json({ error: err.message });
     }
   });
 

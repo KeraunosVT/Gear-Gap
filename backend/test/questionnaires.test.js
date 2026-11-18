@@ -193,6 +193,26 @@ describe("the officers' Responses report", () => {
   });
 });
 
+describe("the officers' Responses page", () => {
+  test('each response by name with its answers, then the members who have not responded', () => {
+    const roster = [{ id: '1', name: 'Ana', avatar: 'a.png' }, { id: '2', name: 'Bo' }, { id: '5', name: 'Ed' }, { id: '4', name: 'cy' }];
+    const nameFor = (id) => ({ 1: 'Ana', 2: 'Bo', 4: 'cy', 5: 'Ed', 9: 'Guest' })[id];
+    const withTimes = responses.map((r, i) => ({ ...r, responded_at: `2026-11-1${i}T20:00:00Z` }));
+    // A choice that no longer exists is dropped rather than shown as blank.
+    withTimes[1] = { ...withTimes[1], answers: [[2, 7], [1], ''] };
+    const sheet = createQuestionnaires.responseSheet({ questions: questionnaire().questions, responses: withTimes, roster, nameFor });
+    assert.equal(sheet.member_count, 4);
+    assert.equal(sheet.members_responded, 2);
+    assert.deepEqual(sheet.responses.map((r) => [r.name, r.member, r.avatar, r.answers]), [
+      ['Ana', true, 'a.png', [[0], [0, 1], 'Late on Fri']],
+      ['Bo', true, null, [[2], [1], '']],
+      ['Guest', false, null, [[2], [], 'Hi\nthere']],
+    ]);
+    assert.equal(sheet.responses[0].responded_at, '2026-11-10T20:00:00Z');
+    assert.deepEqual(sheet.not_responded.map((m) => m.name), ['cy', 'Ed']);
+  });
+});
+
 // A small in-memory supabase for the module's own queries.
 function fakeSupabase(tables) {
   return {
@@ -277,4 +297,5 @@ describe('responding and the Polls page list', () => {
 test("the questionnaire routes need the 'polls' capability", () => {
   assert.equal(permissionForPath('/polls/questionnaires'), 'polls');
   assert.equal(permissionForPath('/polls/questionnaires/abc/close'), 'polls');
+  assert.equal(permissionForPath('/polls/questionnaires/abc/responses'), 'polls');
 });

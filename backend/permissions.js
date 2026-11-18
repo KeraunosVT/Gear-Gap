@@ -26,9 +26,10 @@ const ALL_PERMISSIONS = [
   { key: 'gear', label: 'Gear Levels', hint: 'Guild-wide gear level table' },
   { key: 'names', label: 'Merge Names', hint: 'Reconcile in-game names to players' },
   { key: 'schedule', label: 'Event Schedule', hint: 'Recurring event schedule' },
-  // Who voted is seen on Discord, through the officers-only button on each
-  // poll, which checks the officer roles rather than this key.
-  { key: 'polls', label: 'Polls', hint: 'Create, close and delete private polls' },
+  // Who voted in a poll is seen on Discord, through the officers-only button
+  // on each poll, which checks the officer roles rather than this key. This
+  // key does show who answered what in a questionnaire, on its Responses page.
+  { key: 'polls', label: 'Polls', hint: 'Create, close and delete polls and questionnaires; see questionnaire responses by name' },
   { key: 'audit', label: 'Audit Log', hint: 'View the admin audit log' },
   { key: 'permissions', label: 'Permissions', hint: 'Grant capabilities to roles and members' },
   // Editing this one can lock people out of the site, which is why the save
