@@ -35,7 +35,7 @@ export default function Polls() {
   if (!can('polls')) return <RestrictedGate />;
 
   return (
-    <PageShell maxWidth="max-w-3xl">
+    <PageShell width="narrow">
       <div className="flex items-center gap-3 mb-4">
         <BarChart3 className="w-6 h-6 text-brass" />
         <h1 className="font-display text-2xl tracking-wide text-bone">POLLS</h1>
