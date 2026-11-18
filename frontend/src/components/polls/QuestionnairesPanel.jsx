@@ -19,8 +19,14 @@ const REFRESH_MS = 60_000;
 const DEFAULT_LIMITS = { questions: 5, title: 100, intro: 500, question: 100, choices: 25, choice: 100 };
 const TYPE_TABS = [{ key: 'choice', label: 'Choices' }, { key: 'text', label: 'Typed answer' }];
 
-const blankQuestion = () => ({ type: 'choice', text: '', options: ['', ''], multi: false, required: true });
-const hint = (q) => (q.type === 'text' ? 'typed answer' : q.multi ? 'pick any' : 'pick one') + (q.required ? '' : ' · optional');
+const blankQuestion = () => ({ type: 'choice', text: '', options: ['', ''], multi: false, all: false, required: true });
+// "Must pick all" counts only on a pick-several choice question.
+const mustPickAll = (q) => q.type === 'choice' && q.multi && q.all;
+const hint = (q) => {
+  if (q.type === 'text') return `typed answer${q.required ? '' : ' · optional'}`;
+  if (mustPickAll(q)) return 'pick all';
+  return (q.multi ? 'pick any' : 'pick one') + (q.required ? '' : ' · optional');
+};
 
 function QuestionEditor({ q, n, limits, onChange, onRemove }) {
   const set = (patch) => onChange({ ...q, ...patch });
@@ -75,11 +81,21 @@ function QuestionEditor({ q, n, limits, onChange, onRemove }) {
             Allow picking several
           </label>
         )}
-        <label className="inline-flex items-center gap-2 text-sm text-bone cursor-pointer">
-          <input type="checkbox" checked={q.required} onChange={(e) => set({ required: e.target.checked })} className="accent-[rgb(var(--color-brass))]" />
+        {q.type === 'choice' && q.multi && (
+          <label className="inline-flex items-center gap-2 text-sm text-bone cursor-pointer">
+            <input type="checkbox" checked={q.all} onChange={(e) => set({ all: e.target.checked })} className="accent-[rgb(var(--color-brass))]" />
+            Must pick all
+          </label>
+        )}
+        <label className={`inline-flex items-center gap-2 text-sm text-bone ${mustPickAll(q) ? 'opacity-60' : 'cursor-pointer'}`}>
+          <input type="checkbox" checked={q.required || mustPickAll(q)} disabled={mustPickAll(q)}
+            onChange={(e) => set({ required: e.target.checked })} className="accent-[rgb(var(--color-brass))]" />
           Required
         </label>
       </div>
+      {mustPickAll(q) && (
+        <p className="text-xs text-ash -mt-1">Members have to tick every choice before the form will send — e.g. rules to confirm they've read.</p>
+      )}
     </div>
   );
 }
@@ -117,8 +133,8 @@ export default function QuestionnairesPanel() {
   }, [load]);
 
   const cleaned = questions.map((q) => ({
-    type: q.type, text: q.text.trim(), required: q.required,
-    ...(q.type === 'choice' ? { options: q.options.map((o) => o.trim()).filter(Boolean), multi: q.multi } : {}),
+    type: q.type, text: q.text.trim(), required: q.required || mustPickAll(q),
+    ...(q.type === 'choice' ? { options: q.options.map((o) => o.trim()).filter(Boolean), multi: q.multi, all: mustPickAll(q) } : {}),
   }));
   const ready = cleaned.every((q) => q.text && (q.type === 'text' || q.options.length >= 2));
   const canPost = title.trim() && ready && channelId && !busy;
