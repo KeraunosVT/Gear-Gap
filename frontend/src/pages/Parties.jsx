@@ -1117,9 +1117,10 @@ export default function Parties() {
       ? { label: 'Saved', cls: `${GOOD_TEXT} border-emerald-500/40`, dot: 'bg-emerald-500' }
       : { label: 'New board', cls: 'text-ash border-line', dot: 'bg-ash' };
 
-  const memberCard = (id, { returnable = false } = {}) => (
+  // `inParty`: a party (or Fill) card, which puts the class beside the name.
+  const memberCard = (id, { returnable = false, inParty = false } = {}) => (
     <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole}
-      loa={loaById.get(id)} signup={signupById.get(id)} classMode={classMode}
+      loa={loaById.get(id)} signup={signupById.get(id)} classMode={classMode} classInline={inParty}
       assignedClass={classAssignments[classMode][id]} onClassChange={(cls) => setMemberClass(classMode, id, cls)}
       selected={selected === id} onSelect={selectMember} onReturn={returnable ? returnToPool : undefined} />
   );
@@ -1381,7 +1382,7 @@ export default function Parties() {
               {BOARD_PARTY_IDS.map((pid) => (
                 <PartyCard key={pid} pid={pid} name={partyNames[pid]} onRename={(v) => renameParty(pid, v)}
                   ids={items[pid]} roles={roles} selecting={Boolean(selected)} onPlace={placeAt(pid)}
-                  renderMember={(id) => memberCard(id, { returnable: true })} />
+                  renderMember={(id) => memberCard(id, { returnable: true, inParty: true })} />
               ))}
             </div>
 
@@ -1396,7 +1397,7 @@ export default function Parties() {
                     className="bg-transparent font-display text-bone text-sm tracking-[0.06em] focus:outline-none focus:text-brassbright w-28" />
                 )}
                 count={`${fillCount}/${PARTY_SIZE}`} hint="Standby: fills in if someone drops" emptyText="Drop backups here"
-                renderMember={(id) => memberCard(id, { returnable: true })} />
+                renderMember={(id) => memberCard(id, { returnable: true, inParty: true })} />
               <BenchBox id="absent" ids={items.absent} selecting={Boolean(selected)} onPlace={placeAt('absent')}
                 tone="border-oxblood/40 bg-oxblood/[0.03]" dot="bg-oxblood"
                 title={<h2 className="font-display text-bone text-sm tracking-[0.06em]">Absent</h2>}
@@ -1556,7 +1557,9 @@ const keepClick = {
   onDoubleClick: (e) => e.stopPropagation(),
 };
 
-const MemberCardBase = forwardRef(function MemberCardBase({ member, role, onRole, overlay, style, handle, isDragging, loa, signup, classMode, assignedClass, onClassChange, selected, onSelect, onReturn }, ref) {
+// `classInline`: the class goes beside the name (party cards) rather than
+// beneath it (the pool and Absent).
+const MemberCardBase = forwardRef(function MemberCardBase({ member, role, onRole, overlay, style, handle, isDragging, loa, signup, classMode, classInline, assignedClass, onClassChange, selected, onSelect, onReturn }, ref) {
   const rs = ROLE_STYLE[role];
   const classes = memberClasses(member, classMode);
   const current = assignedClass || classes[0];
@@ -1567,6 +1570,24 @@ const MemberCardBase = forwardRef(function MemberCardBase({ member, role, onRole
   const loaTitle = loaSummary(loa);
   const hint = onReturn ? 'Double-click to send back to the pool' : null;
   const title = [loaTitle, hint].filter(Boolean).join(' · ') || undefined;
+
+  // Their one class, or a picker when they have several (★ marks the main).
+  // Beside the name it takes at most half the line, so the name keeps room.
+  const classFit = classInline ? 'shrink-0 max-w-[50%]' : 'block w-full';
+  let classLabel = null;
+  if (classes.length === 1) {
+    classLabel = <span className={`text-[10px] leading-tight text-ash truncate ${classFit}`}>{classes[0]}</span>;
+  } else if (classes.length > 1 && onClassChange) {
+    classLabel = (
+      <select
+        value={current} onChange={(e) => onClassChange(e.target.value)} {...keepClick}
+        aria-label={`${member.name}'s class`}
+        className={`text-[10px] bg-transparent text-ash hover:text-bone border-none focus:outline-none cursor-pointer truncate -ml-px ${classFit}`}
+      >
+        {classes.map((c, i) => <option key={c} value={c} className="bg-panelup text-bone">{c}{i === 0 ? ' ★' : ''}</option>)}
+      </select>
+    );
+  }
 
   return (
     <div
@@ -1581,25 +1602,17 @@ const MemberCardBase = forwardRef(function MemberCardBase({ member, role, onRole
         ? <img src={member.avatar} alt="" className="w-5 h-5 rounded-full border border-line shrink-0" />
         : <span className="w-5 h-5 rounded-full bg-panelup border border-line shrink-0 flex items-center justify-center text-[9px] text-brass">{(member.name || '?').slice(0, 1).toUpperCase()}</span>}
       <div className="min-w-0 flex-1">
-        <span className={`text-sm leading-tight truncate block ${member.missing ? 'text-ash italic' : loa && !partial ? 'text-oxblood' : partial ? WARN_TEXT : 'text-bone'}`}
-          title={loaTitle || (member.missing ? 'No longer in the server' : member.name)}>{member.name}</span>
+        <div className={classInline ? 'flex items-baseline gap-1.5 min-w-0' : undefined}>
+          <span className={`text-sm leading-tight truncate block min-w-0 ${member.missing ? 'text-ash italic' : loa && !partial ? 'text-oxblood' : partial ? WARN_TEXT : 'text-bone'}`}
+            title={loaTitle || (member.missing ? 'No longer in the server' : member.name)}>{member.name}</span>
+          {classInline && classLabel}
+        </div>
         {loa?.start_time && (
           <span className={`text-[10px] leading-tight truncate block ${partial ? WARN_TEXT : 'text-oxblood'}`}>
             {loa.end_time ? `out ${shortTime(loa.start_time)}–${shortTime(loa.end_time)}` : `out from ${shortTime(loa.start_time)}`}
           </span>
         )}
-        {classes.length === 1 && (
-          <span className="text-[10px] leading-tight text-ash truncate block">{classes[0]}</span>
-        )}
-        {classes.length > 1 && onClassChange && (
-          <select
-            value={current} onChange={(e) => onClassChange(e.target.value)} {...keepClick}
-            aria-label={`${member.name}'s class`}
-            className="text-[10px] bg-transparent text-ash hover:text-bone border-none focus:outline-none cursor-pointer truncate w-full -ml-px"
-          >
-            {classes.map((c, i) => <option key={c} value={c} className="bg-panelup text-bone">{c}{i === 0 ? ' ★' : ''}</option>)}
-          </select>
-        )}
+        {!classInline && classLabel}
       </div>
       {/* Signed up. Absence of this badge means nothing at all, so there's no
           counterpart marker for people who haven't answered. */}
