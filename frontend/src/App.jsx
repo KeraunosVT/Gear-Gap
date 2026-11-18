@@ -27,6 +27,7 @@ import MyProfile from './pages/MyProfile';
 import LootHistory from './pages/LootHistory';
 import LootFairness from './pages/LootFairness';
 import Attendance from './pages/Attendance';
+import Polls from './pages/Polls';
 import PlayerProfile from './pages/PlayerProfile';
 import LOA from './pages/LOA';
 import Signups from './pages/Signups';
@@ -127,6 +128,7 @@ function Gate() {
           <Route path="/admin/loot/history" element={<LootHistory />} />
           <Route path="/admin/loot/fairness" element={<LootFairness />} />
           <Route path="/admin/attendance" element={<Attendance />} />
+          <Route path="/admin/polls" element={<Polls />} />
           <Route path="/admin/gear-levels" element={<GearLevels />} />
           <Route path="/admin/permissions" element={<Permissions />} />
           <Route path="/admin/audit-log" element={<AuditLog />} />

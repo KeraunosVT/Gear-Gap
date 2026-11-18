@@ -35,6 +35,7 @@ const FEATURES = [
   require('./admin/signups'),
   require('./admin/schedule'),
   require('./admin/scouting'),
+  require('./admin/polls'),
 ];
 
 module.exports = function createAdminRouter(supabase, gateway, lootCatalog, identities) {

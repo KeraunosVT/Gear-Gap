@@ -29,6 +29,7 @@ export default {
   "nav.Who's Owed": 'Quem tem crédito',
   'nav.Attendance': 'Presença',
   'nav.Gear Levels': 'Níveis de equipamento',
+  'nav.Polls': 'Enquetes',
   'nav.Permissions': 'Permissões',
   'nav.Audit Log': 'Registro de auditoria',
   'nav.Guild Settings': 'Configurações da guilda',

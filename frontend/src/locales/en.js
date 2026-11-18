@@ -33,6 +33,7 @@ export default {
   "nav.Who's Owed": "Who's Owed",
   'nav.Attendance': 'Attendance',
   'nav.Gear Levels': 'Gear Levels',
+  'nav.Polls': 'Polls',
   'nav.Permissions': 'Permissions',
   'nav.Audit Log': 'Audit Log',
   'nav.Guild Settings': 'Guild Settings',

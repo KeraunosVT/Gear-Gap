@@ -29,6 +29,7 @@ export default {
   "nav.Who's Owed": 'A quién se le debe',
   'nav.Attendance': 'Asistencia',
   'nav.Gear Levels': 'Niveles de equipo',
+  'nav.Polls': 'Encuestas',
   'nav.Permissions': 'Permisos',
   'nav.Audit Log': 'Registro de auditoría',
   'nav.Guild Settings': 'Ajustes del gremio',
