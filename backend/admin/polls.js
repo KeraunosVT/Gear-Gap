@@ -31,8 +31,8 @@ module.exports = function registerPolls(router, ctx) {
     if (!polls) return res.status(503).json({ error: 'Database not configured.' });
     let poll;
     try {
-      const { question, options, multi, closes_in_hours, channel_id } = req.body || {};
-      poll = await polls.create({ question, options, multi, closesInHours: closes_in_hours, channelId: channel_id },
+      const { question, options, multi, write_in, closes_in_hours, channel_id } = req.body || {};
+      poll = await polls.create({ question, options, multi, writeIn: write_in, closesInHours: closes_in_hours, channelId: channel_id },
         req.user?.username || req.user?.id || null);
     } catch (err) {
       return res.status(err.status || 500).json({ error: err.message });

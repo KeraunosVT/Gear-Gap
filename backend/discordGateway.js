@@ -417,9 +417,10 @@ async function handleInteraction(interaction) {
     if (interaction.customId.startsWith('pl:')) return handlePollButton(interaction);
     return handleSignupButton(interaction);
   }
-  // The only modal is the signup post's LOA reason box.
+  // Modals: the signup post's LOA reason box, and a poll's write-in box.
   if (interaction.isModalSubmit()) {
     if (interaction.customId.startsWith('sg:loaform:')) return handleSignupLoaForm(interaction);
+    if (interaction.customId.startsWith('pl:wform:')) return handlePollWriteInForm(interaction);
     return;
   }
   if (interaction.isMessageContextMenuCommand()) {
@@ -1382,10 +1383,15 @@ async function fetchAllVoters(answer) {
 // The report as Discord messages, each under the 2000-character limit. Pure,
 // so it can be tested: `answers` is [{ text, voterIds }], `roster` the member
 // list [{ id, name }], `nameFor(id)` resolves anyone, member or not.
-function pollReport({ question, answers, roster, nameFor, closed = false }) {
+// `writeIns`, for the bot's polls that take them, is [{ id, text }] with the
+// text already markdown-escaped; someone who only wrote in has voted.
+function pollReport({ question, answers, roster, nameFor, closed = false, writeIns = null }) {
   const byName = (a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' });
   const memberIds = new Set(roster.map((m) => String(m.id)));
-  const voted = new Set(answers.flatMap((a) => a.voterIds.map(String)));
+  const voted = new Set([
+    ...answers.flatMap((a) => a.voterIds.map(String)),
+    ...(writeIns || []).map((w) => String(w.id)),
+  ]);
   const membersVoted = roster.filter((m) => voted.has(String(m.id))).length;
   const notVoted = roster.filter((m) => !voted.has(String(m.id))).map((m) => nameFor(m.id)).sort(byName);
 
@@ -1398,6 +1404,15 @@ function pollReport({ question, answers, roster, nameFor, closed = false }) {
     const names = a.voterIds.map((id) => nameFor(id) + (memberIds.has(String(id)) ? '' : ' *(not a member)*')).sort(byName);
     lines.push(`**${a.text || 'Option'} (${names.length})**`, names.length ? names.join(', ') : '—', '');
   });
+  if (writeIns) {
+    // One line each, since every answer is different.
+    const entries = writeIns
+      .map((w) => ({ name: nameFor(w.id) + (memberIds.has(String(w.id)) ? '' : ' *(not a member)*'), text: w.text }))
+      .sort((a, b) => byName(a.name, b.name));
+    lines.push(`**✏️ Written in (${entries.length})**`);
+    if (entries.length) entries.forEach((e) => lines.push(`${e.name}: “${e.text}”`)); else lines.push('—');
+    lines.push('');
+  }
   lines.push(`**❌ Haven't voted (${notVoted.length})**`, notVoted.length ? notVoted.join(', ') : 'Everyone has voted 🎉');
 
   // Split on line breaks, and a line that is itself too long on its commas.
@@ -1473,15 +1488,18 @@ async function handlePollCheck(interaction) {
 // "Check poll votes" command on Discord's own polls.
 const escapeMd = (text) => String(text).replace(/([\\*_`~|>])/g, '\\$1');
 
-function pollEmbed(poll, votes) {
-  const { counts, voters } = createPolls.tally(poll, votes);
+// Write-ins show only as a count here, like every option: what was written,
+// and by whom, is for the officers' "Who voted" button.
+function pollEmbed(poll, votes, writeIns = []) {
+  const { counts, writeIns: written, voters } = createPolls.tally(poll, votes, writeIns);
   const open = createPolls.isOpen(poll);
-  const options = poll.options.map((opt, i) => {
-    const n = counts[i];
+  const line = (label, n) => {
     const filled = voters ? Math.round((n / voters) * 10) : 0;
     const share = voters ? ` (${Math.round((n / voters) * 100)}%)` : '';
-    return `**${i + 1}. ${escapeMd(opt)}**\n${'▰'.repeat(filled)}${'▱'.repeat(10 - filled)}  ${n} vote${n === 1 ? '' : 's'}${share}`;
-  });
+    return `**${label}**\n${'▰'.repeat(filled)}${'▱'.repeat(10 - filled)}  ${n} vote${n === 1 ? '' : 's'}${share}`;
+  };
+  const options = poll.options.map((opt, i) => line(`${i + 1}. ${escapeMd(opt)}`, counts[i]));
+  if (poll.write_in) options.push(line('✏️ Written in', written));
   const closes = poll.closes_at ? Math.floor(Date.parse(poll.closes_at) / 1000) : null;
   const status = open
     ? (closes ? ` · closes <t:${closes}:R>` : '')
@@ -1491,24 +1509,52 @@ function pollEmbed(poll, votes) {
     description: `${options.join('\n\n')}\n\n${voters} voted${status}`,
     color: open ? 0xc9973a : 0x6b7280,
     footer: {
-      text: `${open ? (poll.multi ? 'Pick as many as you like · ' : 'Pick one · ') : ''}Votes are private — only officers can see who voted`,
+      text: `${open ? (poll.multi ? 'Pick as many as you like' : 'Pick one') : ''}`
+        + `${open && poll.write_in ? ' or write your own' : ''}${open ? ' · ' : ''}`
+        + 'Votes are private — only officers can see who voted',
     },
   };
 }
 
-// A button per option while open (five to a row), and the officers' "Who
+// A button per option while open (five to a row), then a row with "Write my
+// own" (while open, if the poll takes write-ins) and the officers' "Who
 // voted" button, which stays after it closes.
 function pollComponents(poll) {
   const rows = [];
-  if (createPolls.isOpen(poll)) {
+  const open = createPolls.isOpen(poll);
+  if (open) {
     for (let i = 0; i < poll.options.length; i += 5) {
       rows.push(new ActionRowBuilder().addComponents(poll.options.slice(i, i + 5).map((opt, j) => new ButtonBuilder()
         .setCustomId(`pl:v:${poll.id}:${i + j}`).setLabel(String(opt).slice(0, 80)).setStyle(ButtonStyle.Primary))));
     }
   }
-  rows.push(new ActionRowBuilder().addComponents(new ButtonBuilder()
-    .setCustomId(`pl:who:${poll.id}`).setLabel('Who voted (officers)').setEmoji('🔒').setStyle(ButtonStyle.Secondary)));
+  const last = [];
+  if (open && poll.write_in) {
+    last.push(new ButtonBuilder()
+      .setCustomId(`pl:w:${poll.id}`).setLabel('Write my own').setEmoji('✏️').setStyle(ButtonStyle.Secondary));
+  }
+  last.push(new ButtonBuilder()
+    .setCustomId(`pl:who:${poll.id}`).setLabel('Who voted (officers)').setEmoji('🔒').setStyle(ButtonStyle.Secondary));
+  rows.push(new ActionRowBuilder().addComponents(last));
   return rows;
+}
+
+// The "Write my own" pop-up, filled with what they wrote last time so they
+// can edit it. Saving it empty takes it back. Discord caps a modal title at 45.
+function pollWriteInModal(poll, current = '') {
+  const input = new TextInputBuilder()
+    .setCustomId('answer')
+    .setLabel('Your answer (only officers see who wrote it)')
+    .setStyle(TextInputStyle.Short)
+    .setRequired(false)
+    .setMaxLength(createPolls.MAX_WRITE_IN)
+    .setPlaceholder('Leave empty to take your answer back');
+  if (current) input.setValue(current);
+  const title = String(poll.question);
+  return new ModalBuilder()
+    .setCustomId(`pl:wform:${poll.id}`)
+    .setTitle(title.length > 45 ? `${title.slice(0, 44)}…` : title)
+    .addComponents(new ActionRowBuilder().addComponents(input));
 }
 
 async function pollChannel(channelId) {
@@ -1534,8 +1580,9 @@ async function renderPoll(pollId) {
     if (!poll.message_id) return;
     const channel = await pollChannel(poll.channel_id);
     if (!channel) return;
+    const [votes, writeIns] = await Promise.all([polls.votesFor(pollId), polls.writeInsFor(poll)]);
     await channel.messages.edit(poll.message_id, {
-      embeds: [pollEmbed(poll, await polls.votesFor(pollId))],
+      embeds: [pollEmbed(poll, votes, writeIns)],
       components: pollComponents(poll),
     });
   } catch (err) {
@@ -1565,6 +1612,23 @@ async function deletePollMessage(poll) {
 
 async function handlePollButton(interaction) {
   const [, action, id, index] = interaction.customId.split(':');
+
+  // A modal has to be the first response, so this one isn't deferred. The
+  // lookup is to refuse a closed poll and fill in their earlier answer.
+  if (action === 'w') {
+    const privately = (content) => interaction.reply({ content, flags: MessageFlags.Ephemeral });
+    if (!polls) return privately('Polls are not available right now.');
+    try {
+      const { poll, answer } = await polls.myWriteIn(id, interaction.user.id);
+      if (!createPolls.isOpen(poll)) return privately('This poll is closed.');
+      if (!poll.write_in) return privately("This poll doesn't take written answers.");
+      return interaction.showModal(pollWriteInModal(poll, answer));
+    } catch (err) {
+      if (!err.status) console.error('Poll write-in button error:', err.message);
+      return privately(err.status ? err.message : 'Something went wrong — try again.');
+    }
+  }
+
   await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   if (!polls) return interaction.editReply('Polls are not available right now.');
 
@@ -1588,8 +1652,9 @@ async function handlePollButton(interaction) {
         listMembers(),
         identities ? identities.load().catch(() => null) : null,
       ]);
+      const writeIns = await polls.writeInsFor(poll);
       const rosterName = new Map(roster.map((m) => [String(m.id), m.name]));
-      const votedAs = new Map(votes.map((v) => [String(v.discord_id), v.display_name]));
+      const votedAs = new Map([...writeIns, ...votes].map((v) => [String(v.discord_id), v.display_name]));
       const nameFor = (who) => {
         const fallback = rosterName.get(String(who)) || votedAs.get(String(who)) || `<@${who}>`;
         return ids ? ids.displayNameFor(String(who), fallback) || fallback : fallback;
@@ -1597,7 +1662,10 @@ async function handlePollButton(interaction) {
       const answers = poll.options.map((text, i) => ({
         text, voterIds: votes.filter((v) => v.option_index === i).map((v) => String(v.discord_id)),
       }));
-      const messages = pollReport({ question: poll.question, answers, roster, nameFor, closed: !createPolls.isOpen(poll) });
+      const messages = pollReport({
+        question: poll.question, answers, roster, nameFor, closed: !createPolls.isOpen(poll),
+        writeIns: poll.write_in ? writeIns.map((w) => ({ id: String(w.discord_id), text: escapeMd(w.answer) })) : null,
+      });
       await interaction.editReply({ content: messages[0], allowedMentions: { parse: [] } });
       for (const extra of messages.slice(1)) {
         await interaction.followUp({ content: extra, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
@@ -1607,6 +1675,25 @@ async function handlePollButton(interaction) {
     return interaction.editReply('That button is out of date.');
   } catch (err) {
     if (!err.status) console.error('Poll button error:', err.message);
+    return interaction.editReply(err.status ? err.message : 'Something went wrong — try again.');
+  }
+}
+
+async function handlePollWriteInForm(interaction) {
+  const id = interaction.customId.slice('pl:wform:'.length);
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  if (!polls) return interaction.editReply('Polls are not available right now.');
+  try {
+    const { poll, answer } = await polls.writeIn(id, interaction.user.id, displayNameFor(interaction.user),
+      interaction.fields.getTextInputValue('answer'));
+    refreshPoll(id);
+    if (!answer) return interaction.editReply('Your written answer was removed.');
+    return interaction.editReply(`✏️ You wrote in **${escapeMd(answer)}**. Only officers can see it.\n`
+      + (poll.multi
+        ? '-# Click Write my own again to change it, or save it empty to take it back.'
+        : '-# This is your vote now, in place of any option you picked. Click an option to switch back.'));
+  } catch (err) {
+    if (!err.status) console.error('Poll write-in error:', err.message);
     return interaction.editReply(err.status ? err.message : 'Something went wrong — try again.');
   }
 }
@@ -2247,6 +2334,7 @@ module.exports.__test = {
   pollReport,
   pollEmbed,
   pollComponents,
+  pollWriteInModal,
   loaDateChoices,
   // inHouseChannel.test.js
   signupChannelFor,

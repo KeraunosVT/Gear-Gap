@@ -332,6 +332,14 @@ select '19 · polls and poll_votes tables',
         where table_schema = 'public' and table_name in ('polls', 'poll_votes')) = 2
 union all
 
+-- ── 20_poll_write_ins ───────────────────────────────────────────────────────
+select '20 · polls.write_in and poll_write_ins table',
+       (select count(*) from information_schema.columns
+        where table_schema = 'public' and table_name = 'polls' and column_name = 'write_in') = 1
+       and (select count(*) from information_schema.tables
+        where table_schema = 'public' and table_name = 'poll_write_ins') = 1
+union all
+
 -- ── 12_lock_down_anon ───────────────────────────────────────────────────────
 -- These are standing checks, not one-offs: a table or function added by a
 -- LATER migration without the same treatment turns its row false. Re-running
