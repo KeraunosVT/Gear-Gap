@@ -1,11 +1,14 @@
-// frontend/src/pages/Polls.jsx — officers create the bot's private polls.
+// frontend/src/pages/Polls.jsx — officers create the bot's private polls and
+// questionnaires, one tab each.
 //
 // A poll made here is posted to Discord by the bot with a button per option.
 // Members see only how many votes each option has; who voted for what is
 // shown only to officers, on Discord, through the poll's "Who voted" button —
 // this page never loads voters, only counts. Written-in answers are listed
-// without who wrote them.
+// without who wrote them. Questionnaires (components/polls/QuestionnairesPanel)
+// work the same way.
 import { useState, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import axios from 'axios';
 import { BarChart3, Plus, X, Loader2, Lock, Trash2, Send, RefreshCw } from 'lucide-react';
 import { useAuth } from '../auth';
@@ -14,25 +17,37 @@ import Button from '../components/ui/Button';
 import EmptyState from '../components/ui/EmptyState';
 import ErrorState from '../components/ui/ErrorState';
 import RestrictedGate from '../components/ui/RestrictedGate';
+import Tabs from '../components/ui/Tabs';
 import Toast from '../components/ui/Toast';
 import { useFlash } from '../components/ui/useFlash';
+import { FIELD, PostSettings, ResultBar, AnswerList } from '../components/polls/PollBits';
+import QuestionnairesPanel from '../components/polls/QuestionnairesPanel';
 import { fmtDatetime } from '../timeUtils';
 
-const FIELD = 'w-full bg-hall border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass';
-const CLOSE_OPTIONS = [
-  { value: '', label: 'No close time' },
-  { value: '1', label: '1 hour' },
-  { value: '6', label: '6 hours' },
-  { value: '12', label: '12 hours' },
-  { value: '24', label: '1 day' },
-  { value: '48', label: '2 days' },
-  { value: '72', label: '3 days' },
-  { value: '168', label: '7 days' },
-];
 const REFRESH_MS = 60_000;
+const TABS = [{ key: 'polls', label: 'Polls' }, { key: 'questionnaires', label: 'Questionnaires' }];
 
 export default function Polls() {
   const { can } = useAuth();
+  const [params, setParams] = useSearchParams();
+  const tab = params.get('tab') === 'questionnaires' ? 'questionnaires' : 'polls';
+
+  if (!can('polls')) return <RestrictedGate />;
+
+  return (
+    <PageShell maxWidth="max-w-3xl">
+      <div className="flex items-center gap-3 mb-4">
+        <BarChart3 className="w-6 h-6 text-brass" />
+        <h1 className="font-display text-2xl tracking-wide text-bone">POLLS</h1>
+      </div>
+      <Tabs variant="flat" items={TABS} active={tab}
+        onChange={(key) => setParams(key === 'polls' ? {} : { tab: key }, { replace: true })} />
+      {tab === 'polls' ? <PollsPanel /> : <QuestionnairesPanel />}
+    </PageShell>
+  );
+}
+
+function PollsPanel() {
   const [polls, setPolls] = useState([]);
   const [channels, setChannels] = useState([]);
   const [maxOptions, setMaxOptions] = useState(10);
@@ -65,8 +80,6 @@ export default function Polls() {
     const t = setInterval(load, REFRESH_MS);
     return () => clearInterval(t);
   }, [load]);
-
-  if (!can('polls')) return <RestrictedGate />;
 
   const filled = options.map((o) => o.trim()).filter(Boolean);
   const canPost = question.trim() && filled.length >= 2 && channelId && !busy;
@@ -119,26 +132,20 @@ export default function Polls() {
 
   const channelName = (id) => channels.find((c) => c.id === id)?.name;
 
-  if (loading) return <PageShell maxWidth="max-w-3xl"><EmptyState>Loading polls…</EmptyState></PageShell>;
+  if (loading) return <EmptyState>Loading polls…</EmptyState>;
   if (error && polls.length === 0) {
-    return (
-      <PageShell maxWidth="max-w-3xl">
-        <ErrorState title="Polls couldn't load" message={error} onRetry={() => { setLoading(true); load(); }} />
-      </PageShell>
-    );
+    return <ErrorState title="Polls couldn't load" message={error} onRetry={() => { setLoading(true); load(); }} />;
   }
 
   return (
-    <PageShell maxWidth="max-w-3xl">
-      <div className="flex items-center gap-3 mb-2">
-        <BarChart3 className="w-6 h-6 text-brass" />
-        <h1 className="font-display text-2xl tracking-wide text-bone">POLLS</h1>
-        <button onClick={load} className="ml-auto text-ash hover:text-brass" title="Refresh"><RefreshCw className="w-4 h-4" /></button>
+    <>
+      <div className="flex items-start gap-3 mb-8">
+        <p className="text-ash text-sm">
+          Private polls: the bot posts them with a button per option. Members see only how many votes each option has.
+          Officers see who voted for what with the <span className="text-bone">🔒 Who voted</span> button on the poll in Discord.
+        </p>
+        <button onClick={load} className="ml-auto text-ash hover:text-brass shrink-0" title="Refresh"><RefreshCw className="w-4 h-4" /></button>
       </div>
-      <p className="text-ash text-sm mb-8">
-        Private polls: the bot posts them with a button per option. Members see only how many votes each option has.
-        Officers see who voted for what with the <span className="text-bone">🔒 Who voted</span> button on the poll in Discord.
-      </p>
 
       <Toast msg={msg} />
 
@@ -175,24 +182,7 @@ export default function Polls() {
           )}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <label className="block">
-            <span className="eyebrow text-[10px] text-ash block mb-1.5">Post in</span>
-            <select value={channelId} onChange={(e) => setChannelId(e.target.value)} className={FIELD}>
-              <option value="">— pick a channel —</option>
-              {channels.map((c) => <option key={c.id} value={c.id}>#{c.name}</option>)}
-            </select>
-          </label>
-          <label className="block">
-            <span className="eyebrow text-[10px] text-ash block mb-1.5">Closes after</span>
-            <select value={closesIn} onChange={(e) => setClosesIn(e.target.value)} className={FIELD}>
-              {CLOSE_OPTIONS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
-            </select>
-          </label>
-        </div>
-        {channels.length === 0 && (
-          <p className="text-xs text-brassbright">The bot can't see any channels right now — check it's online.</p>
-        )}
+        <PostSettings channels={channels} channelId={channelId} onChannel={setChannelId} closesIn={closesIn} onClosesIn={setClosesIn} />
 
         <label className="inline-flex items-center gap-2 text-sm text-bone cursor-pointer">
           <input type="checkbox" checked={multi} onChange={(e) => setMulti(e.target.checked)} className="accent-[rgb(var(--color-brass))]" />
@@ -254,51 +244,20 @@ export default function Polls() {
                 </div>
               </div>
               <div className="mt-3 space-y-1.5">
-                {p.options.map((opt, i) => {
-                  const n = p.counts?.[i] || 0;
-                  const pct = p.voter_count ? Math.round((n / p.voter_count) * 100) : 0;
-                  return (
-                    <div key={i} className="text-sm">
-                      <div className="flex items-baseline justify-between gap-3">
-                        <span className="text-bone truncate">{opt}</span>
-                        <span className="font-mono text-xs text-ash shrink-0">{n} · {pct}%</span>
-                      </div>
-                      <div className="h-1.5 rounded-full bg-hall overflow-hidden mt-1">
-                        <div className="h-full rounded-full bg-brass" style={{ width: `${pct}%` }} />
-                      </div>
-                    </div>
-                  );
-                })}
-                {p.write_in && (() => {
-                  const n = p.write_in_count || 0;
-                  const pct = p.voter_count ? Math.round((n / p.voter_count) * 100) : 0;
-                  return (
-                    <div className="text-sm">
-                      <div className="flex items-baseline justify-between gap-3">
-                        <span className="text-bone truncate">✏️ Written in</span>
-                        <span className="font-mono text-xs text-ash shrink-0">{n} · {pct}%</span>
-                      </div>
-                      <div className="h-1.5 rounded-full bg-hall overflow-hidden mt-1">
-                        <div className="h-full rounded-full bg-brass/60" style={{ width: `${pct}%` }} />
-                      </div>
-                      {p.write_ins?.length > 0 && (
-                        <ul className="mt-1.5 space-y-0.5 pl-3 border-l border-line">
-                          {p.write_ins.map((w) => (
-                            <li key={w.answer} className="text-xs text-ash flex justify-between gap-3">
-                              <span className="text-bone break-words min-w-0">“{w.answer}”</span>
-                              {w.count > 1 && <span className="font-mono shrink-0">×{w.count}</span>}
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-                  );
-                })()}
+                {p.options.map((opt, i) => (
+                  <ResultBar key={i} label={opt} count={p.counts?.[i] || 0} total={p.voter_count} />
+                ))}
+                {p.write_in && (
+                  <div>
+                    <ResultBar label="✏️ Written in" count={p.write_in_count || 0} total={p.voter_count} muted />
+                    {p.write_ins?.length > 0 && <AnswerList items={p.write_ins} />}
+                  </div>
+                )}
               </div>
             </div>
           ))}
         </div>
       )}
-    </PageShell>
+    </>
   );
 }
