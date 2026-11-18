@@ -1718,8 +1718,11 @@ function reportNameFor(roster, ids, answeredAs) {
 // them. Who answered what is shown only to officers, privately, through the
 // "Responses" button.
 const fitLabel = (text, max = 45) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
-const questionHint = (q) => (q.type === 'text' ? 'typed answer' : q.multi ? 'pick any' : 'pick one')
-  + (q.required ? '' : ' · optional');
+const questionHint = (q) => {
+  if (q.type === 'text') return `typed answer${q.required ? '' : ' · optional'}`;
+  if (q.all) return 'pick all';
+  return (q.multi ? 'pick any' : 'pick one') + (q.required ? '' : ' · optional');
+};
 
 function questionnaireEmbed(questionnaire, respondents) {
   const open = createPolls.isOpen(questionnaire);
@@ -1762,12 +1765,14 @@ function questionnaireModal(questionnaire, previous = null) {
       if (typeof before === 'string' && before) input.setValue(before);
       return label.setTextInputComponent(input);
     }
+    // "Must pick all" asks Discord for every choice, so the form won't send
+    // until each one is ticked.
     const picked = new Set(Array.isArray(before) ? before : []);
     return label.setStringSelectMenuComponent(new StringSelectMenuBuilder()
       .setCustomId(`q${i}`)
-      .setPlaceholder(q.multi ? 'Pick any' : 'Pick one')
+      .setPlaceholder(q.all ? 'Pick all' : q.multi ? 'Pick any' : 'Pick one')
       .setRequired(q.required)
-      .setMinValues(q.required ? 1 : 0)
+      .setMinValues(q.all ? q.options.length : q.required ? 1 : 0)
       .setMaxValues(q.multi ? q.options.length : 1)
       .addOptions(q.options.map((opt, j) => ({ label: fitLabel(opt, 100), value: String(j), default: picked.has(j) }))));
   });

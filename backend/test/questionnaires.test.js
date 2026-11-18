@@ -150,6 +150,35 @@ describe('the Discord form', () => {
   });
 });
 
+describe('must pick all', () => {
+  const rules = { type: 'choice', text: 'Confirm the rules', options: ['Loot rules', 'Attendance', 'Be nice'], multi: true, all: true, required: false };
+  const withRules = () => questionnaire({
+    questions: cleanQuestionnaire({ title: 'T', channelId: CHANNEL, questions: [rules] }).questions,
+  });
+
+  test('is saved only on a pick-several question, and always required', () => {
+    const [q] = withRules().questions;
+    assert.deepEqual(q, { type: 'choice', text: 'Confirm the rules', required: true, options: ['Loot rules', 'Attendance', 'Be nice'], multi: true, all: true });
+    const [single] = cleanQuestionnaire({ title: 'T', channelId: CHANNEL, questions: [{ ...rules, multi: false }] }).questions;
+    assert.equal(single.all, undefined);
+    assert.equal(single.multi, false);
+  });
+
+  test('every choice has to be picked', () => {
+    assert.deepEqual(cleanAnswers(withRules(), [['2', '0', '1']]), [[0, 1, 2]]);
+    refused(() => cleanAnswers(withRules(), [['0', '1']]), /Pick every choice for question 1/);
+    refused(() => cleanAnswers(withRules(), [[]]), /Answer question 1/);
+  });
+
+  test('the post says pick all, and the form will not send until each is ticked', () => {
+    assert.match(questionnaireEmbed(withRules(), 0).description, /-# pick all: Loot rules · Attendance · Be nice/);
+    const [field] = questionnaireModal(withRules()).toJSON().components;
+    assert.equal(field.description, 'Pick all');
+    assert.deepEqual({ min: field.component.min_values, max: field.component.max_values, required: field.component.required },
+      { min: 3, max: 3, required: true });
+  });
+});
+
 describe("the officers' Responses report", () => {
   test('who picked each choice, each typed answer with its writer, and who has not responded', () => {
     const roster = [{ id: '1', name: 'Ana' }, { id: '2', name: 'Bo' }, { id: '5', name: 'Ed' }];

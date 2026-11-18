@@ -46,6 +46,9 @@ function cleanQuestionnaire({ title, intro, questions, closesInHours, channelId 
     if (options.length < 2) throw httpError(400, `Question ${n} needs at least two choices.`);
     if (options.length > MAX_CHOICES) throw httpError(400, `Question ${n} can have at most ${MAX_CHOICES} choices.`);
     if (new Set(options.map((o) => o.toLowerCase())).size !== options.length) throw httpError(400, `Question ${n} has two choices that are the same.`);
+    // "Must pick all": every choice has to be ticked, e.g. a list of rules to
+    // confirm. Always required — an optional one would mean nothing.
+    if (q.multi && q.all) return { type, text, required: true, options, multi: true, all: true };
     return { type, text, required, options, multi: Boolean(q.multi) };
   });
 
@@ -75,6 +78,7 @@ function cleanAnswers(questionnaire, raw) {
     if (picked.some((p) => !Number.isInteger(p) || p < 0 || p >= q.options.length)) throw httpError(400, `Question ${n} has a choice that no longer exists.`);
     if (!q.multi && picked.length > 1) throw httpError(400, `Pick only one answer for question ${n}.`);
     if (q.required && !picked.length) throw httpError(400, `Answer question ${n}.`);
+    if (q.all && picked.length !== q.options.length) throw httpError(400, `Pick every choice for question ${n}.`);
     return picked;
   });
 }
