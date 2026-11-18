@@ -32,16 +32,24 @@ function cleanPoll({ question, options, multi, writeIn, closesInHours, channelId
   if (opts.length < 2) throw httpError(400, 'A poll needs at least two options.');
   if (opts.length > MAX_OPTIONS) throw httpError(400, `A poll can have at most ${MAX_OPTIONS} options.`);
   if (new Set(opts.map((o) => o.toLowerCase())).size !== opts.length) throw httpError(400, 'Two options are the same.');
-  if (!channelId || !/^\d{5,25}$/.test(String(channelId))) throw httpError(400, 'Pick a channel to post it in.');
+  return {
+    question: q, options: opts, multi: Boolean(multi), writeIn: Boolean(writeIn),
+    closesAt: cleanClosesAt(closesInHours, now), channelId: cleanChannel(channelId),
+  };
+}
 
-  let closesAt = null;
-  if (closesInHours !== undefined && closesInHours !== null && closesInHours !== '') {
-    const h = Number(closesInHours);
-    if (!Number.isFinite(h) || h <= 0) throw httpError(400, 'The close time must be a positive number of hours.');
-    if (h > MAX_CLOSE_DAYS * 24) throw httpError(400, `A poll can stay open at most ${MAX_CLOSE_DAYS} days.`);
-    closesAt = new Date(now + h * 3_600_000).toISOString();
-  }
-  return { question: q, options: opts, multi: Boolean(multi), writeIn: Boolean(writeIn), closesAt, channelId: String(channelId) };
+// The form's channel and close time, shared with questionnaires.js.
+function cleanChannel(channelId) {
+  if (!channelId || !/^\d{5,25}$/.test(String(channelId))) throw httpError(400, 'Pick a channel to post it in.');
+  return String(channelId);
+}
+
+function cleanClosesAt(closesInHours, now = Date.now()) {
+  if (closesInHours === undefined || closesInHours === null || closesInHours === '') return null;
+  const h = Number(closesInHours);
+  if (!Number.isFinite(h) || h <= 0) throw httpError(400, 'The close time must be a positive number of hours.');
+  if (h > MAX_CLOSE_DAYS * 24) throw httpError(400, `It can stay open at most ${MAX_CLOSE_DAYS} days.`);
+  return new Date(now + h * 3_600_000).toISOString();
 }
 
 // A member's typed answer, tidied. Empty means "take my write-in back".
@@ -255,6 +263,10 @@ module.exports = function createPolls(supabase) {
 };
 
 module.exports.cleanPoll = cleanPoll;
+module.exports.cleanChannel = cleanChannel;
+module.exports.cleanClosesAt = cleanClosesAt;
+module.exports.httpError = httpError;
+module.exports.oneLine = oneLine;
 module.exports.toggleVote = toggleVote;
 module.exports.tally = tally;
 module.exports.groupWriteIns = groupWriteIns;

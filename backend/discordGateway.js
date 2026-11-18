@@ -4,6 +4,7 @@
 const {
   Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, MessageFlags, ChannelType,
   ActionRowBuilder, ButtonBuilder, ButtonStyle, ModalBuilder, TextInputBuilder, TextInputStyle,
+  LabelBuilder, StringSelectMenuBuilder,
   ContextMenuCommandBuilder, ApplicationCommandType,
 } = require('discord.js');
 const createEliteTimers = require('./eliteTimers');
@@ -13,6 +14,7 @@ const createAttendance = require('./attendance');
 const createEventSignups = require('./eventSignups');
 const createLateAttendance = require('./lateAttendance');
 const createPolls = require('./polls');
+const createQuestionnaires = require('./questionnaires');
 const createMemberTimezones = require('./memberTimezones');
 const { listMembers } = require('./discord');
 const guildConfig = require('./guildConfig');
@@ -211,6 +213,7 @@ let signups = null;
 let lateAttendance = null;
 let memberTimezones = null;
 let polls = null;
+let questionnaires = null;
 let sweepTimer = null;
 // Only the scouting post reads the database directly (through scouting.js);
 // everything else here goes through one of the modules above.
@@ -231,6 +234,7 @@ function start(supabase) {
   lateAttendance = supabase ? createLateAttendance(supabase, identities) : null;
   memberTimezones = supabase ? createMemberTimezones(supabase) : null;
   polls = supabase ? createPolls(supabase) : null;
+  questionnaires = supabase ? createQuestionnaires(supabase) : null;
 
   client = new Client({
     intents: [
@@ -415,12 +419,15 @@ async function handleInteraction(interaction) {
   if (interaction.isButton()) {
     if (interaction.customId.startsWith('et:')) return handleEliteButton(interaction);
     if (interaction.customId.startsWith('pl:')) return handlePollButton(interaction);
+    if (interaction.customId.startsWith('qn:')) return handleQuestionnaireButton(interaction);
     return handleSignupButton(interaction);
   }
-  // Modals: the signup post's LOA reason box, and a poll's write-in box.
+  // Modals: the signup post's LOA reason box, a poll's write-in box, and a
+  // questionnaire's form.
   if (interaction.isModalSubmit()) {
     if (interaction.customId.startsWith('sg:loaform:')) return handleSignupLoaForm(interaction);
     if (interaction.customId.startsWith('pl:wform:')) return handlePollWriteInForm(interaction);
+    if (interaction.customId.startsWith('qn:form:')) return handleQuestionnaireForm(interaction);
     return;
   }
   if (interaction.isMessageContextMenuCommand()) {
@@ -1414,8 +1421,12 @@ function pollReport({ question, answers, roster, nameFor, closed = false, writeI
     lines.push('');
   }
   lines.push(`**❌ Haven't voted (${notVoted.length})**`, notVoted.length ? notVoted.join(', ') : 'Everyone has voted 🎉');
+  return splitIntoMessages(lines);
+}
 
-  // Split on line breaks, and a line that is itself too long on its commas.
+// Report lines as Discord messages, each under the 2000-character limit:
+// split on line breaks, and a line that is itself too long on its commas.
+function splitIntoMessages(lines) {
   const pieces = lines.flatMap((line) => {
     if (line.length <= DISCORD_MESSAGE_LIMIT - 10) return [line];
     const parts = [];
@@ -1456,15 +1467,11 @@ async function handlePollCheck(interaction) {
 
     // Names as the site shows them: the alias if there is one, else the
     // member's server name, else whatever Discord calls a non-member.
-    const rosterName = new Map(roster.map((m) => [String(m.id), m.name]));
     const userName = new Map();
     for (const answer of poll.answers.values()) {
       answer.voters?.cache?.forEach((u) => userName.set(u.id, displayNameFor(u)));
     }
-    const nameFor = (id) => {
-      const fallback = rosterName.get(String(id)) || userName.get(String(id)) || `<@${id}>`;
-      return ids ? ids.displayNameFor(String(id), fallback) || fallback : fallback;
-    };
+    const nameFor = reportNameFor(roster, ids, userName);
 
     const messages = pollReport({
       question: poll.question?.text, answers, roster, nameFor,
@@ -1653,12 +1660,7 @@ async function handlePollButton(interaction) {
         identities ? identities.load().catch(() => null) : null,
       ]);
       const writeIns = await polls.writeInsFor(poll);
-      const rosterName = new Map(roster.map((m) => [String(m.id), m.name]));
-      const votedAs = new Map([...writeIns, ...votes].map((v) => [String(v.discord_id), v.display_name]));
-      const nameFor = (who) => {
-        const fallback = rosterName.get(String(who)) || votedAs.get(String(who)) || `<@${who}>`;
-        return ids ? ids.displayNameFor(String(who), fallback) || fallback : fallback;
-      };
+      const nameFor = reportNameFor(roster, ids, new Map([...writeIns, ...votes].map((v) => [String(v.discord_id), v.display_name])));
       const answers = poll.options.map((text, i) => ({
         text, voterIds: votes.filter((v) => v.option_index === i).map((v) => String(v.discord_id)),
       }));
@@ -1694,6 +1696,246 @@ async function handlePollWriteInForm(interaction) {
         : '-# This is your vote now, in place of any option you picked. Click an option to switch back.'));
   } catch (err) {
     if (!err.status) console.error('Poll write-in error:', err.message);
+    return interaction.editReply(err.status ? err.message : 'Something went wrong — try again.');
+  }
+}
+
+// Names for an officers' report, as the site shows them: the alias if there
+// is one, else the member's server name, else the name they answered under.
+function reportNameFor(roster, ids, answeredAs) {
+  const rosterName = new Map(roster.map((m) => [String(m.id), m.name]));
+  return (who) => {
+    const fallback = rosterName.get(String(who)) || answeredAs.get(String(who)) || `<@${who}>`;
+    return ids ? ids.displayNameFor(String(who), fallback) || fallback : fallback;
+  };
+}
+
+// ── QUESTIONNAIRES ──────────────────────────────────────────────────────────
+// The bot's questionnaires (backend/questionnaires.js), made on the website's
+// Polls page: up to five questions, each picked from a dropdown or typed. The
+// post lists the questions and how many have responded; "Fill in" opens a
+// Discord form, filled with the member's earlier answers so they can change
+// them. Who answered what is shown only to officers, privately, through the
+// "Responses" button.
+const fitLabel = (text, max = 45) => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
+const questionHint = (q) => (q.type === 'text' ? 'typed answer' : q.multi ? 'pick any' : 'pick one')
+  + (q.required ? '' : ' · optional');
+
+function questionnaireEmbed(questionnaire, respondents) {
+  const open = createPolls.isOpen(questionnaire);
+  const questions = questionnaire.questions.map((q, i) => {
+    const head = `**${i + 1}. ${escapeMd(q.text)}**\n-# ${questionHint(q)}`;
+    return q.type === 'choice' ? `${head}: ${fitLabel(q.options.map(escapeMd).join(' · '), 300)}` : head;
+  });
+  const closes = questionnaire.closes_at ? Math.floor(Date.parse(questionnaire.closes_at) / 1000) : null;
+  const status = open ? (closes ? ` · closes <t:${closes}:R>` : '') : ' · **Closed**';
+  return {
+    title: fitLabel(`📋 ${questionnaire.title}`, 256),
+    description: [questionnaire.intro, questions.join('\n\n'), `${respondents} responded${status}`].filter(Boolean).join('\n\n'),
+    color: open ? 0xc9973a : 0x6b7280,
+    footer: { text: 'Answers are private — only officers can see who said what' },
+  };
+}
+
+function questionnaireComponents(questionnaire) {
+  const buttons = [];
+  if (createPolls.isOpen(questionnaire)) {
+    buttons.push(new ButtonBuilder()
+      .setCustomId(`qn:fill:${questionnaire.id}`).setLabel('Fill in').setEmoji('📝').setStyle(ButtonStyle.Primary));
+  }
+  buttons.push(new ButtonBuilder()
+    .setCustomId(`qn:who:${questionnaire.id}`).setLabel('Responses (officers)').setEmoji('🔒').setStyle(ButtonStyle.Secondary));
+  return [new ActionRowBuilder().addComponents(buttons)];
+}
+
+// The form: a dropdown or a text box per question. A label shows only 45
+// characters, so a longer question is written out in full beneath it.
+function questionnaireModal(questionnaire, previous = null) {
+  const labels = questionnaire.questions.map((q, i) => {
+    const label = new LabelBuilder().setLabel(fitLabel(q.text));
+    const hint = questionHint(q);
+    label.setDescription(q.text.length > 45 ? q.text : hint.charAt(0).toUpperCase() + hint.slice(1));
+    const before = previous?.[i];
+    if (q.type === 'text') {
+      const input = new TextInputBuilder().setCustomId(`q${i}`).setStyle(TextInputStyle.Paragraph)
+        .setRequired(q.required).setMaxLength(createQuestionnaires.LIMITS.answer);
+      if (typeof before === 'string' && before) input.setValue(before);
+      return label.setTextInputComponent(input);
+    }
+    const picked = new Set(Array.isArray(before) ? before : []);
+    return label.setStringSelectMenuComponent(new StringSelectMenuBuilder()
+      .setCustomId(`q${i}`)
+      .setPlaceholder(q.multi ? 'Pick any' : 'Pick one')
+      .setRequired(q.required)
+      .setMinValues(q.required ? 1 : 0)
+      .setMaxValues(q.multi ? q.options.length : 1)
+      .addOptions(q.options.map((opt, j) => ({ label: fitLabel(opt, 100), value: String(j), default: picked.has(j) }))));
+  });
+  return new ModalBuilder()
+    .setCustomId(`qn:form:${questionnaire.id}`)
+    .setTitle(fitLabel(questionnaire.title))
+    .addLabelComponents(...labels);
+}
+
+// The submitted form as questionnaires.respond takes it. A question left
+// blank may be missing from the submission altogether.
+function readQuestionnaireForm(questionnaire, fields) {
+  return questionnaire.questions.map((q, i) => {
+    try {
+      return q.type === 'text' ? fields.getTextInputValue(`q${i}`) : [...fields.getStringSelectValues(`q${i}`)];
+    } catch {
+      return q.type === 'text' ? '' : [];
+    }
+  });
+}
+
+// The officers' report as Discord messages. Pure, so it can be tested:
+// `responses` is [{ discord_id, answers }], `roster` the member list.
+function questionnaireReport({ title, questions, responses, roster, nameFor, closed = false }) {
+  const byName = (a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' });
+  const memberIds = new Set(roster.map((m) => String(m.id)));
+  const label = (id) => nameFor(id) + (memberIds.has(String(id)) ? '' : ' *(not a member)*');
+  const responded = new Set(responses.map((r) => String(r.discord_id)));
+  const membersResponded = roster.filter((m) => responded.has(String(m.id))).length;
+  const notResponded = roster.filter((m) => !responded.has(String(m.id))).map((m) => nameFor(m.id)).sort(byName);
+
+  const lines = [
+    `📋 **${escapeMd(title)}**${closed ? ' (closed)' : ''}`,
+    `**${membersResponded} of ${roster.length}** members have responded.`,
+    '',
+  ];
+  questions.forEach((q, i) => {
+    lines.push(`**${i + 1}. ${escapeMd(q.text)}**`);
+    if (q.type === 'text') {
+      const entries = responses
+        .filter((r) => typeof r.answers?.[i] === 'string' && r.answers[i])
+        .map((r) => ({ name: label(r.discord_id), text: escapeMd(r.answers[i]).replace(/\n+/g, ' / ') }))
+        .sort((a, b) => byName(a.name, b.name));
+      if (entries.length) entries.forEach((e) => lines.push(`${e.name}: “${e.text}”`)); else lines.push('—');
+    } else {
+      q.options.forEach((opt, j) => {
+        const names = responses
+          .filter((r) => Array.isArray(r.answers?.[i]) && r.answers[i].includes(j))
+          .map((r) => label(r.discord_id)).sort(byName);
+        lines.push(`• **${escapeMd(opt)}** (${names.length}): ${names.length ? names.join(', ') : '—'}`);
+      });
+    }
+    lines.push('');
+  });
+  lines.push(`**❌ Haven't responded (${notResponded.length})**`,
+    notResponded.length ? notResponded.join(', ') : 'Everyone has responded 🎉');
+  return splitIntoMessages(lines);
+}
+
+// Posts a new questionnaire and records where. Throws, so the website can say why.
+async function postQuestionnaire(id) {
+  if (!ready || !questionnaires) throw new Error('The Discord bot is not connected right now.');
+  const questionnaire = await questionnaires.load(id);
+  const channel = await pollChannel(questionnaire.channel_id);
+  if (!channel) throw new Error("That channel wasn't found, or the bot can't see it.");
+  const message = await channel.send({
+    embeds: [questionnaireEmbed(questionnaire, 0)], components: questionnaireComponents(questionnaire),
+  });
+  await questionnaires.setMessage(questionnaire.id, channel.id, message.id);
+  return message.id;
+}
+
+async function renderQuestionnaire(id) {
+  if (!ready || !questionnaires) return;
+  try {
+    const questionnaire = await questionnaires.load(id);
+    if (!questionnaire.message_id) return;
+    const channel = await pollChannel(questionnaire.channel_id);
+    if (!channel) return;
+    const responses = await questionnaires.responsesFor(id);
+    await channel.messages.edit(questionnaire.message_id, {
+      embeds: [questionnaireEmbed(questionnaire, responses.length)],
+      components: questionnaireComponents(questionnaire),
+    });
+  } catch (err) {
+    console.error('Questionnaire render error:', err.message);
+  }
+}
+
+function refreshQuestionnaire(id) {
+  const key = `questionnaire:${id}`;
+  if (!id || pendingRenders.has(key)) return;
+  pendingRenders.set(key, setTimeout(() => {
+    pendingRenders.delete(key);
+    renderQuestionnaire(id);
+  }, RENDER_DEBOUNCE_MS));
+}
+
+async function deleteQuestionnaireMessage(questionnaire) {
+  if (!ready || !questionnaire?.message_id) return;
+  try {
+    const channel = await pollChannel(questionnaire.channel_id);
+    if (channel) await channel.messages.delete(questionnaire.message_id);
+  } catch (err) {
+    console.error('Questionnaire message delete error:', err.message);
+  }
+}
+
+async function handleQuestionnaireButton(interaction) {
+  const [, action, id] = interaction.customId.split(':');
+
+  // A modal has to be the first response, so this one isn't deferred. The
+  // lookup is to refuse a closed one and fill in their earlier answers.
+  if (action === 'fill') {
+    const privately = (content) => interaction.reply({ content, flags: MessageFlags.Ephemeral });
+    if (!questionnaires) return privately('Questionnaires are not available right now.');
+    try {
+      const { questionnaire, answers } = await questionnaires.myResponse(id, interaction.user.id);
+      if (!createPolls.isOpen(questionnaire)) return privately('This questionnaire is closed.');
+      return interaction.showModal(questionnaireModal(questionnaire, answers));
+    } catch (err) {
+      if (!err.status) console.error('Questionnaire button error:', err.message);
+      return privately(err.status ? err.message : 'Something went wrong — try again.');
+    }
+  }
+
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  if (!questionnaires) return interaction.editReply('Questionnaires are not available right now.');
+  if (action !== 'who') return interaction.editReply('That button is out of date.');
+  if (!isAdminMember(interaction)) return interaction.editReply('Only officers can see the responses.');
+
+  try {
+    const [questionnaire, responses, roster, ids] = await Promise.all([
+      questionnaires.load(id),
+      questionnaires.responsesFor(id),
+      listMembers(),
+      identities ? identities.load().catch(() => null) : null,
+    ]);
+    const nameFor = reportNameFor(roster, ids, new Map(responses.map((r) => [String(r.discord_id), r.display_name])));
+    const messages = questionnaireReport({
+      title: questionnaire.title, questions: questionnaire.questions, responses, roster, nameFor,
+      closed: !createPolls.isOpen(questionnaire),
+    });
+    await interaction.editReply({ content: messages[0], allowedMentions: { parse: [] } });
+    for (const extra of messages.slice(1)) {
+      await interaction.followUp({ content: extra, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
+    }
+    return undefined;
+  } catch (err) {
+    if (!err.status) console.error('Questionnaire responses error:', err.message);
+    return interaction.editReply(err.status ? err.message : 'Something went wrong — try again.');
+  }
+}
+
+async function handleQuestionnaireForm(interaction) {
+  const id = interaction.customId.slice('qn:form:'.length);
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  if (!questionnaires) return interaction.editReply('Questionnaires are not available right now.');
+  try {
+    const questionnaire = await questionnaires.load(id);
+    const { removed } = await questionnaires.respond(id, interaction.user.id, displayNameFor(interaction.user),
+      readQuestionnaireForm(questionnaire, interaction.fields));
+    refreshQuestionnaire(id);
+    if (removed) return interaction.editReply('You left everything blank, so your response was removed.');
+    return interaction.editReply('📝 Thanks — your answers are saved. Only officers can see them.\n'
+      + '-# Click Fill in again to change them.');
+  } catch (err) {
+    if (!err.status) console.error('Questionnaire form error:', err.message);
     return interaction.editReply(err.status ? err.message : 'Something went wrong — try again.');
   }
 }
@@ -2252,6 +2494,14 @@ function startSignupSweep() {
     } catch (err) {
       console.error('Poll sweep error:', err.message);
     }
+    try {
+      for (const questionnaire of questionnaires ? await questionnaires.dueToClose() : []) {
+        await questionnaires.close(questionnaire.id);
+        await renderQuestionnaire(questionnaire.id);
+      }
+    } catch (err) {
+      console.error('Questionnaire sweep error:', err.message);
+    }
   }, SWEEP_INTERVAL_MS);
 }
 
@@ -2319,6 +2569,9 @@ module.exports = {
   postPoll,
   refreshPoll,
   deletePollMessage,
+  postQuestionnaire,
+  refreshQuestionnaire,
+  deleteQuestionnaireMessage,
 };
 
 // Exposed for backend/test/eliteButtons.test.js, loaDateChoices.test.js,
@@ -2335,6 +2588,12 @@ module.exports.__test = {
   pollEmbed,
   pollComponents,
   pollWriteInModal,
+  // questionnaires.test.js
+  questionnaireEmbed,
+  questionnaireComponents,
+  questionnaireModal,
+  readQuestionnaireForm,
+  questionnaireReport,
   loaDateChoices,
   // inHouseChannel.test.js
   signupChannelFor,

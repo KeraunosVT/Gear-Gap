@@ -340,6 +340,12 @@ select '20 · polls.write_in and poll_write_ins table',
         where table_schema = 'public' and table_name = 'poll_write_ins') = 1
 union all
 
+-- ── 21_questionnaires ───────────────────────────────────────────────────────
+select '21 · questionnaires and questionnaire_responses tables',
+       (select count(*) from information_schema.tables
+        where table_schema = 'public' and table_name in ('questionnaires', 'questionnaire_responses')) = 2
+union all
+
 -- ── 12_lock_down_anon ───────────────────────────────────────────────────────
 -- These are standing checks, not one-offs: a table or function added by a
 -- LATER migration without the same treatment turns its row false. Re-running
