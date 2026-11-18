@@ -23,9 +23,9 @@ describe('partyMakeup', () => {
     assert.equal(m.full, false);
   });
 
-  test('pips read tanks, healers, DPS, then no role', () => {
-    const roles = { a: 'DPS', b: 'Healer', c: undefined, d: 'Tank' };
-    assert.deepEqual(pb.partyMakeup(['a', 'b', 'c', 'd'], roles).pips, ['Tank', 'Healer', 'DPS', null]);
+  test('pips read tanks, DPS, healers, then no role', () => {
+    const roles = { a: 'Healer', b: 'DPS', c: undefined, d: 'Tank' };
+    assert.deepEqual(pb.partyMakeup(['a', 'b', 'c', 'd'], roles).pips, ['Tank', 'DPS', 'Healer', null]);
   });
 
   test('names the missing roles in the first free seats', () => {

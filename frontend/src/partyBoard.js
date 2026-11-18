@@ -6,13 +6,15 @@
 export const ROLES = ['Tank', 'Healer', 'DPS'];
 export const PARTY_SIZE = 6;
 
-const roleRank = (role) => {
-  const i = ROLES.indexOf(role);
-  return i === -1 ? ROLES.length : i;
+// The colour pips above a party read Tank, DPS, Healer, like the pool's boxes.
+const PIP_ORDER = ['Tank', 'DPS', 'Healer'];
+const pipRank = (role) => {
+  const i = PIP_ORDER.indexOf(role);
+  return i === -1 ? PIP_ORDER.length : i;
 };
 
 // What one party is made of.
-//   pips     one entry per member, tanks first, then healers, DPS, no role (null)
+//   pips     one entry per member, tanks first, then DPS, healers, no role (null)
 //   missing  'Tank' / 'Healer' the party has nobody for. Empty parties miss
 //            nothing: an unstarted party isn't a problem worth flagging.
 //   seats    one entry per free seat, naming the role it should go to (the
@@ -22,7 +24,7 @@ const roleRank = (role) => {
 export function partyMakeup(ids, roles, size = PARTY_SIZE) {
   const pips = ids
     .map((id) => (ROLES.includes(roles[id]) ? roles[id] : null))
-    .sort((a, b) => roleRank(a) - roleRank(b))
+    .sort((a, b) => pipRank(a) - pipRank(b))
     .slice(0, size);
   const missing = ids.length === 0 ? [] : ['Tank', 'Healer'].filter((r) => !ids.some((id) => roles[id] === r));
   const free = Math.max(0, size - ids.length);
