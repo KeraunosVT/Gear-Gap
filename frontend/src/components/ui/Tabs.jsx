@@ -9,6 +9,7 @@ export default function Tabs({ variant = 'pill', items, active, onChange }) {
         {items.map(({ key, label }) => (
           <button
             key={key}
+            type="button"
             onClick={() => onChange(key)}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${active === key ? 'bg-panel text-brassbright' : 'text-ash hover:text-bone'}`}
           >
@@ -24,6 +25,7 @@ export default function Tabs({ variant = 'pill', items, active, onChange }) {
       {items.map(({ key, label }) => (
         <button
           key={key}
+          type="button"
           onClick={() => onChange(key)}
           className={`px-3 py-1 rounded-full text-xs font-bold tracking-wide transition-all cursor-pointer ${active === key ? 'bg-brass text-ink' : 'text-ash'}`}
         >
