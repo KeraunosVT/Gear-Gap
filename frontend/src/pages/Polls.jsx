@@ -31,18 +31,21 @@ export default function Polls() {
   const { can } = useAuth();
   const [params, setParams] = useSearchParams();
   const tab = params.get('tab') === 'questionnaires' ? 'questionnaires' : 'polls';
+  // A questionnaire's responses, open: wider, for the table of answers.
+  const viewing = tab === 'questionnaires' ? params.get('view') : null;
+  const onView = (id) => setParams(id ? { tab: 'questionnaires', view: id } : { tab: 'questionnaires' });
 
   if (!can('polls')) return <RestrictedGate />;
 
   return (
-    <PageShell width="narrow">
+    <PageShell width={viewing ? 'standard' : 'narrow'}>
       <div className="flex items-center gap-3 mb-4">
         <BarChart3 className="w-6 h-6 text-brass" />
         <h1 className="font-display text-2xl tracking-wide text-bone">POLLS</h1>
       </div>
       <Tabs variant="flat" items={TABS} active={tab}
         onChange={(key) => setParams(key === 'polls' ? {} : { tab: key }, { replace: true })} />
-      {tab === 'polls' ? <PollsPanel /> : <QuestionnairesPanel />}
+      {tab === 'polls' ? <PollsPanel /> : <QuestionnairesPanel viewing={viewing} onView={onView} />}
     </PageShell>
   );
 }

@@ -1,7 +1,14 @@
 // Pieces the Polls page's two tabs share: the form field style, the channel
 // and close-time pickers, and the result bar.
 
-export const FIELD = 'w-full bg-hall border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass';
+// How a questionnaire question is answered, as the post and form say it.
+export const questionHint = (q) => {
+  if (q.type === 'text') return `typed answer${q.required ? '' : ' · optional'}`;
+  if (q.type === 'choice' && q.multi && q.all) return 'pick all';
+  return (q.multi ? 'pick any' : 'pick one') + (q.required ? '' : ' · optional');
+};
+
+export const FIELD ='w-full bg-hall border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass';
 
 const CLOSE_OPTIONS = [
   { value: '', label: 'No close time' },

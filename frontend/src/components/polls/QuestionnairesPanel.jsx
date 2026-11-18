@@ -1,11 +1,11 @@
 // The Polls page's Questionnaires tab: officers write up to five questions,
 // each picked from a list or typed, and the bot posts it with a "Fill in"
-// button that opens a Discord form. This tab shows how many picked each choice
-// and the typed answers, never who gave them — officers see that on Discord,
-// through the post's "Responses" button.
+// button that opens a Discord form. The list shows how many picked each choice
+// and the typed answers without names; each card's Responses button opens
+// QuestionnaireResponses, which shows who answered what.
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
-import { Plus, X, Loader2, Lock, Trash2, Send, RefreshCw } from 'lucide-react';
+import { Plus, X, Loader2, Lock, Trash2, Send, RefreshCw, ClipboardList } from 'lucide-react';
 import Button from '../ui/Button';
 import EmptyState from '../ui/EmptyState';
 import ErrorState from '../ui/ErrorState';
@@ -13,7 +13,8 @@ import Tabs from '../ui/Tabs';
 import Toast from '../ui/Toast';
 import { useFlash } from '../ui/useFlash';
 import { fmtDatetime } from '../../timeUtils';
-import { FIELD, PostSettings, ResultBar, AnswerList } from './PollBits';
+import { FIELD, PostSettings, ResultBar, AnswerList, questionHint as hint } from './PollBits';
+import QuestionnaireResponses from './QuestionnaireResponses';
 
 const REFRESH_MS = 60_000;
 const DEFAULT_LIMITS = { questions: 5, title: 100, intro: 500, question: 100, choices: 25, choice: 100 };
@@ -22,11 +23,6 @@ const TYPE_TABS = [{ key: 'choice', label: 'Choices' }, { key: 'text', label: 'T
 const blankQuestion = () => ({ type: 'choice', text: '', options: ['', ''], multi: false, all: false, required: true });
 // "Must pick all" counts only on a pick-several choice question.
 const mustPickAll = (q) => q.type === 'choice' && q.multi && q.all;
-const hint = (q) => {
-  if (q.type === 'text') return `typed answer${q.required ? '' : ' · optional'}`;
-  if (mustPickAll(q)) return 'pick all';
-  return (q.multi ? 'pick any' : 'pick one') + (q.required ? '' : ' · optional');
-};
 
 function QuestionEditor({ q, n, limits, onChange, onRemove }) {
   const set = (patch) => onChange({ ...q, ...patch });
@@ -100,7 +96,9 @@ function QuestionEditor({ q, n, limits, onChange, onRemove }) {
   );
 }
 
-export default function QuestionnairesPanel() {
+// `viewing`: the questionnaire whose responses are open, if any (kept in the
+// URL by the Polls page, so Back returns to the list); `onView(id|null)`.
+export default function QuestionnairesPanel({ viewing = null, onView }) {
   const [list, setList] = useState([]);
   const [channels, setChannels] = useState([]);
   const [limits, setLimits] = useState(DEFAULT_LIMITS);
@@ -177,6 +175,7 @@ export default function QuestionnairesPanel() {
 
   const channelName = (id) => channels.find((c) => c.id === id)?.name;
 
+  if (viewing) return <QuestionnaireResponses id={viewing} onBack={() => { onView(null); load(); }} />;
   if (loading) return <EmptyState>Loading questionnaires…</EmptyState>;
   if (error && list.length === 0) {
     return <ErrorState title="Questionnaires couldn't load" message={error} onRetry={() => { setLoading(true); load(); }} />;
@@ -188,7 +187,8 @@ export default function QuestionnairesPanel() {
         <p className="text-ash text-sm">
           Up to {limits.questions} questions, each picked from a list or typed. Members fill it in from a
           {' '}<span className="text-bone">📝 Fill in</span> button and can change their answers until it closes.
-          Officers see who said what with the <span className="text-bone">🔒 Responses</span> button in Discord.
+          See who said what with a questionnaire's <span className="text-bone">Responses</span> button here, or
+          {' '}<span className="text-bone">🔒 Responses</span> on its Discord post.
         </p>
         <button onClick={load} className="ml-auto text-ash hover:text-brass shrink-0" title="Refresh"><RefreshCw className="w-4 h-4" /></button>
       </div>
@@ -252,7 +252,10 @@ export default function QuestionnairesPanel() {
                     {' '}· {q.respondents} responded
                   </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                  <Button size="sm" icon={<ClipboardList className="w-4 h-4" />} onClick={() => onView(q.id)}>
+                    Responses
+                  </Button>
                   {q.open && (
                     <Button variant="secondary" size="sm" icon={<Lock className="w-4 h-4" />} disabled={busy === `close:${q.id}`} onClick={() => close(q)}>
                       Close
