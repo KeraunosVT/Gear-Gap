@@ -3,7 +3,8 @@
 // A poll made here is posted to Discord by the bot with a button per option.
 // Members see only how many votes each option has; who voted for what is
 // shown only to officers, on Discord, through the poll's "Who voted" button —
-// this page never loads voters, only counts.
+// this page never loads voters, only counts. Written-in answers are listed
+// without who wrote them.
 import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import { BarChart3, Plus, X, Loader2, Lock, Trash2, Send, RefreshCw } from 'lucide-react';
@@ -44,6 +45,7 @@ export default function Polls() {
   const [options, setOptions] = useState(['', '']);
   const [channelId, setChannelId] = useState('');
   const [multi, setMulti] = useState(false);
+  const [writeIn, setWriteIn] = useState(false);
   const [closesIn, setClosesIn] = useState('24');
 
   const load = useCallback(() => axios.get('/api/admin/polls')
@@ -75,10 +77,10 @@ export default function Polls() {
     setBusy('post');
     try {
       await axios.post('/api/admin/polls', {
-        question: question.trim(), options: filled, multi, channel_id: channelId, closes_in_hours: closesIn || null,
+        question: question.trim(), options: filled, multi, write_in: writeIn, channel_id: channelId, closes_in_hours: closesIn || null,
       });
       flash('Poll posted.');
-      setQuestion(''); setOptions(['', '']); setMulti(false);
+      setQuestion(''); setOptions(['', '']); setMulti(false); setWriteIn(false);
       load();
     } catch (err) {
       flash(err.response?.data?.error || 'Could not post the poll.', false);
@@ -198,6 +200,19 @@ export default function Polls() {
         </label>
 
         <div>
+          <label className="inline-flex items-center gap-2 text-sm text-bone cursor-pointer">
+            <input type="checkbox" checked={writeIn} onChange={(e) => setWriteIn(e.target.checked)} className="accent-[rgb(var(--color-brass))]" />
+            Let members write in their own answer
+          </label>
+          {writeIn && (
+            <p className="text-xs text-ash mt-1 ml-6">
+              Adds a ✏️ Write my own button.{' '}
+              {multi ? 'A written answer counts alongside any options they pick.' : 'A written answer is their one vote, in place of an option.'}
+            </p>
+          )}
+        </div>
+
+        <div>
           <Button type="submit" size="sm" disabled={!canPost} icon={busy === 'post' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}>
             Post poll
           </Button>
@@ -223,6 +238,7 @@ export default function Polls() {
                     {p.open && p.closes_at && <> · closes {fmtDatetime(p.closes_at)}</>}
                     {channelName(p.channel_id) && <> · #{channelName(p.channel_id)}</>}
                     {p.multi && <> · multiple choice</>}
+                    {p.write_in && <> · write-ins</>}
                     {' '}· {p.voter_count} voted
                   </div>
                 </div>
@@ -253,6 +269,31 @@ export default function Polls() {
                     </div>
                   );
                 })}
+                {p.write_in && (() => {
+                  const n = p.write_in_count || 0;
+                  const pct = p.voter_count ? Math.round((n / p.voter_count) * 100) : 0;
+                  return (
+                    <div className="text-sm">
+                      <div className="flex items-baseline justify-between gap-3">
+                        <span className="text-bone truncate">✏️ Written in</span>
+                        <span className="font-mono text-xs text-ash shrink-0">{n} · {pct}%</span>
+                      </div>
+                      <div className="h-1.5 rounded-full bg-hall overflow-hidden mt-1">
+                        <div className="h-full rounded-full bg-brass/60" style={{ width: `${pct}%` }} />
+                      </div>
+                      {p.write_ins?.length > 0 && (
+                        <ul className="mt-1.5 space-y-0.5 pl-3 border-l border-line">
+                          {p.write_ins.map((w) => (
+                            <li key={w.answer} className="text-xs text-ash flex justify-between gap-3">
+                              <span className="text-bone break-words min-w-0">“{w.answer}”</span>
+                              {w.count > 1 && <span className="font-mono shrink-0">×{w.count}</span>}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           ))}
