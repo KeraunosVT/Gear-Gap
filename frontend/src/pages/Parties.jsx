@@ -43,6 +43,15 @@ const BOARD_PARTY_IDS = PARTY_IDS.filter((id) => id !== FILL_PARTY_ID);
 // box per role, but the boxes are views onto that one list, so changing a role
 // or the PvP/PvE mode moves nobody, and dropping on any box returns someone to
 // the pool (where they show under their own role).
+// Every class a member picked, PvP and PvE alike, without repeats. The board's
+// current mode's come first, so its main class stays the default.
+const memberClasses = (member, mode) => {
+  const [first, second] = mode === 'pve'
+    ? [member.pve_classes, member.pvp_classes]
+    : [member.pvp_classes, member.pve_classes];
+  return [...new Set([...(first || []), ...(second || [])].filter(Boolean))];
+};
+
 const initItems = () => ({
   pool: [],
   absent: [],
@@ -221,8 +230,7 @@ function renderRosterImage(partyIds, items, partyNames, roles, byId, classMode, 
       const role = roles[memberId] || '';
       const my = y + headerH + mi * rowH;
 
-      const classes = ((classMode === 'pve' ? member.pve_classes : member.pvp_classes) || []).filter(Boolean);
-      const cls = classAssignments?.[classMode]?.[memberId] || classes[0] || '';
+      const cls = classAssignments?.[classMode]?.[memberId] || memberClasses(member, classMode)[0] || '';
 
       // Role color bar
       if (ROLE_COLOR[role]) {
@@ -1550,7 +1558,7 @@ const keepClick = {
 
 const MemberCardBase = forwardRef(function MemberCardBase({ member, role, onRole, overlay, style, handle, isDragging, loa, signup, classMode, assignedClass, onClassChange, selected, onSelect, onReturn }, ref) {
   const rs = ROLE_STYLE[role];
-  const classes = ((classMode === 'pve' ? member.pve_classes : member.pvp_classes) || []).filter(Boolean);
+  const classes = memberClasses(member, classMode);
   const current = assignedClass || classes[0];
   // A definite absence is dimmed and reddened; a partial one stays at full
   // strength in amber, because the member may well still be usable — the
