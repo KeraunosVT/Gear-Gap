@@ -21,6 +21,8 @@ import Tabs from '../components/ui/Tabs';
 import { PageShell } from '../components/ui/PageShell';
 import EmptyState from '../components/ui/EmptyState';
 import { BUILD_TEXT, BUILD_BORDER, BUILD_CHIP_ON } from '../buildColors';
+import { BUILD_CLASSES } from '../buildStats';
+import { ClassTag } from '../components/shards/MemberBits';
 import ErrorBanner from '../components/ui/ErrorBanner';
 
 // A member's wishlist is a list of weapons, each carrying how many of its shard
@@ -203,6 +205,10 @@ export default function Shards() {
     ...s,
     weapons: s.weapons.map((w) => (keyOf(w) !== key ? w : { ...w, priority })),
   }), true);
+  const setClass = (id, key, cls) => change(id, (s) => ({
+    ...s,
+    weapons: s.weapons.map((w) => (keyOf(w) !== key ? w : { ...w, class: cls })),
+  }), true);
   const unlink = (id, key) => change(id, (s) => ({ ...s, weapons: s.weapons.filter((w) => keyOf(w) !== key) }), true);
   const clearUnlinked = (m) => {
     if (!window.confirm(`Clear ${unlinkedTotal(m.shards)} shards not linked to a weapon for ${m.name}? Link the weapons they were for first, or that demand is lost.`)) return;
@@ -219,7 +225,9 @@ export default function Shards() {
         weapons: [...picks].map(([key, build]) => {
           const [boss, weapon] = key.split('|');
           const prev = had.get(key);
-          return { boss, weapon, build, need: prev ? prev.need : costFor(boss), priority: prev ? prev.priority : '' };
+          return {
+            boss, weapon, build, class: prev?.class || '', need: prev ? prev.need : costFor(boss), priority: prev ? prev.priority : '',
+          };
         }),
       };
     }, true);
@@ -328,6 +336,7 @@ export default function Shards() {
               status={status[m.id]}
               onToggle={() => toggleOpen(m.id)}
               onNeed={(key, raw) => setNeed(m.id, key, raw)}
+              onClass={(key, cls) => setClass(m.id, key, cls)}
               onBlur={() => saveIfDirty(m)}
               onUnlink={(key) => unlink(m.id, key)}
               onClearUnlinked={() => clearUnlinked(m)}
@@ -348,7 +357,7 @@ export default function Shards() {
   );
 }
 
-function MemberCard({ m, mine, editable, canPrioritize, onPriority, isOpen, status, onToggle, onNeed, onBlur, onUnlink, onClearUnlinked, onPick }) {
+function MemberCard({ m, mine, editable, canPrioritize, onPriority, isOpen, status, onToggle, onNeed, onClass, onBlur, onUnlink, onClearUnlinked, onPick }) {
   const s = m.shards;
   const unlinked = unlinkedTotal(s);
   const unset = unsetCount(s);
@@ -393,12 +402,13 @@ function MemberCard({ m, mine, editable, canPrioritize, onPriority, isOpen, stat
             <p className="px-5 py-5 text-sm text-ash">No weapons linked yet.</p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[820px] text-sm">
+              <table className="w-full min-w-[960px] text-sm">
                 <thead>
                   <tr className="eyebrow text-[10px] text-ash text-left">
                     <th className="px-5 py-2.5 font-normal">Weapon</th>
                     <th className="px-3 py-2.5 font-normal">Source</th>
                     <th className="px-3 py-2.5 font-normal">Build</th>
+                    <th className="px-3 py-2.5 font-normal">Class</th>
                     {canPrioritize && <th className="px-3 py-2.5 font-normal">Priority</th>}
                     <th className="px-3 py-2.5 font-normal">Shard</th>
                     <th className="px-3 py-2.5 font-normal">Still needed</th>
@@ -415,6 +425,20 @@ function MemberCard({ m, mine, editable, canPrioritize, onPriority, isOpen, stat
                         <td className="px-5 py-2.5 text-bone">{w.weapon}</td>
                         <td className="px-3 py-2.5"><SourceLabel source={w.boss} /></td>
                         <td className="px-3 py-2.5"><BuildPill build={w.build} /></td>
+                        <td className="px-3 py-2.5">
+                          {editable ? (
+                            <select
+                              value={w.class || ''} onChange={(e) => onClass(key, e.target.value)}
+                              aria-label={`Class for ${w.weapon}`}
+                              className={`bg-hall border border-line rounded px-2 py-1.5 text-xs focus:outline-none focus:border-brass max-w-[170px] ${w.class ? 'text-bone' : 'text-ash'}`}
+                            >
+                              <option value="">Choose class…</option>
+                              {BUILD_CLASSES.map((c) => <option key={c} value={c}>{c}</option>)}
+                            </select>
+                          ) : (
+                            w.class ? <span className="text-bone text-xs">{w.class}</span> : <span className="text-ash/40 text-xs">—</span>
+                          )}
+                        </td>
                         {canPrioritize && (
                           <td className="px-3 py-2.5">
                             <PriorityControl priority={w.priority || ''} label={w.weapon} onChange={(p) => onPriority(key, p)} />
@@ -457,7 +481,7 @@ function MemberCard({ m, mine, editable, canPrioritize, onPriority, isOpen, stat
                   {unlinked > 0 && (
                     <tr className="border-t border-dashed border-amber-400/30 bg-amber-400/5">
                       <td className="px-5 py-2.5 text-amber-400">Not linked to a weapon</td>
-                      <td className="px-3 py-2.5 text-xs text-ash" colSpan={canPrioritize ? 3 : 2}>From before weapons carried shards</td>
+                      <td className="px-3 py-2.5 text-xs text-ash" colSpan={canPrioritize ? 4 : 3}>From before weapons carried shards</td>
                       <td className="px-3 py-2.5" colSpan={3}>
                         <div className="flex flex-wrap gap-1.5">
                           {Object.entries(s.unlinked).map(([k, n]) => (
@@ -504,6 +528,7 @@ function Wanter({ x, weaponKey, cost, canPrioritize, onPriority }) {
         : <span className="w-5 h-5 rounded-full bg-panelup border border-line flex items-center justify-center text-[9px] text-brass">{(x.name || '?')[0].toUpperCase()}</span>}
       <span className="text-bone min-w-[90px]">{x.name}</span>
       <BuildPill build={x.build} />
+      <ClassTag cls={x.class} />
       {canPrioritize && (
         <PriorityControl
           priority={x.priority} label={`${x.name}'s ${weapon}`}
@@ -678,7 +703,7 @@ function ByWeapon({ members, canPrioritize, onPriority, ranking, onToggleRank, o
     members.forEach((m) => m.shards.weapons.forEach((w) => {
       if (w.boss !== src.key) return;
       if (!byWeapon.has(w.weapon)) byWeapon.set(w.weapon, []);
-      byWeapon.get(w.weapon).push({ id: m.id, name: m.name, avatar: m.avatar, build: w.build, need: w.need, priority: w.priority || '', updated: w.updated });
+      byWeapon.get(w.weapon).push({ id: m.id, name: m.name, avatar: m.avatar, build: w.build, class: w.class || '', need: w.need, priority: w.priority || '', updated: w.updated });
     }));
     const cost = costFor(src.key);
     const weapons = [...byWeapon.entries()]
@@ -761,7 +786,7 @@ function ByWeapon({ members, canPrioritize, onPriority, ranking, onToggleRank, o
                     <tr className="eyebrow text-[10px] text-ash text-left">
                       <th className="px-5 py-2.5 font-normal">Weapon</th>
                       <th className="px-3 py-2.5 font-normal text-right">Wants</th>
-                      <th className="px-3 py-2.5 font-normal">Members · build{canPrioritize ? ' · priority' : ''} · still needed · last updated</th>
+                      <th className="px-3 py-2.5 font-normal">Members · build · class{canPrioritize ? ' · priority' : ''} · still needed · last updated</th>
                       <th className="px-5 py-2.5 font-normal text-right">Still needed / total cost</th>
                     </tr>
                   </thead>

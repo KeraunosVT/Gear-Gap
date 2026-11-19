@@ -3,7 +3,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import { ChevronDown, ChevronUp, GripVertical, Plus } from 'lucide-react';
 import { SHARD_LABEL } from '../../shardRules';
-import { Avatar, AttendanceChip, BuildPill, ConfirmToggle, LootHover, agoText, daysAgo } from './MemberBits';
+import { Avatar, AttendanceChip, BuildPill, ClassTag, ConfirmToggle, LootHover, agoText, daysAgo } from './MemberBits';
 
 // The left side of the Priority tab: every request not yet ranked. By weapon,
 // it reads like the By Weapon tab — a section per boss, a row per weapon —
@@ -49,6 +49,7 @@ export function MemberLine({ r, bits, showWeapon = false, card = false }) {
         <div className="flex flex-wrap items-center gap-1.5">
           <LootHover name={r.name} loot={bits.lootFor(r.discordId)} days={bits.lootDays} />
           {card && <BuildPill build={r.build} />}
+          <ClassTag cls={r.class} />
           <AttendanceChip att={bits.attendanceFor(r.discordId)} days={bits.attendanceDays} />
         </div>
         {showWeapon && (

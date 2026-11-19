@@ -3,7 +3,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-
 import { CSS } from '@dnd-kit/utilities';
 import { ChevronDown, ChevronUp, GripVertical, ListOrdered, X } from 'lucide-react';
 import { SHARD_LABEL, SHARD_TYPES } from '../../shardRules';
-import { AttendanceChip, BuildPill, ConfirmToggle, LootHover, agoText, daysAgo } from './MemberBits';
+import { AttendanceChip, BuildPill, ClassTag, ConfirmToggle, LootHover, agoText, daysAgo } from './MemberBits';
 
 // The right side of the Priority tab: one list across every shard and both
 // builds, first gets the next shard. Rows are `pri:<key>` sortables; the
@@ -35,6 +35,7 @@ function Row({ r, index, count, bits, hint, onMove, onRemove }) {
         <div className="flex flex-wrap items-center gap-1.5">
           <LootHover name={r.name} loot={bits.lootFor(r.discordId)} days={bits.lootDays} />
           <BuildPill build={r.build} />
+          <ClassTag cls={r.class} />
           <AttendanceChip att={bits.attendanceFor(r.discordId)} days={bits.attendanceDays} />
           {first && <span className="eyebrow text-[10px] text-brassbright">Next in line</span>}
         </div>

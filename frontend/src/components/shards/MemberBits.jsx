@@ -32,6 +32,12 @@ export function BuildPill({ build }) {
   );
 }
 
+// The class a member will play the weapon in; nothing when they haven't said.
+export function ClassTag({ cls }) {
+  if (!cls) return null;
+  return <span className="text-[11px] text-bone/80 rounded px-1.5 py-px bg-hall whitespace-nowrap">{cls}</span>;
+}
+
 // Attendance over the page's window. Missing data (the read failed) shows
 // nothing rather than a misleading 0%.
 export function AttendanceChip({ att, days }) {

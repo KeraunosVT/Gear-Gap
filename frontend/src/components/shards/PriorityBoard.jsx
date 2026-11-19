@@ -123,7 +123,7 @@ export default function PriorityBoard({ members, onRefreshMembers }) {
       const key = `${m.id}|${w.boss}|${w.weapon}`;
       out.set(key, {
         key, discordId: String(m.id), name: m.name, avatar: m.avatar, boss: w.boss, weapon: w.weapon,
-        build: w.build, need: w.need, cost: costFor(w.boss), shard: shardFor(w.boss, w.weapon), updated: w.updated,
+        build: w.build, class: w.class || '', need: w.need, cost: costFor(w.boss), shard: shardFor(w.boss, w.weapon), updated: w.updated,
       });
     }));
     return { requests: out, untagged: none };

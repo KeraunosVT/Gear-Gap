@@ -118,7 +118,7 @@ export default function GrantForm({ members, busy, onGive }) {
           className="bg-hall border border-line rounded-lg px-3 py-2 text-sm text-bone focus:outline-none focus:border-brass max-w-[260px]">
           {towardOptions.map((w) => (
             <option key={`${w.boss}|${w.weapon}`} value={`${w.boss}|${w.weapon}`}>
-              Toward {w.weapon}{w.build ? ` (${w.build})` : ''} — needs {w.need}
+              Toward {w.weapon}{w.build || w.class ? ` (${[w.build, w.class].filter(Boolean).join(', ')})` : ''} — needs {w.need}
             </option>
           ))}
         </select>
