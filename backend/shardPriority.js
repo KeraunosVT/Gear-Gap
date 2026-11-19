@@ -69,7 +69,7 @@ function liveRequests(wishlists) {
     (shards?.weapons || []).forEach((w) => {
       if (!BUILDS.includes(w.build)) return;
       out.set(keyOf(discordId, w.boss, w.weapon), {
-        discordId: String(discordId), boss: w.boss, weapon: w.weapon, build: w.build, need: w.need,
+        discordId: String(discordId), boss: w.boss, weapon: w.weapon, build: w.build, class: w.class || '', need: w.need,
         shard: shardFor(w.boss, w.weapon), cost: costFor(w.boss),
       });
     });
@@ -103,7 +103,8 @@ function buildPost({ list, live, nameFor, confirmations, mention = false }) {
     const who = mention ? `<@${r.discordId}>` : escapeMd(nameFor(r.discordId));
     const need = r.need === null || r.need === undefined ? '?' : r.need;
     const ok = isConfirmed(confirmations.get(k), r.need);
-    return `${i + 1}. ${who} (${r.build}) · ${SHARD_LABEL.get(r.shard) || r.shard} · ${escapeMd(r.weapon)} · needs ${need}/${r.cost}${ok ? ' ✓' : ' · not confirmed'}`;
+    const tag = r.class ? `${r.build}, ${escapeMd(r.class)}` : r.build;
+    return `${i + 1}. ${who} (${tag}) · ${SHARD_LABEL.get(r.shard) || r.shard} · ${escapeMd(r.weapon)} · needs ${need}/${r.cost}${ok ? ' ✓' : ' · not confirmed'}`;
   });
   const header = '**Shard priority** · first on the list gets the next shard';
 

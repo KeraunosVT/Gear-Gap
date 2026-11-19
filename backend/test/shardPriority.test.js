@@ -96,6 +96,12 @@ describe('the Discord post', () => {
     assert.deepEqual(messages[0].allowed_mentions, { parse: [] }, 'nobody is pinged without mention');
   });
 
+  test('a request with a class carries it beside the build', () => {
+    const withClass = liveRequests([{ discordId: A, shards: wish([{ ...W('Tevent', 'Inferno Fangs', 'PvP', 62), class: 'Ravager' }]) }]);
+    const { lines } = buildPost({ list: [kA], live: withClass, nameFor, confirmations: new Map() });
+    assert.equal(lines[1], '1. Sel\\_ka (PvP, Ravager) · Tevent Ashen · Inferno Fangs · needs 62/90 · not confirmed');
+  });
+
   test('mention pings exactly the members listed', () => {
     const { messages } = buildPost({ list: [kA], live, nameFor, confirmations: new Map(), mention: true });
     assert.match(messages[0].content, new RegExp(`<@${A}>`));

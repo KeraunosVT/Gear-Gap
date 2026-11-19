@@ -79,7 +79,7 @@ module.exports = function registerLootCurrency(router, ctx) {
     const list = shardWishlist.read(data?.shards);
     res.json({
       weapons: list.weapons.map((w) => ({
-        boss: w.boss, weapon: w.weapon, build: w.build, need: w.need, shard: shardWishlist.shardFor(w.boss, w.weapon),
+        boss: w.boss, weapon: w.weapon, build: w.build, class: w.class, need: w.need, shard: shardWishlist.shardFor(w.boss, w.weapon),
       })),
       unlinked: list.unlinked,
     });

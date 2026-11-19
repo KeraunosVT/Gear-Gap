@@ -48,6 +48,15 @@ describe('normalize', () => {
     ] });
     assert.deepEqual(s.weapons.map((w) => w.priority), ['high', 'low', '']);
   });
+
+  test('class is one of the Builds page\'s classes — anything else is blank', () => {
+    const s = normalize({ weapons: [
+      W('Tevent', 'Inferno Fangs', { class: 'Ravager' }),
+      W('Heroic', 'Heroic Orb', { class: 'Not A Class' }),
+      W('Heroic', 'Heroic Staff'),
+    ] });
+    assert.deepEqual(s.weapons.map((w) => w.class), ['Ravager', '', '']);
+  });
 });
 
 describe('stampChanges', () => {

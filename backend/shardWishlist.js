@@ -5,7 +5,10 @@
 // they still need (0 up to the weapon's cost). Per-shard totals are never
 // stored: they are the sum over the weapons, plus `unlinked`.
 //
-//   { v: 2, weapons: [{ boss, weapon, build, need, priority, updated }], unlinked: { <shard key>: n } }
+//   { v: 2, weapons: [{ boss, weapon, build, class, need, priority, updated }], unlinked: { <shard key>: n } }
+//
+// `class` is the class the member will play the weapon in, '' when not said —
+// one of the Builds page's classes (shared/weaponClasses.json + extraClasses.json).
 //
 // `updated` is when that weapon's need last changed (ISO string), or null for
 // weapons that haven't changed since before it was tracked. The server sets
@@ -31,8 +34,11 @@
 const SHARDS = require('../shared/shards.json');
 const BOSS_WEAPONS = require('../shared/archbossWeapons.json');
 const SHARD_WEAPONS = require('../shared/shardWeapons.json');
+const WEAPON_CLASSES = require('../shared/weaponClasses.json');
+const EXTRA_CLASSES = require('../shared/extraClasses.json');
 
 const BUILDS = ['PvP', 'PvE'];
+const CLASSES = new Set([...Object.values(WEAPON_CLASSES), ...EXTRA_CLASSES]);
 const PRIORITIES = ['high', 'low'];
 const TYPE_KEYS = SHARDS.types.map((t) => t.key);
 const SOURCES = new Map(SHARD_WEAPONS.sources.map((s) => [s.key, s]));
@@ -84,6 +90,7 @@ function normalize(raw) {
         boss: w.boss,
         weapon: w.weapon,
         build: BUILDS.includes(w.build) ? w.build : '',
+        class: CLASSES.has(w.class) ? w.class : '',
         need: n === null ? null : Math.max(0, Math.min(costFor(w.boss), n)),
         priority: PRIORITIES.includes(w.priority) ? w.priority : '',
         updated: typeof w.updated === 'string' && !Number.isNaN(Date.parse(w.updated)) ? w.updated : null,
