@@ -37,7 +37,7 @@ const BASE_COLUMNS = [
 // Columns from migrations newer than the code may be deployed against. If one
 // is missing the whole select fails, and a failed config read means DEFAULTS —
 // nobody an officer — so fetchRow retries without these rather than fail.
-const OPTIONAL_COLUMNS = ['in_house_channel_id']; // migration 18
+const OPTIONAL_COLUMNS = ['in_house_channel_id', 'raid_channel_id']; // migrations 18, 23
 const COLUMNS = [...BASE_COLUMNS, ...OPTIONAL_COLUMNS].join(', ');
 
 // What get() returns before the first load completes, or if the table is
@@ -70,6 +70,8 @@ const DEFAULTS = Object.freeze({
   scouting_channel_id: null,
   // Null means In-House signups post with every other signup (migration 18).
   in_house_channel_id: null,
+  // Null means raid runs post with every other signup (migration 23).
+  raid_channel_id: null,
   attendance_voice_channel_id: null,
   // Null means nobody is DMed about LOA cancellations, which is what every
   // deployment did before migration 018.
@@ -198,6 +200,10 @@ const scoutingChannelId = () => get().scouting_channel_id || null;
 // wherever every other signup goes (discordGateway's signupChannelFor).
 const inHouseChannelId = () => get().in_house_channel_id || null;
 
+// Where a raid run's signup post goes: its own channel if set, else wherever
+// every other signup goes (discordGateway's signupChannelFor).
+const raidChannelId = () => get().raid_channel_id || null;
+
 // The alias -> canonical-tag map server.js collapses `guild_name` through.
 // Built fresh on each call from the live config; the old module-scope version
 // of this map is precisely why a rename used to need a redeploy.
@@ -244,6 +250,7 @@ module.exports = {
   calendarChannelId,
   scoutingChannelId,
   inHouseChannelId,
+  raidChannelId,
   aliasMap,
   canonicalGuild,
   publicIdentity,

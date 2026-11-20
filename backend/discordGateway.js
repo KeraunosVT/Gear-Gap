@@ -2364,6 +2364,9 @@ async function signupChannel(channelId) {
 // own (Guild Settings), so they stay out of the War Games schedule; everything
 // else, and In-House with no channel set, goes to the signup channel.
 function signupChannelFor(event) {
+  // Raid runs (Guild Settings → Raid signups), so they stay out of the War
+  // signup channel. Checked first: a raid is a raid whatever its name says.
+  if (event?.raid_key) return guildConfig.raidChannelId() || signupChannelId();
   if (createEventSignups.eventTypeOf(event) === 'in_house' && guildConfig.inHouseChannelId()) {
     return guildConfig.inHouseChannelId();
   }
