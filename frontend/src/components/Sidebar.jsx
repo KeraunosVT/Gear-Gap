@@ -31,10 +31,12 @@ export const memberLinks = [
   // give), with I'm in and a one-night LOA on each, and your own attendance on
   // the nights already run. /attendance redirects here.
   { to: '/attendance/calendar', label: 'Events', tabLabel: 'Event Calendar', icon: CalendarRange, tabs: true,
-    match: ['/attendance', '/signups', '/loa', '/admin/attendance'], children: [
+    match: ['/attendance', '/signups', '/raids', '/loa', '/admin/attendance'], children: [
       // Member-facing, so no `perm`: officer controls on these pages gate
       // themselves inline on 'attendance'.
       { to: '/signups', label: 'Signups' },
+      // Any member can post a raid run, so this is member-facing too.
+      { to: '/raids', label: 'Raids' },
       { to: '/loa', label: 'LOA' },
       // The officer log. Only officers with 'attendance' get this tab.
       { to: '/admin/attendance', label: 'Attendance', perm: 'attendance' },

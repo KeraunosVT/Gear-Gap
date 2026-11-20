@@ -31,6 +31,7 @@ import Polls from './pages/Polls';
 import PlayerProfile from './pages/PlayerProfile';
 import LOA from './pages/LOA';
 import Signups from './pages/Signups';
+import Raids from './pages/Raids';
 import EventAttendance from './pages/EventAttendance';
 import EventCalendar from './pages/EventCalendar';
 import Classes from './pages/Classes';
@@ -103,6 +104,7 @@ function Gate() {
           <Route path="/loot" element={<Loot />} />
           <Route path="/loa" element={<LOA />} />
           <Route path="/signups" element={<Signups />} />
+          <Route path="/raids" element={<Raids />} />
           {/* The old My Attendance page. The Event Calendar shows your
               attendance on its past nights now; this keeps bookmarks and any
               link still pointing here working. */}
