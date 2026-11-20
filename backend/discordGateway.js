@@ -2205,13 +2205,10 @@ function raidButtons(id, closed) {
     new ActionRowBuilder().addComponents(
       ...RAID_ROLES.map(role),
       new ButtonBuilder().setCustomId(`rd:bench:${id}`).setLabel('Bench').setEmoji(BENCH_EMOJI).setStyle(ButtonStyle.Primary),
-      // Withdraw, Who's coming? and LOA are the War signup buttons: the
-      // handlers already branch on raid_key.
+      // The War signup's Withdraw: its handler already branches on raid_key.
+      // No Who's coming? or LOA — the post lists everyone, and a run is a
+      // member's call for a group, not a guild night to file absence for.
       new ButtonBuilder().setCustomId(`sg:leave:${id}`).setLabel('Withdraw').setStyle(ButtonStyle.Secondary),
-    ),
-    new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`sg:who:${id}`).setLabel("Who's coming?").setStyle(ButtonStyle.Secondary),
-      new ButtonBuilder().setCustomId(`sg:loa:${id}`).setLabel('LOA').setStyle(ButtonStyle.Danger),
     ),
   ];
 }
@@ -2278,18 +2275,6 @@ async function handleRaidButton(interaction) {
   }
 }
 
-// "Who's coming?" for a raid run, untruncated: the roster by role, then the bench.
-function raidWhoText({ event, going, bench = [] }) {
-  const caps = event.role_caps || {};
-  const roster = RAID_ROLES.map((r) => {
-    const names = going.filter((e) => e.role === r).map((e) => e.display_name);
-    return `**${ROLE_EMOJI[r]} ${ROLE_PLURAL[r]} (${names.length}/${caps[r] || 0})**\n${names.join('\n') || '—'}`;
-  }).join('\n\n');
-  const benched = bench.length
-    ? `\n\n**${BENCH_EMOJI} Bench (${bench.length})**\n${bench.map((e) => `${ROLE_EMOJI[e.role] || '•'} ${e.display_name}${e.bench_kind === 'opt_in' ? ' (opt-in)' : ''}`).join('\n')}`
-    : '';
-  return `**${event.title}**\n${raidPlanLines(event).join('\n')}\n\n${roster}${benched}`.slice(0, 1900);
-}
 
 // The LOA button's pop-up: just the reason, since the post already says which
 // event and night it's for. Discord caps a modal title at 45 characters.
@@ -2481,9 +2466,7 @@ async function handleSignupButton(interaction) {
 
   try {
     if (action === 'who') {
-      const detail = await signups.detail(id);
-      if (detail.event.raid_key) return interaction.editReply(raidWhoText(detail));
-      const { event, going, waitlist } = detail;
+      const { event, going, waitlist } = await signups.detail(id);
       // Grouped the same way the post is, so this reads as the untruncated
       // version of what they just looked at rather than a different view.
       const grouped = { Tank: [], DPS: [], Healer: [], Unassigned: [] };
@@ -2773,7 +2756,6 @@ module.exports.__test = {
   raidEmbed,
   raidButtons,
   raidJoinReply,
-  raidWhoText,
   signupMessage,
   setEliteTimers: (t) => { eliteTimers = t; },
   eliteBoard,

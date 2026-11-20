@@ -14,7 +14,7 @@ const assert = require('node:assert/strict');
 const createEventSignups = require('../eventSignups');
 const { raidOf, raidSegments, gatesText, hardestMode, RAIDS } = createEventSignups;
 const gateway = require('../discordGateway');
-const { raidEmbed, raidButtons, raidJoinReply, raidWhoText, signupMessage } = gateway.__test;
+const { raidEmbed, raidButtons, raidJoinReply, signupMessage } = gateway.__test;
 
 const ALTAR = raidOf('altar_of_calanthia');
 const DAY = 86_400_000;
@@ -284,11 +284,10 @@ describe('the Discord post', () => {
     assert.deepEqual(cancelled.components, []);
   });
 
-  test('buttons: a role each, Bench, Withdraw, then Who\'s coming? and LOA', () => {
+  test('buttons: a role each, Bench and Withdraw, and no Who\'s coming? or LOA', () => {
     const ids = raidButtons('run-1', false).map((row) => row.toJSON().components.map((c) => c.custom_id));
     assert.deepEqual(ids, [
       ['rd:join:run-1:Tank', 'rd:join:run-1:DPS', 'rd:join:run-1:Healer', 'rd:bench:run-1', 'sg:leave:run-1'],
-      ['sg:who:run-1', 'sg:loa:run-1'],
     ]);
     assert.deepEqual(raidButtons('run-1', true), []);
   });
@@ -306,11 +305,5 @@ describe('the Discord post', () => {
     assert.match(raidJoinReply({ wasNew: false, status: 'going', role: 'DPS' }), /already in/);
     assert.match(raidJoinReply({ wasNew: true, status: 'going', role: 'DPS', promoted: { display_name: 'Orrin', role: 'Tank' } }),
       /Orrin\*\* moved up from the bench into your old Tank slot/);
-  });
-
-  test('Who\'s coming? lists every name, the bench included', () => {
-    const text = raidWhoText({ event: run(), going, bench });
-    assert.match(text, /🛡️ Tanks \(1\/2\)\*\*\nBrannoc/);
-    assert.match(text, /🪑 Bench \(2\)\*\*\n🛡️ Orrin\n⚔️ Pike \(opt-in\)/);
   });
 });
