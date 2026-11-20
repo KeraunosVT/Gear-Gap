@@ -17,9 +17,9 @@ module.exports = [
 
   js.configs.recommended,
 
-  // ── Backend and the raid bot: CommonJS on Node ───────────────────────────
+  // ── Backend: CommonJS on Node ─────────────────────────────────────────────
   {
-    files: ['backend/**/*.js', 'raid-bot/**/*.js', 'eslint.config.js'],
+    files: ['backend/**/*.js', 'eslint.config.js'],
     languageOptions: {
       ecmaVersion: 2023,
       sourceType: 'commonjs',
