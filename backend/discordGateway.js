@@ -420,6 +420,7 @@ async function handleInteraction(interaction) {
     if (interaction.customId.startsWith('et:')) return handleEliteButton(interaction);
     if (interaction.customId.startsWith('pl:')) return handlePollButton(interaction);
     if (interaction.customId.startsWith('qn:')) return handleQuestionnaireButton(interaction);
+    if (interaction.customId.startsWith('rd:')) return handleRaidButton(interaction);
     return handleSignupButton(interaction);
   }
   // Modals: the signup post's LOA reason box, a poll's write-in box, and a
@@ -2121,6 +2122,175 @@ function signupButtons(id, closed) {
   )];
 }
 
+// ── Raid runs ────────────────────────────────────────────────────────────────
+// A signup with raid_key set (migration 22): fixed slots per role, picked at
+// signup, and a bench. The post and its buttons are their own, but announcing,
+// re-rendering, LOA, reminders and closing at the start are the War signup
+// machinery above and below, which branches on raid_key where it must.
+const RAID_ROLES = createEventSignups.RAID_ROLES;
+const ROLE_PLURAL = { Tank: 'Tanks', DPS: 'DPS', Healer: 'Healers' };
+const BENCH_EMOJI = '🪑';
+const hexColor = (hex) => parseInt(String(hex || '').replace('#', ''), 16) || 0x4e5058;
+
+// "🟢 **Normal** · Gates 1–3", one line per mode in the run.
+function raidPlanLines(event) {
+  const raid = createEventSignups.raidOf(event.raid_key);
+  return (event.raid_segments || []).map((seg) => {
+    const mode = raid?.modes.find((m) => m.key === seg.mode);
+    return `${mode?.emoji || '•'} **${mode?.label || seg.mode}** · ${createEventSignups.gatesText(seg.gates || [])}`;
+  });
+}
+
+function raidEmbed({ event, going, bench = [] }) {
+  const raid = createEventSignups.raidOf(event.raid_key);
+  const caps = event.role_caps || raid?.roles || {};
+  const unix = signupUnix(event);
+  const closed = event.status !== 'open';
+  const cancelled = event.status === 'cancelled';
+  const hardest = createEventSignups.hardestMode(event);
+
+  const byRole = { Tank: [], DPS: [], Healer: [] };
+  going.forEach((e) => byRole[e.role]?.push(e));
+  const seats = RAID_ROLES.reduce((n, r) => n + (caps[r] || 0), 0);
+  const filled = RAID_ROLES.reduce((n, r) => n + byRole[r].length, 0);
+
+  // One inline column per role, with its empty slots drawn in: a missing
+  // healer is what people scan the post for.
+  const fields = RAID_ROLES.map((role) => {
+    const cap = caps[role] || 0;
+    const open = Math.max(0, cap - byRole[role].length);
+    const names = byRole[role].length ? nameLines(byRole[role], false).split('\n') : [];
+    const lines = [...names, ...Array.from({ length: open }, () => '◻ *open*')];
+    return {
+      name: `${ROLE_EMOJI[role]} ${ROLE_PLURAL[role]} (${byRole[role].length}/${cap})`,
+      value: lines.join('\n') || '—',
+      inline: true,
+    };
+  });
+  if (bench.length) {
+    // Signup order, which within a role is the order people move up in.
+    const parts = [];
+    let used = 0;
+    for (const e of bench) {
+      const part = `${ROLE_EMOJI[e.role] || '•'} ${e.display_name}${e.bench_kind === 'opt_in' ? ' *(opt-in)*' : ''}`;
+      if (used + part.length + 3 > FIELD_CHAR_BUDGET) { parts.push(`…and ${bench.length - parts.length} more`); break; }
+      parts.push(part);
+      used += part.length + 3;
+    }
+    fields.push({ name: `${BENCH_EMOJI} Bench (${bench.length})`, value: parts.join(' · ') });
+  }
+
+  const lead = event.created_by ? `\nLed by <@${event.created_by}>` : '';
+  const plan = raidPlanLines(event);
+  return {
+    title: cancelled ? `🚫 CANCELLED — ⛩️ ${event.title}` : `⛩️ ${event.title}`,
+    description: `<t:${unix}:F> (<t:${unix}:R>)${lead}`
+      + (plan.length ? `\n\n${plan.join('\n')}` : '')
+      + `\n\n**${filled}/${seats}** filled${bench.length ? ` · ${bench.length} on the bench` : ''}`
+      + (cancelled ? '\n\n**This run has been cancelled.**'
+        : closed ? '\n\n*Signups are closed.*'
+          : '\n\nPick your role below. If it\'s full you go on the bench and move up when a slot opens.'),
+    color: cancelled ? 0x6b7280 : hexColor(hardest?.color),
+    fields,
+    footer: { text: houseName() },
+    timestamp: new Date().toISOString(),
+  };
+}
+
+function raidButtons(id, closed) {
+  if (closed) return [];
+  const role = (r) => new ButtonBuilder().setCustomId(`rd:join:${id}:${r}`)
+    .setLabel(r).setEmoji(ROLE_EMOJI[r]).setStyle(ButtonStyle.Secondary);
+  return [
+    new ActionRowBuilder().addComponents(
+      ...RAID_ROLES.map(role),
+      new ButtonBuilder().setCustomId(`rd:bench:${id}`).setLabel('Bench').setEmoji(BENCH_EMOJI).setStyle(ButtonStyle.Primary),
+      // Withdraw, Who's coming? and LOA are the War signup buttons: the
+      // handlers already branch on raid_key.
+      new ButtonBuilder().setCustomId(`sg:leave:${id}`).setLabel('Withdraw').setStyle(ButtonStyle.Secondary),
+    ),
+    new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`sg:who:${id}`).setLabel("Who's coming?").setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`sg:loa:${id}`).setLabel('LOA').setStyle(ButtonStyle.Danger),
+    ),
+  ];
+}
+
+// The post for any signup: a raid run's, or the War signup one.
+function signupMessage(detail) {
+  const closed = detail.event.status !== 'open';
+  return detail.event.raid_key
+    ? { embeds: [raidEmbed(detail)], components: raidButtons(detail.event.id, closed) }
+    : { embeds: [signupEmbed(detail)], components: signupButtons(detail.event.id, closed) };
+}
+
+// What a raid join tells the member, privately.
+function raidJoinReply(result) {
+  const role = `${ROLE_EMOJI[result.role] || ''} **${result.role}**`;
+  const moved = result.promoted
+    ? `\n**${result.promoted.display_name}** moved up from the bench into your old ${result.promoted.role} slot.`
+    : '';
+  if (!result.wasNew) {
+    if (result.status === 'going') return `You're already in as ${role}.`;
+    if (result.benchKind === 'overflow') return `You're already **#${result.position}** on the bench for ${role}.`;
+    return `You're already on the bench as ${role}.`;
+  }
+  if (result.status === 'going') return `You're in as ${role} ✅${moved}`;
+  if (result.benchKind === 'overflow') {
+    return `**${ROLE_PLURAL[result.role]}** are full, so you're **#${result.position}** on the bench for ${role}.`
+      + ` You'll be moved up and DM'd if a slot opens.${moved}`;
+  }
+  return `You're on the bench as ${role}, available if needed. The raid lead can bring you in.${moved}`;
+}
+
+async function handleRaidButton(interaction) {
+  const [, action, id, role] = interaction.customId.split(':');
+  if (!id) return;
+
+  // "Bench" asks which role first, so the bench always knows what it holds.
+  if (action === 'bench') {
+    return interaction.reply({
+      content: 'Bench as which role?',
+      components: [new ActionRowBuilder().addComponents(...RAID_ROLES.map((r) => new ButtonBuilder()
+        .setCustomId(`rd:benchas:${id}:${r}`).setLabel(r).setEmoji(ROLE_EMOJI[r]).setStyle(ButtonStyle.Secondary)))],
+      flags: MessageFlags.Ephemeral,
+    });
+  }
+  if (action !== 'join' && action !== 'benchas') return;
+
+  // The role picker is itself a private message, so its answer replaces it
+  // rather than stacking a second one underneath.
+  if (action === 'benchas') await interaction.deferUpdate();
+  else await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  const answer = (content) => interaction.editReply({ content, components: [] });
+  if (!signups) return answer('Signups are not available right now.');
+
+  try {
+    const result = await signups.join({
+      id, discordId: interaction.user.id, displayName: displayNameFor(interaction.user),
+      role, bench: action === 'benchas',
+    });
+    refreshSignupMessage(id);
+    if (result.promoted) notifySignupPromotion(result.promoted, id);
+    return answer(raidJoinReply(result));
+  } catch (err) {
+    return answer(err.message || 'Something went wrong with that signup.');
+  }
+}
+
+// "Who's coming?" for a raid run, untruncated: the roster by role, then the bench.
+function raidWhoText({ event, going, bench = [] }) {
+  const caps = event.role_caps || {};
+  const roster = RAID_ROLES.map((r) => {
+    const names = going.filter((e) => e.role === r).map((e) => e.display_name);
+    return `**${ROLE_EMOJI[r]} ${ROLE_PLURAL[r]} (${names.length}/${caps[r] || 0})**\n${names.join('\n') || '—'}`;
+  }).join('\n\n');
+  const benched = bench.length
+    ? `\n\n**${BENCH_EMOJI} Bench (${bench.length})**\n${bench.map((e) => `${ROLE_EMOJI[e.role] || '•'} ${e.display_name}${e.bench_kind === 'opt_in' ? ' (opt-in)' : ''}`).join('\n')}`
+    : '';
+  return `**${event.title}**\n${raidPlanLines(event).join('\n')}\n\n${roster}${benched}`.slice(0, 1900);
+}
+
 // The LOA button's pop-up: just the reason, since the post already says which
 // event and night it's for. Discord caps a modal title at 45 characters.
 function signupLoaModal(id, title) {
@@ -2229,10 +2399,7 @@ async function announceSignup(signupEventId) {
       console.error(`Signup announce error: channel ${target} not found or not text-based.`);
       return null;
     }
-    const message = await channel.send({
-      embeds: [signupEmbed(detail)],
-      components: signupButtons(signupEventId, detail.event.status !== 'open'),
-    });
+    const message = await channel.send(signupMessage(detail));
     await signups.setMessageId(signupEventId, channel.id, message.id);
     return message.id;
   } catch (err) {
@@ -2251,10 +2418,7 @@ async function renderSignupMessage(signupEventId) {
     if (!messageId) return; // Never announced — nothing to keep in sync.
     const channel = await signupChannel(channelId);
     if (!channel) return;
-    await channel.messages.edit(messageId, {
-      embeds: [signupEmbed(detail)],
-      components: signupButtons(signupEventId, detail.event.status !== 'open'),
-    });
+    await channel.messages.edit(messageId, signupMessage(detail));
   } catch (err) {
     // An officer deleting the post by hand is the common case here; the signup
     // itself is unaffected and /announce can put a fresh one up.
@@ -2286,9 +2450,11 @@ async function deleteSignupMessage(row) {
 async function notifySignupPromotion(member, signupEventId) {
   if (!ready || !client || !member?.discord_id) return;
   try {
-    const { event } = await signups.detail(signupEventId);
+    const event = await signups.get(signupEventId);
     const user = await client.users.fetch(member.discord_id);
-    await user.send(`✅ A slot opened up — you're off the waitlist and in for **${event.title}** (<t:${signupUnix(event)}:R>).`);
+    await user.send(event.raid_key
+      ? `✅ You're in for **${event.title}** as ${ROLE_EMOJI[member.role] || ''} **${member.role || 'your role'}**, starting <t:${signupUnix(event)}:R>.`
+      : `✅ A slot opened up — you're off the waitlist and in for **${event.title}** (<t:${signupUnix(event)}:R>).`);
   } catch (err) {
     console.error(`Signup promotion DM error for ${member.discord_id}:`, err.message);
   }
@@ -2315,7 +2481,9 @@ async function handleSignupButton(interaction) {
 
   try {
     if (action === 'who') {
-      const { event, going, waitlist } = await signups.detail(id);
+      const detail = await signups.detail(id);
+      if (detail.event.raid_key) return interaction.editReply(raidWhoText(detail));
+      const { event, going, waitlist } = detail;
       // Grouped the same way the post is, so this reads as the untruncated
       // version of what they just looked at rather than a different view.
       const grouped = { Tank: [], DPS: [], Healer: [], Unassigned: [] };
@@ -2335,6 +2503,7 @@ async function handleSignupButton(interaction) {
     }
 
     if (action === 'join') {
+      if ((await signups.get(id)).raid_key) return interaction.editReply('Pick a role on the post to join this raid run.');
       const result = await signups.join({
         id, discordId: interaction.user.id, displayName: displayNameFor(interaction.user),
       });
@@ -2373,7 +2542,7 @@ async function handleSignupButton(interaction) {
       refreshSignupMessage(id);
       if (result.promoted) notifySignupPromotion(result.promoted, id);
       return interaction.editReply(result.promoted
-        ? `Withdrawn. **${result.promoted.display_name}** moved up off the waitlist.`
+        ? `Withdrawn. **${result.promoted.display_name}** moved up ${result.promoted.role ? 'from the bench' : 'off the waitlist'}.`
         : 'Withdrawn — your name is off the list.');
     }
   } catch (err) {
@@ -2418,15 +2587,30 @@ async function sendSignupReminder(signupEventId, { manual = false } = {}) {
       remindersInFlight.delete(key);
       return { count: 0, done: Promise.resolve() };
     }
-    const { event, members } = await signups.nonResponders(signupEventId, roster);
-
-    const text = `📋 **${event.title}** starts <t:${signupUnix(event)}:R> and we haven't heard from you.`
-      + '\nHit **I\'m in** on the signup post if you\'re coming, or **LOA** there if you\'re not.';
+    // A raid run reminds the people on it that it's starting: it's a member's
+    // call for a group, not the guild asking everyone for an answer. Anything
+    // else DMs everyone who hasn't answered.
+    const event = await signups.get(signupEventId);
+    let members;
+    if (event.raid_key) {
+      const { going, bench } = await signups.detail(signupEventId);
+      members = [...going, ...bench].map((e) => ({
+        id: e.discord_id,
+        text: `⛩️ **${event.title}** starts <t:${signupUnix(event)}:R>. `
+          + (e.status === 'going'
+            ? `You're in as ${ROLE_EMOJI[e.role] || ''} **${e.role}**.`
+            : `You're on the bench as ${ROLE_EMOJI[e.role] || ''} **${e.role}**, so be ready in case a slot opens.`),
+      }));
+    } else {
+      const text = `📋 **${event.title}** starts <t:${signupUnix(event)}:R> and we haven't heard from you.`
+        + '\nHit **I\'m in** on the signup post if you\'re coming, or **LOA** there if you\'re not.';
+      members = (await signups.nonResponders(signupEventId, roster)).members.map((m) => ({ id: m.id, text }));
+    }
     const done = (async () => {
       for (const m of members) {
         try {
           const user = await client.users.fetch(m.id);
-          await user.send(text);
+          await user.send(m.text);
         } catch (err) {
           console.error(`Signup reminder DM error for ${m.id}:`, err.message);
         }
@@ -2586,6 +2770,11 @@ module.exports = {
 // any other way. Same motivation as gearIlvl exporting parseGearScreenshot for
 // its CLI script: a seam for a caller that can't take the normal route.
 module.exports.__test = {
+  raidEmbed,
+  raidButtons,
+  raidJoinReply,
+  raidWhoText,
+  signupMessage,
   setEliteTimers: (t) => { eliteTimers = t; },
   eliteBoard,
   handleEliteButton,
