@@ -10,7 +10,7 @@
         { "key": "difficult", "label": "Difficult", "color": "#e8a33d", "emoji": "🟠" },
         { "key": "nightmare", "label": "Nightmare", "color": "#d83c55", "emoji": "🔴" }
       ],
-      "roles": { "Tank": 2, "DPS": 8, "Healer": 2 }
+      "roles": { "Tank": 1, "DPS": 9, "Healer": 2 }
     }
   ]
 }

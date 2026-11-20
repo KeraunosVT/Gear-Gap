@@ -57,18 +57,18 @@ const run = (over = {}) => ({
   status: 'open',
   starts_at: new Date(Date.now() + 2 * DAY).toISOString(),
   created_by: 'lead-1',
-  role_caps: { Tank: 2, DPS: 8, Healer: 2 },
+  role_caps: { Tank: 1, DPS: 9, Healer: 2 },
   raid_segments: [{ mode: 'normal', gates: [1, 2, 3] }, { mode: 'nightmare', gates: [1] }],
   ...over,
 });
 
 describe('the catalog', () => {
-  test('Altar of Calanthia: three modes of three gates, 2 tanks, 8 DPS, 2 healers', () => {
+  test('Altar of Calanthia: three modes of three gates, 1 tank, 9 DPS, 2 healers', () => {
     assert.ok(RAIDS.length >= 1);
     assert.equal(ALTAR.name, 'Altar of Calanthia');
     assert.equal(ALTAR.gates, 3);
     assert.deepEqual(ALTAR.modes.map((m) => m.key), ['normal', 'difficult', 'nightmare']);
-    assert.deepEqual(ALTAR.roles, { Tank: 2, DPS: 8, Healer: 2 });
+    assert.deepEqual(ALTAR.roles, { Tank: 1, DPS: 9, Healer: 2 });
   });
 });
 
@@ -128,7 +128,7 @@ describe('openRaid', () => {
     assert.equal(row.title, 'Altar of Calanthia');
     assert.equal(row.category, 'raid');
     assert.deepEqual(row.raid_segments, [{ mode: 'normal', gates: [1, 2, 3] }, { mode: 'nightmare', gates: [1] }]);
-    assert.deepEqual(row.role_caps, { Tank: 2, DPS: 8, Healer: 2 });
+    assert.deepEqual(row.role_caps, { Tank: 1, DPS: 9, Healer: 2 });
     assert.equal(row.created_by, 'member-7');
     assert.equal(row.raid_lead_name, 'Brannoc');
     assert.equal(row.reminder_minutes, 1440);
@@ -258,9 +258,10 @@ describe('the Discord post', () => {
 
   test('a column per role with its open slots, then the bench', () => {
     const embed = raidEmbed({ event: run(), going, bench });
-    assert.deepEqual(embed.fields.map((f) => f.name), ['🛡️ Tanks (1/2)', '⚔️ DPS (1/8)', '💚 Healers (2/2)', '🪑 Bench (2)']);
-    assert.equal(embed.fields[0].value, 'Brannoc\n◻ *open*');
-    assert.equal(embed.fields[1].value.split('\n').length, 8);
+    assert.deepEqual(embed.fields.map((f) => f.name), ['🛡️ Tanks (1/1)', '⚔️ DPS (1/9)', '💚 Healers (2/2)', '🪑 Bench (2)']);
+    assert.equal(embed.fields[0].value, 'Brannoc');
+    assert.equal(embed.fields[1].value.split('\n').length, 9);
+    assert.equal(embed.fields[1].value, `Vex${'\n◻ *open*'.repeat(8)}`);
     assert.equal(embed.fields[2].value, 'Aria\nMirelle');
     assert.ok(embed.fields.slice(0, 3).every((f) => f.inline));
     assert.equal(embed.fields[3].value, '🛡️ Orrin · ⚔️ Pike *(opt-in)*');
