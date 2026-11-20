@@ -1,0 +1,16 @@
+{
+  "_comment": "Raids members can post a run for. `modes` are in order of difficulty, easiest first: the Discord post takes its colour from the hardest mode in a run. `roles` is the slot count per role; anyone past it goes to the bench. Keys are stored on signup_events (raid_key, raid_segments), so add new ones rather than renaming.",
+  "raids": [
+    {
+      "key": "altar_of_calanthia",
+      "name": "Altar of Calanthia",
+      "gates": 3,
+      "modes": [
+        { "key": "normal", "label": "Normal", "color": "#3ba55d", "emoji": "🟢" },
+        { "key": "difficult", "label": "Difficult", "color": "#e8a33d", "emoji": "🟠" },
+        { "key": "nightmare", "label": "Nightmare", "color": "#d83c55", "emoji": "🔴" }
+      ],
+      "roles": { "Tank": 2, "DPS": 8, "Healer": 2 }
+    }
+  ]
+}

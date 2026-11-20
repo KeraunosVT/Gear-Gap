@@ -346,6 +346,32 @@ select '21 · questionnaires and questionnaire_responses tables',
         where table_schema = 'public' and table_name in ('questionnaires', 'questionnaire_responses')) = 2
 union all
 
+-- ── 22_raids ────────────────────────────────────────────────────────────────
+select '22 · signup_events.raid_key, raid_segments, role_caps, raid_lead_name',
+       (select count(*) from information_schema.columns
+        where table_schema = 'public' and table_name = 'signup_events'
+          and column_name in ('raid_key', 'raid_segments', 'role_caps', 'raid_lead_name')) = 4
+union all
+select '22 · signup_entries.role, bench_kind',
+       (select count(*) from information_schema.columns
+        where table_schema = 'public' and table_name = 'signup_entries'
+          and column_name in ('role', 'bench_kind')) = 2
+union all
+-- The bench is a third status; without the widened check every overflow join fails.
+select '22 · signup_entries.status allows bench',
+       (select count(*) from pg_constraint
+        where conname = 'signup_entries_status_check'
+          and pg_get_constraintdef(oid) like '%bench%') = 1
+union all
+select '22 · raid_join(6), raid_withdraw(2), raid_move(3), raid_fill_role(2)',
+       (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and (
+             (p.proname = 'raid_join' and p.pronargs = 6)
+          or (p.proname = 'raid_withdraw' and p.pronargs = 2)
+          or (p.proname = 'raid_move' and p.pronargs = 3)
+          or (p.proname = 'raid_fill_role' and p.pronargs = 2))) = 4
+union all
+
 -- ── 12_lock_down_anon ───────────────────────────────────────────────────────
 -- These are standing checks, not one-offs: a table or function added by a
 -- LATER migration without the same treatment turns its row false. Re-running
