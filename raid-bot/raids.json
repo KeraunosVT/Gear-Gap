@@ -1,0 +1,16 @@
+{
+  "_comment": "Throne & Liberty raids a run can be posted for. `modes` are in order of difficulty, easiest first: a post takes its colour from the hardest mode in its plan. `aliases` are extra words /raid post accepts for a mode (\"nm 1\"). `roles` is the slot count per role; anyone past it goes to the bench. A run copies `roles` when it is posted, so changing a cap here never reshuffles a run already filling. Keys are stored on raid_runs, so add new ones rather than renaming.",
+  "raids": [
+    {
+      "key": "altar_of_calanthia",
+      "name": "Altar of Calanthia",
+      "gates": 3,
+      "modes": [
+        { "key": "normal", "label": "Normal", "color": "#3ba55d", "emoji": "🟢", "aliases": ["n", "norm"] },
+        { "key": "difficult", "label": "Difficult", "color": "#e8a33d", "emoji": "🟠", "aliases": ["d", "diff", "hard", "h"] },
+        { "key": "nightmare", "label": "Nightmare", "color": "#d83c55", "emoji": "🔴", "aliases": ["nm", "night"] }
+      ],
+      "roles": { "Tank": 1, "DPS": 9, "Healer": 2 }
+    }
+  ]
+}
