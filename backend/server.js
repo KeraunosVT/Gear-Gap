@@ -1053,9 +1053,16 @@ app.get('/api/signups/:id', async (req, res) => {
 app.post('/api/signups/:id/join', async (req, res) => {
   if (!signups) return res.status(503).json({ error: 'Database not configured.' });
   try {
-    const result = await signups.join({ id: req.params.id, discordId: req.user.id, displayName: req.user.username });
+    // role and bench are a raid run's (the role picked, or "bench me"); every
+    // other signup ignores them and reads the role from member_roles.
+    const { role = null, bench = false } = req.body || {};
+    const result = await signups.join({
+      id: req.params.id, discordId: req.user.id, displayName: req.user.username, role, bench: bench === true,
+    });
     res.json(result);
     gateway.refreshSignupMessage(req.params.id);
+    // A raid member switching role gives up their old slot to the bench.
+    if (result.promoted) gateway.notifySignupPromotion(result.promoted, req.params.id);
   } catch (err) {
     res.status(err.status || 500).json({ error: err.message });
   }
@@ -1075,6 +1082,122 @@ app.delete('/api/signups/:id/join', async (req, res) => {
     res.status(err.status || 500).json({ error: err.message });
   }
 });
+
+// ── Raid runs ────────────────────────────────────────────────────────────────
+// Any member can post a run, and whoever posts it is its raid lead. The lead
+// and officers (the 'attendance' capability, which runs War signups) manage
+// it: gates, bench moves, repost, remind, close, delete. Joining and leaving
+// go through /api/signups/:id/join above, with a role.
+const raidsApi = {
+  // The run, or a 404 for an id that isn't one.
+  async load(id) {
+    const event = await signups.get(id);
+    if (!event.raid_key) throw Object.assign(new Error('That raid run no longer exists.'), { status: 404 });
+    return event;
+  },
+  canManage: (event, user) => signups.isRaidLead(event, user.id) || userHas(user, 'attendance'),
+  // Loads the run and refuses anyone who can't manage it.
+  async managed(req) {
+    const event = await raidsApi.load(req.params.id);
+    if (!raidsApi.canManage(event, req.user)) {
+      throw Object.assign(new Error('Only the raid lead or an officer can change this run.'), { status: 403 });
+    }
+    return event;
+  },
+};
+
+const raidRoute = (fn) => async (req, res) => {
+  if (!signups) return res.status(503).json({ error: 'Database not configured.' });
+  try {
+    await fn(req, res);
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.message });
+  }
+};
+
+app.get('/api/raids', raidRoute(async (req, res) => {
+  const raids = await signups.list({ raids: true, includeClosed: req.query.include_closed === '1', discordId: req.user.id });
+  res.json({
+    raids: raids.map((r) => ({ ...r, can_manage: raidsApi.canManage(r, req.user) })),
+    catalog: createEventSignups.RAIDS,
+  });
+}));
+
+app.post('/api/raids', raidRoute(async (req, res) => {
+  const { raid_key, event_date, event_time, segments, reminder_minutes } = req.body || {};
+  const row = await signups.openRaid({
+    raidKey: raid_key, eventDate: event_date, eventTime: event_time, segments,
+    reminderMinutes: reminder_minutes, createdBy: req.user.id, createdByName: req.user.username,
+  });
+  res.json({ raid: row });
+  // After responding and unawaited, like an officer's signup: the run is
+  // already posted on the site, and a Discord outage shouldn't undo that.
+  gateway.announceSignup(row.id);
+}));
+
+app.get('/api/raids/:id', raidRoute(async (req, res) => {
+  const event = await raidsApi.load(req.params.id);
+  const detail = await signups.detail(event.id, { includeReasons: userHas(req.user, 'loa.admin') });
+  res.json({ ...detail, can_manage: raidsApi.canManage(event, req.user) });
+}));
+
+app.patch('/api/raids/:id', raidRoute(async (req, res) => {
+  await raidsApi.managed(req);
+  const { segments, status, reminder_minutes } = req.body || {};
+  if (segments !== undefined) await signups.setRaidSegments(req.params.id, segments);
+  if (reminder_minutes !== undefined) await signups.setReminderMinutes(req.params.id, reminder_minutes);
+  if (status !== undefined) await signups.setStatus(req.params.id, status);
+  res.json({ ok: true });
+  gateway.refreshSignupMessage(req.params.id);
+}));
+
+app.delete('/api/raids/:id', raidRoute(async (req, res) => {
+  await raidsApi.managed(req);
+  const row = await signups.remove(req.params.id);
+  res.json({ ok: true });
+  gateway.deleteSignupMessage(row);
+}));
+
+app.post('/api/raids/:id/announce', raidRoute(async (req, res) => {
+  await raidsApi.managed(req);
+  res.json({ ok: true });
+  gateway.announceSignup(req.params.id);
+}));
+
+app.post('/api/raids/:id/remind', raidRoute(async (req, res) => {
+  await raidsApi.managed(req);
+  const { count } = await gateway.sendSignupReminder(req.params.id, { manual: true });
+  res.json({ ok: true, count });
+}));
+
+// Between the roster and the bench. Into the roster DMs them, like a
+// promotion off the bench does.
+app.post('/api/raids/:id/move', raidRoute(async (req, res) => {
+  await raidsApi.managed(req);
+  const { discord_id, to } = req.body || {};
+  if (!discord_id) return res.status(400).json({ error: 'Member id required.' });
+  const result = await signups.raidMove({ id: req.params.id, discordId: discord_id, to });
+  res.json(result);
+  gateway.refreshSignupMessage(req.params.id);
+  // After the response, so a failure here is logged rather than answered.
+  if (to === 'going') {
+    gateway.notifySignupPromotion({ discord_id: String(discord_id), role: result.role }, req.params.id)
+      .catch((err) => console.error('Raid move DM error:', err.message));
+  }
+}));
+
+// Take someone off the run entirely — a member who left the guild still
+// holding a slot.
+app.delete('/api/raids/:id/entries/:discordId', raidRoute(async (req, res) => {
+  const event = await raidsApi.load(req.params.id);
+  if (!signups.isRaidLead(event, req.user.id) && !userHas(req.user, 'attendance')) {
+    return res.status(403).json({ error: 'Only the raid lead or an officer can change this run.' });
+  }
+  const result = await signups.withdraw({ id: req.params.id, discordId: req.params.discordId });
+  res.json(result);
+  gateway.refreshSignupMessage(req.params.id);
+  if (result.promoted) gateway.notifySignupPromotion(result.promoted, req.params.id);
+}));
 
 // ── MEMBERS AREA: Attendance ─────────────────────────────────────────────────
 // A member's own attendance record, and the one correction they may ask for.

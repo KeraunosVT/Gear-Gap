@@ -13,6 +13,7 @@
 // wording is a presentation concern and the two callers must not drift.
 const createLoa = require('./loa');
 const createEliteTimers = require('./eliteTimers');
+const { raids: RAIDS } = require('../shared/raids.json');
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const STATUSES = ['open', 'closed', 'cancelled'];
@@ -82,6 +83,59 @@ function httpError(status, message) {
   return err;
 }
 
+// ── Raids ────────────────────────────────────────────────────────────────────
+// A raid run is a signup_events row with raid_key set (migration 22). Members
+// pick their role at signup, each role has a fixed number of slots, and anyone
+// past that sits on the bench. Everything else (the post, reminders, closing
+// at the start, LOA) is the same machinery War signups use.
+const RAID_ROLES = ['Tank', 'DPS', 'Healer'];
+const raidOf = (key) => RAIDS.find((r) => r.key === key) || null;
+
+// A run's plan, checked against the catalog: [{ mode, gates }] with each mode
+// once, gates sorted and in range, in the catalog's mode order (easiest
+// first). Empty modes are dropped; a plan with no gates at all is refused.
+function raidSegments(raid, input) {
+  if (!Array.isArray(input)) throw httpError(400, 'Pick at least one gate.');
+  const byMode = new Map();
+  input.forEach((seg) => {
+    const mode = raid.modes.find((m) => m.key === seg?.mode);
+    if (!mode) throw httpError(400, `${raid.name} has no mode called "${seg?.mode}".`);
+    const gates = byMode.get(mode.key) || new Set();
+    (Array.isArray(seg.gates) ? seg.gates : []).forEach((g) => {
+      const n = Number(g);
+      if (!Number.isInteger(n) || n < 1 || n > raid.gates) throw httpError(400, `Gates run from 1 to ${raid.gates}.`);
+      gates.add(n);
+    });
+    byMode.set(mode.key, gates);
+  });
+  const out = raid.modes
+    .filter((m) => byMode.get(m.key)?.size)
+    .map((m) => ({ mode: m.key, gates: [...byMode.get(m.key)].sort((a, b) => a - b) }));
+  if (!out.length) throw httpError(400, 'Pick at least one gate.');
+  return out;
+}
+
+// The hardest mode in a run, as its catalog entry. The post takes its colour
+// from it. Null for a run with no plan.
+function hardestMode(event) {
+  const raid = raidOf(event?.raid_key);
+  if (!raid || !Array.isArray(event.raid_segments)) return null;
+  const keys = new Set(event.raid_segments.map((s) => s.mode));
+  return [...raid.modes].reverse().find((m) => keys.has(m.key)) || null;
+}
+
+// "Gate 2", "Gates 1 & 3", "Gates 1–3".
+function gatesText(gates) {
+  const g = [...gates].sort((a, b) => a - b);
+  if (g.length === 1) return `Gate ${g[0]}`;
+  const run = g.every((n, i) => i === 0 || n === g[i - 1] + 1);
+  return run && g.length > 2 ? `Gates ${g[0]}–${g[g.length - 1]}` : `Gates ${g.join(' & ')}`;
+}
+
+// The role a signup counts under: the one picked at signup for a raid, else
+// the PvP role on file (War signups).
+const entryRole = (e) => e.role || e.pvp_role || '';
+
 const addDays = (dateStr, n) => {
   const d = new Date(dateStr + 'T12:00:00Z');
   d.setUTCDate(d.getUTCDate() + n);
@@ -150,14 +204,24 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
   // before they can build parties, and a silent omission would hide them.
   const tallyRoles = (entries) => {
     const out = { Tank: 0, DPS: 0, Healer: 0, Unassigned: 0 };
-    entries.forEach((e) => { out[ROLE_ORDER.includes(e.pvp_role) ? e.pvp_role : 'Unassigned'] += 1; });
+    entries.forEach((e) => { out[ROLE_ORDER.includes(entryRole(e)) ? entryRole(e) : 'Unassigned'] += 1; });
     return out;
+  };
+
+  // A raid's lead, by their site alias when they have one. raid_lead_name is
+  // only the name they had when they posted the run.
+  const withLeadNames = async (events) => {
+    if (!identities || !events.some((e) => e.raid_key)) return events;
+    const ids = await identities.load();
+    return events.map((e) => (e.raid_key && e.created_by
+      ? { ...e, raid_lead_name: ids.displayNameFor(e.created_by, e.raid_lead_name) }
+      : e));
   };
 
   const loadEvent = async (id) => {
     const { data, error } = await supabase.from('signup_events').select('*').eq('id', id).single();
     if (error || !data) throw httpError(404, 'That signup no longer exists.');
-    return data;
+    return (await withLeadNames([data]))[0];
   };
 
   // Entries for one occurrence, name-resolved and role-decorated, going first
@@ -172,6 +236,9 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
     return {
       going: decorated.filter((r) => r.status === 'going'),
       waitlist: decorated.filter((r) => r.status === 'waitlist'),
+      // Raids only. Signup order, which within a role and bench kind is the
+      // order people move up in.
+      bench: decorated.filter((r) => r.status === 'bench'),
     };
   };
 
@@ -181,6 +248,15 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
     const msg = error?.message || '';
     if (msg.includes('signup_not_found')) return httpError(404, 'That signup no longer exists.');
     if (msg.includes('signup_closed')) return httpError(409, 'Signups for this event are closed.');
+    if (msg.includes('not_a_raid')) return httpError(400, "That signup isn't a raid run.");
+    if (msg.includes('raid_bad_role')) return httpError(400, 'Pick a role: Tank, DPS or Healer.');
+    if (msg.includes('raid_role_full')) return httpError(409, 'That role is full. Move someone to the bench first.');
+    if (msg.includes('raid_not_signed_up')) return httpError(404, "They aren't signed up for this run.");
+    if (msg.includes('raid_bad_move')) return httpError(400, 'Move them to the roster or the bench.');
+    // The functions are missing: migration 22 hasn't run.
+    if (/raid_(join|withdraw|move)/.test(msg) && /function|schema cache/i.test(msg)) {
+      return httpError(503, 'Raid signups need migration 22 to be run first.');
+    }
     console.error('signups rpc error:', msg);
     return httpError(500, 'Failed to update that signup.');
   };
@@ -304,6 +380,79 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
       return { id: row.id, opened: created };
     },
 
+    // Posts a raid run. Any member may: whoever opens it is its raid lead
+    // (created_by). A start time is required, since it's what the reminder,
+    // the close at the start and the Discord countdown all run from.
+    async openRaid({ raidKey, eventDate, eventTime: rawTime, segments, reminderMinutes = null, createdBy = null, createdByName = '' }) {
+      const raid = raidOf(raidKey);
+      if (!raid) throw httpError(400, 'Pick a raid.');
+      if (!isValidDate(eventDate)) throw httpError(400, 'Date must be in YYYY-MM-DD format.');
+      const eventTime = rawTime ? createLoa.parseTimeOfDay(rawTime) : null;
+      if (!eventTime) throw httpError(400, 'A raid run needs a start time, e.g. 9:00 PM.');
+      const plan = raidSegments(raid, segments);
+      const remind = reminderMinutes == null || reminderMinutes === '' ? null : parseInt(reminderMinutes, 10);
+      if (remind != null && (!Number.isFinite(remind) || remind < 1)) throw httpError(400, 'Reminder must be a positive number of minutes.');
+
+      const startsAt = resolveStartsAt(eventDate, eventTime);
+      if (startsAt.getTime() <= Date.now()) throw httpError(409, 'That time has already passed.');
+      if (startsAt.getTime() - Date.now() > MEMBER_OPEN_HORIZON_DAYS * 86_400_000) {
+        throw httpError(400, `Raid runs can be posted up to ${MEMBER_OPEN_HORIZON_DAYS} days ahead.`);
+      }
+
+      const { data, error } = await supabase.from('signup_events').insert({
+        event_date: eventDate,
+        title: raid.name,
+        event_time: eventTime,
+        category: 'raid',
+        starts_at: startsAt.toISOString(),
+        reminder_minutes: remind,
+        raid_key: raid.key,
+        raid_segments: plan,
+        role_caps: raid.roles,
+        created_by: createdBy || null,
+        raid_lead_name: createdBy ? await resolveName(createdBy, createdByName) : null,
+      }).select('*').single();
+      if (error) {
+        console.error('signups.openRaid error:', error.message);
+        // 42703 = undefined column.
+        throw httpError(error.code === '42703' ? 503 : 500, error.code === '42703'
+          ? 'Raid signups need migration 22 to be run first.'
+          : 'Failed to post that raid run.');
+      }
+      return data;
+    },
+
+    // A run's gates, changed after posting. Who's signed up stays as they are.
+    async setRaidSegments(id, segments) {
+      const event = await loadEvent(id);
+      const raid = raidOf(event.raid_key);
+      if (!raid) throw httpError(400, "That signup isn't a raid run.");
+      const plan = raidSegments(raid, segments);
+      const { data, error } = await supabase.from('signup_events')
+        .update({ raid_segments: plan, updated_at: new Date().toISOString() }).eq('id', id).select('*').single();
+      if (error || !data) {
+        console.error('signups.setRaidSegments error:', error?.message);
+        throw httpError(500, 'Failed to save the gates.');
+      }
+      return data;
+    },
+
+    // Whether this member leads the run (posted it). Officers are checked by
+    // the caller, which knows the session's permissions.
+    isRaidLead(event, discordId) {
+      return Boolean(event?.raid_key && event.created_by && String(event.created_by) === String(discordId));
+    },
+
+    // The raid lead moving someone between the roster and the bench.
+    async raidMove({ id, discordId, to }) {
+      const { data, error } = await supabase.rpc('raid_move', {
+        p_event_id: id, p_discord_id: String(discordId), p_to: to,
+      });
+      if (error) throw rpcError(error);
+      const row = (data || [])[0] || {};
+      return { status: row.entry_status || to, role: row.entry_role || null };
+    },
+
     get: loadEvent,
 
     // The (night, event) lookup shared by the party builder and the attendance
@@ -356,7 +505,11 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
     // Occurrences with their headcounts. Counts are tallied in JS off one extra
     // query rather than a per-row aggregate — the list is a handful of rows and
     // this keeps it to two round trips.
-    async list({ from = null, to = null, includeClosed = false, discordId = null } = {}) {
+    // `raids`: raid runs instead of everything else. The two are listed apart
+    // because every surface that reads this list (the calendar, the Signups
+    // page, LOA) joins with one "I'm in" and a raid needs a role. Filtered in
+    // JS rather than on raid_key so this keeps working before migration 22.
+    async list({ from = null, to = null, includeClosed = false, discordId = null, raids = false } = {}) {
       let q = supabase.from('signup_events').select('*')
         .gte('event_date', from || createLoa.todayInGuildTz())
         .order('event_date').order('event_time', { nullsFirst: true });
@@ -365,28 +518,30 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
       const { data, error } = await q;
       if (error) { console.error('signups.list error:', error.message); throw httpError(500, 'Failed to load signups.'); }
 
-      const events = data || [];
+      const events = await withLeadNames((data || []).filter((e) => Boolean(e.raid_key) === raids));
       if (!events.length) return [];
+      // '*' so the raid columns come back when they exist, without naming
+      // columns a database before migration 22 doesn't have.
       const { data: entries } = await supabase.from('signup_entries')
-        .select('signup_event_id, discord_id, status')
+        .select('*')
         .in('signup_event_id', events.map((e) => e.id));
 
       // One roles lookup for every entry across every listed occurrence, so the
       // composition on the cards costs a single extra round trip rather than
       // one per event.
       const roles = await rolesFor([...new Set((entries || []).map((r) => r.discord_id))]);
-      const roleOf = (id) => {
-        const r = roles[id]?.pvp || '';
+      const roleOf = (entry) => {
+        const r = entry.role || roles[entry.discord_id]?.pvp || '';
         return ROLE_ORDER.includes(r) ? r : 'Unassigned';
       };
 
       const tally = {};
       (entries || []).forEach((r) => {
         const t = tally[r.signup_event_id] || (tally[r.signup_event_id] = {
-          going: 0, waitlist: 0, mine: null, roles: { Tank: 0, DPS: 0, Healer: 0, Unassigned: 0 },
+          going: 0, waitlist: 0, bench: 0, mine: null, mineRole: null, roles: { Tank: 0, DPS: 0, Healer: 0, Unassigned: 0 },
         });
-        if (r.status === 'going') { t.going += 1; t.roles[roleOf(r.discord_id)] += 1; } else t.waitlist += 1;
-        if (discordId && r.discord_id === discordId) t.mine = r.status;
+        if (r.status === 'going') { t.going += 1; t.roles[roleOf(r)] += 1; } else if (r.status === 'bench') t.bench += 1; else t.waitlist += 1;
+        if (discordId && r.discord_id === discordId) { t.mine = r.status; t.mineRole = r.role || null; }
         (t.ids || (t.ids = [])).push(String(r.discord_id));
       });
       return events.map((e) => ({
@@ -401,6 +556,9 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
         // showed both would need twice the room to say half as much.
         role_counts: tally[e.id]?.roles || { Tank: 0, DPS: 0, Healer: 0, Unassigned: 0 },
         my_status: tally[e.id]?.mine || null,
+        // Raids only: the bench, and the role the caller signed up as.
+        bench_count: tally[e.id]?.bench || 0,
+        my_role: tally[e.id]?.mineRole || null,
       }));
     },
 
@@ -412,7 +570,7 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
     // declined from someone who hasn't opened Discord yet.
     async detail(id, { includeReasons = false, roster = null } = {}) {
       const event = await loadEvent(id);
-      const { going, waitlist } = await entriesFor(id);
+      const { going, waitlist, bench } = await entriesFor(id);
 
       let onLoa = [];
       let noResponse = [];
@@ -423,13 +581,13 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
           date: event.event_date, eventScheduleId: event.event_schedule_id, signupEventId: event.id, ignoreSignups: true,
         }).catch((err) => { console.error('signups.detail LOA lookup failed:', err.message); return []; });
         const outById = new Map(out.map((e) => [e.discord_id, e]));
-        const signedUp = new Set([...going, ...waitlist].map((e) => e.discord_id));
+        const signedUp = new Set([...going, ...waitlist, ...bench].map((e) => e.discord_id));
 
         // Signed up AND on LOA. The signup wins — they count as coming
         // everywhere (see signedUpAcross in loa.js) — so this is a note, not a
         // problem: they may have signed up after filing, or filed a range and
         // made an exception for this one night.
-        conflicts = [...going, ...waitlist]
+        conflicts = [...going, ...waitlist, ...bench]
           .filter((e) => outById.has(e.discord_id))
           .map((e) => ({ ...e, loa: scrubReason(outById.get(e.discord_id), includeReasons) }));
 
@@ -446,7 +604,8 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
         event,
         going,
         waitlist,
-        counts: { going: going.length, waitlist: waitlist.length, capacity: event.capacity },
+        bench,
+        counts: { going: going.length, waitlist: waitlist.length, bench: bench.length, capacity: event.capacity },
         // Composition, split the same way the party builder's pools are. The
         // waitlist gets its own tally because "we're short a healer and there's
         // one waiting" is the case that justifies raising the cap.
@@ -457,15 +616,40 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
       };
     },
 
-    async join({ id, discordId, displayName, addedBy = null }) {
+    // `role` and `bench` are for raid runs, and a raid needs a role. They're
+    // ignored for everything else, where the role comes from member_roles.
+    async join({ id, discordId, displayName, addedBy = null, role = null, bench = false }) {
       // Signups that close early are refused from the cutoff on, not from
       // whenever the sweep next runs — it ticks once a minute. A missing row is
-      // left to the RPC, which already says so.
+      // left to the RPC, which already says so. '*' so raid_key is there when
+      // the column is, without breaking before migration 22.
       const { data: ev } = await supabase.from('signup_events')
-        .select('status, title, category, starts_at').eq('id', id).maybeSingle();
+        .select('*').eq('id', id).maybeSingle();
       if (ev && ev.status === 'open' && closeEarlyMinutes(ev) && pastCutoff(ev)) throw closedEarlyError(ev);
 
       const name = await resolveName(discordId, displayName);
+      if (ev?.raid_key) {
+        if (!RAID_ROLES.includes(role)) throw httpError(400, 'Pick a role: Tank, DPS or Healer.');
+        const { data, error } = await supabase.rpc('raid_join', {
+          p_event_id: id, p_discord_id: String(discordId), p_display_name: name,
+          p_role: role, p_bench: Boolean(bench), p_added_by: addedBy || null,
+        });
+        if (error) throw rpcError(error);
+        const row = (data || [])[0] || {};
+        return {
+          raid: true,
+          status: row.entry_status || 'going',
+          role: row.entry_role || role,
+          benchKind: row.entry_bench_kind || null,
+          position: row.bench_position || null,
+          wasNew: Boolean(row.changed),
+          promoted: row.promoted_id
+            ? { discord_id: row.promoted_id, display_name: row.promoted_name, role: row.promoted_role }
+            : null,
+          displayName: name,
+        };
+      }
+
       const { data, error } = await supabase.rpc('signup_join', {
         p_event_id: id, p_discord_id: String(discordId), p_display_name: name, p_added_by: addedBy || null,
       });
@@ -481,6 +665,20 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
     },
 
     async withdraw({ id, discordId }) {
+      // A raid frees a slot in one role, so it promotes by role.
+      const { data: ev } = await supabase.from('signup_events').select('*').eq('id', id).maybeSingle();
+      if (ev?.raid_key) {
+        const { data, error } = await supabase.rpc('raid_withdraw', { p_event_id: id, p_discord_id: String(discordId) });
+        if (error) throw rpcError(error);
+        const row = (data || [])[0] || {};
+        return {
+          removed: Boolean(row.removed),
+          wasGoing: Boolean(row.was_going),
+          promoted: row.promoted_id
+            ? { discord_id: row.promoted_id, display_name: row.promoted_name, role: row.promoted_role }
+            : null,
+        };
+      }
       const { data, error } = await supabase.rpc('signup_withdraw', {
         p_event_id: id, p_discord_id: String(discordId),
       });
@@ -731,8 +929,10 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
     // which (date, schedule id) can't single out when a night has several.
     async signedUpForId(id) {
       const event = await loadEvent(id);
-      const { going, waitlist } = await entriesFor(event.id);
-      return { event, going, waitlist };
+      const { going, waitlist, bench } = await entriesFor(event.id);
+      // A raid's bench reads as its waitlist here: the party builder only
+      // knows the two.
+      return { event, going, waitlist: [...waitlist, ...bench] };
     },
 
     async signedUpFor({ eventDate, eventScheduleId = null }) {
@@ -776,6 +976,12 @@ module.exports.categoryKey = categoryKey;
 module.exports.eventTypeOf = eventTypeOf;
 module.exports.closeEarlyMinutes = closeEarlyMinutes;
 module.exports.closesAt = closesAt;
+module.exports.RAIDS = RAIDS;
+module.exports.RAID_ROLES = RAID_ROLES;
+module.exports.raidOf = raidOf;
+module.exports.raidSegments = raidSegments;
+module.exports.hardestMode = hardestMode;
+module.exports.gatesText = gatesText;
 
 // LOA reasons are officer-only everywhere else (loa.all strips them for
 // non-admins), so they're stripped here too unless the caller proved the
