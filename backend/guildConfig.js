@@ -66,7 +66,7 @@ const DEFAULTS = Object.freeze({
   announce_channel_id: null,
   signup_channel_id: null,
   calendar_channel_id: null,
-  // Null means scouting reports are never posted automatically (migration 11).
+  // Null means the Post scouting buttons start on the calendar's channel (migration 11).
   scouting_channel_id: null,
   // Null means In-House signups post with every other signup (migration 18).
   in_house_channel_id: null,
@@ -190,10 +190,9 @@ const signupChannelId = () => {
 // signups go.
 const calendarChannelId = () => get().calendar_channel_id || signupChannelId();
 
-// Where scouting reports post automatically. Deliberately NO fallback: an
-// automatic post naming the opposition's carries is an officer decision, and
-// falling back to a public channel would make it for them. Blank = never
-// automatically; the Post to Discord buttons still work and ask for a channel.
+// The channel the Post scouting buttons start on. No fallback here: the admin
+// route falls back to the calendar's channel itself, and the officer still
+// picks the channel before anything posts.
 const scoutingChannelId = () => get().scouting_channel_id || null;
 
 // Where an In-House event's signup post goes: its own channel if set, else

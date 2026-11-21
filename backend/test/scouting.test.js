@@ -5,10 +5,7 @@
 //     roster only — a marked player who hasn't turned up lately is listed
 //     separately, not mixed in with the ones you'll actually meet;
 //   - an even guild says so rather than posting an empty list;
-//   - posting by hand for a signup claims its automatic post, but only once
-//     the post has gone — a refused post must leave the automatic one armed;
-//   - the automatic post goes once, re-arms when the opponent changes, and
-//     never fires for a cancelled night, one already posted, or one in the past.
+//   - posting for a signup takes its opponent and refuses one without.
 
 const { test, describe, beforeEach } = require('node:test');
 const assert = require('node:assert/strict');
@@ -189,43 +186,25 @@ describe('fitLines', () => {
   });
 });
 
-describe('signup opponent and the automatic post', () => {
+describe('signup opponent', () => {
   let signups;
   beforeEach(() => {
     TABLES = {
       signup_events: [
-        { id: 'due', status: 'open', opponent_guild: 'Iron Vow', scouting_sent_at: null, starts_at: inMinutes(30) },
-        { id: 'closed', status: 'closed', opponent_guild: 'Iron Vow', scouting_sent_at: null, starts_at: inMinutes(45) },
-        { id: 'cancelled', status: 'cancelled', opponent_guild: 'Iron Vow', scouting_sent_at: null, starts_at: inMinutes(30) },
-        { id: 'sent', status: 'open', opponent_guild: 'Iron Vow', scouting_sent_at: inMinutes(-5), starts_at: inMinutes(30) },
-        { id: 'noOpp', status: 'open', opponent_guild: null, scouting_sent_at: null, starts_at: inMinutes(30) },
-        { id: 'later', status: 'open', opponent_guild: 'Iron Vow', scouting_sent_at: null, starts_at: inMinutes(180) },
-        { id: 'past', status: 'open', opponent_guild: 'Iron Vow', scouting_sent_at: null, starts_at: inMinutes(-10) },
+        { id: 'war', status: 'open', opponent_guild: 'Iron Vow', starts_at: inMinutes(30) },
       ],
     };
     signups = createEventSignups(fakeSupabase());
   });
 
-  test('due: within the lead, has an opponent, not posted, not cancelled — closed still counts', async () => {
-    const due = (await signups.dueForScouting(60)).map((e) => e.id).sort();
-    assert.deepEqual(due, ['closed', 'due']);
-  });
-
-  test('the claim succeeds once', async () => {
-    assert.equal(await signups.claimScouting('due'), true);
-    assert.equal(await signups.claimScouting('due'), false);
-    assert.deepEqual((await signups.dueForScouting(60)).map((e) => e.id), ['closed']);
-  });
-
-  test('changing the opponent re-arms a post already sent, and tidies the name', async () => {
-    const row = await signups.setOpponent('sent', '  Iron   Covenant ');
+  test('tidies the name', async () => {
+    const row = await signups.setOpponent('war', '  Iron   Covenant ');
     assert.equal(row.opponent_guild, 'Iron Covenant');
-    assert.equal(row.scouting_sent_at, null);
   });
 
-  test('clearing the opponent stores null, so nothing posts', async () => {
-    await signups.setOpponent('due', '   ');
-    assert.ok(!(await signups.dueForScouting(60)).some((e) => e.id === 'due'));
+  test('clearing the opponent stores null', async () => {
+    const row = await signups.setOpponent('war', '   ');
+    assert.equal(row.opponent_guild, null);
   });
 });
 
@@ -249,28 +228,26 @@ describe('POST /scouting/post', () => {
     RPC = { get_guild_feuds: [RECORD], get_guild_feud_roster: [] };
     TABLES = {
       signup_events: [
-        { id: 'war', title: 'Guild War', status: 'open', opponent_guild: 'Iron Vow', scouting_sent_at: null, starts_at: inMinutes(40) },
-        { id: 'bare', title: 'Riftstone', status: 'open', opponent_guild: null, scouting_sent_at: null, starts_at: inMinutes(40) },
+        { id: 'war', title: 'Guild War', status: 'open', opponent_guild: 'Iron Vow', starts_at: inMinutes(40) },
+        { id: 'bare', title: 'Riftstone', status: 'open', opponent_guild: null, starts_at: inMinutes(40) },
       ],
     };
   });
 
-  test('posting for a signup uses its opponent and claims the automatic post', async () => {
+  test('posting for a signup uses its opponent and adds the event line', async () => {
     const res = await call({ signup_id: 'war', channel_id: 'chan' });
     assert.equal(res.status, 200);
     assert.equal(posted.length, 1);
     assert.equal(posted[0].channelId, 'chan');
     assert.equal(posted[0].payload.embeds[0].title, '🔭 Scouting: Iron Vow');
     assert.match(posted[0].payload.embeds[0].description, /^\*\*Guild War\*\* · <t:\d+:F>/);
-    assert.ok(TABLES.signup_events[0].scouting_sent_at, 'the sweep will not post it again');
   });
 
-  test('a refused post leaves the automatic one armed', async () => {
+  test('a refused post reports Discord\'s reason', async () => {
     refusePost = true;
     const res = await call({ signup_id: 'war', channel_id: 'chan' });
     assert.equal(res.status, 502);
     assert.match(res.body.error, /Missing Access/);
-    assert.equal(TABLES.signup_events[0].scouting_sent_at, null);
   });
 
   test('a signup with no opponent is refused, not posted blank', async () => {

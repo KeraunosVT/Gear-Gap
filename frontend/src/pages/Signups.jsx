@@ -618,9 +618,8 @@ function SignupCard({
                     </NameGroup>
                   )}
 
-                  {/* Who it's against. Saving one posts their scouting report
-                      to the Scouting channel an hour before the start, if Guild
-                      Settings names one; the button posts it now, anywhere. */}
+                  {/* Who it's against. The button posts their scouting report
+                      now, to a channel the officer picks. */}
                   <div>
                   <div className="flex items-end gap-2 flex-wrap pt-1">
                     <label className="block flex-1 min-w-[12rem]">
@@ -640,9 +639,6 @@ function SignupCard({
                       </Button>
                     )}
                   </div>
-                  <p className="text-xs text-ash/70 mt-1.5">
-                    {row.opponent_guild && row.scouting_sent_at ? t('signups.scoutSent') : t('signups.scoutAuto')}
-                  </p>
                   </div>
 
                   {isWarGames && <WarDetailsEditor row={row} working={working} onPatch={onPatch} />}

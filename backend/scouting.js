@@ -2,24 +2,19 @@
 //
 // The Feuds roster page (/war-record/feuds/:guild) already answers "who do they
 // field now, and which of them is the problem". This puts that answer in the
-// channel before a fight, when people are actually looking — either by hand
-// (the Post to Discord button on that page, or on a signup with an opponent) or
-// automatically, a fixed lead before a signup whose opponent is set.
+// channel before a fight, when people are actually looking — by hand, with the
+// Post to Discord button on that page or on a signup with an opponent. There is
+// no automatic post.
 //
 // The page and the post read through the same loadRoster(), so they can't
 // disagree about who is marked. The marking rule itself lives in feudRoster.js.
 //
 // Knows nothing about the gateway: posting goes over REST (discord.js's
-// postToChannel), so the admin route and the gateway's sweep share one path.
+// postToChannel), so the admin route needs no gateway connection.
 const { foldRoster, RECENT_GAMES, METRICS } = require('./feudRoster');
 const { className } = require('./weaponClass');
 const { postToChannel } = require('./discord');
 const guildConfig = require('./guildConfig');
-
-// How long before a signup's start its report goes out automatically. Long
-// enough to read and plan around, short enough that the roster it describes is
-// still the one they'll bring.
-const SCOUTING_LEAD_MINUTES = 60;
 
 // Discord's embed limits, minus a margin for the "…and N more" line.
 const FIELD_MAX = 1024;
@@ -206,7 +201,6 @@ async function postScouting(supabase, { enemy, channelId, event = null, note = '
 }
 
 module.exports = {
-  SCOUTING_LEAD_MINUTES,
   loadRoster,
   loadScouting,
   buildScoutingPost,
