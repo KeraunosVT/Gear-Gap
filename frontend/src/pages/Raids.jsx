@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../auth';
 import {
-  Landmark, Megaphone, Bell, Lock, Trash2, Loader2, Check, ArrowDown, ArrowUp, X, Pencil, Armchair, ArrowLeftRight,
+  Landmark, Megaphone, Bell, Lock, Trash2, Loader2, Check, ArrowDown, ArrowUp, X, Pencil, Armchair, ArrowLeftRight, Clock,
 } from 'lucide-react';
 
 import { fmtTimeEst, todayInGuildTz, isAfterMidnight } from '../timeUtils';
@@ -318,6 +318,12 @@ export default function Raids() {
                 await refresh(row.id);
                 return t('raids.removed', { name });
               })}
+              onReschedule={(eventDate, eventTime) => run(`time:${row.id}`, async () => {
+                const { data } = await axios.post(`/api/raids/${row.id}/time`, { event_date: eventDate, event_time: eventTime });
+                await refresh(row.id);
+                if (!data.moved) return t('raids.timeUnchanged');
+                return data.reopened ? t('raids.timeChangedReopened') : t('raids.timeChanged');
+              })}
               onPatch={(body, okMsg) => run(`patch:${row.id}`, async () => {
                 await axios.patch(`/api/raids/${row.id}`, body);
                 await refresh(row.id);
@@ -345,13 +351,22 @@ export default function Raids() {
 }
 
 function RaidCard({
-  row, raid, detail, myId, busy, onJoin, onWithdraw, onMove, onRole, onRemove, onPatch, onAnnounce, onRemind, onDelete,
+  row, raid, detail, myId, busy, onJoin, onWithdraw, onMove, onRole, onRemove, onReschedule, onPatch, onAnnounce, onRemind, onDelete,
 }) {
   const { t } = useT();
   const [pickingBench, setPickingBench] = useState(false);
   // Whose role the lead is changing: that member's row shows the other roles.
   const [changingRole, setChangingRole] = useState(null);
   const [editingGates, setEditingGates] = useState(false);
+  // The lead moving the run: its night and start time, as posted.
+  const [editingTime, setEditingTime] = useState(false);
+  const [newDate, setNewDate] = useState(row.event_date || '');
+  const [newTime, setNewTime] = useState((row.event_time || '').slice(0, 5));
+  const startEditingTime = () => {
+    setNewDate(row.event_date || '');
+    setNewTime((row.event_time || '').slice(0, 5));
+    setEditingTime(true);
+  };
   const [gates, setGates] = useState(() => fromSegments(row.raid_segments));
   const [confirmDelete, setConfirmDelete] = useState(false);
   useEffect(() => { setGates(fromSegments(row.raid_segments)); }, [row.raid_segments]);
@@ -562,8 +577,34 @@ function RaidCard({
               </div>
             </div>
           )}
+          {editingTime && (
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-3 max-w-md">
+                <label className="block">
+                  <span className="eyebrow text-[10px] text-ash/75 block mb-1.5">{t('cal.night')}</span>
+                  <input type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)} className={`w-full ${INPUT}`} />
+                </label>
+                <label className="block">
+                  <span className="eyebrow text-[10px] text-ash/75 block mb-1.5">{t('raids.start')}</span>
+                  <input type="time" value={newTime} onChange={(e) => setNewTime(e.target.value)} required className={`w-full ${INPUT}`} />
+                </label>
+              </div>
+              {isAfterMidnight(newTime) && <p className="text-xs text-ash/70">{t('cal.afterMidnightNote')}</p>}
+              <p className="text-xs text-ash/70">{t('raids.timeDmNote')}</p>
+              <div className="flex gap-2 justify-end">
+                <Button variant="neutral" size="sm" onClick={() => setEditingTime(false)}>{t('common.cancel')}</Button>
+                <Button variant="secondary" size="sm" disabled={working || !newDate || !newTime}
+                  onClick={() => { setEditingTime(false); onReschedule(newDate, newTime); }}>
+                  {t('raids.saveTime')}
+                </Button>
+              </div>
+            </div>
+          )}
           <div className="flex items-center gap-2 flex-wrap">
-            {!editingGates && !closed && (
+            {!editingGates && !editingTime && row.status !== 'cancelled' && (
+              <Button variant="ghost" size="sm" icon={<Clock className="w-4 h-4" />} onClick={startEditingTime}>{t('raids.changeTime')}</Button>
+            )}
+            {!editingGates && !editingTime && !closed && (
               <Button variant="ghost" size="sm" icon={<Pencil className="w-4 h-4" />} onClick={() => setEditingGates(true)}>{t('raids.editGates')}</Button>
             )}
             <Button variant="ghost" size="sm" icon={<Megaphone className="w-4 h-4" />} disabled={working} onClick={onAnnounce}

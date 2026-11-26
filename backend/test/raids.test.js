@@ -14,7 +14,7 @@ const assert = require('node:assert/strict');
 const createEventSignups = require('../eventSignups');
 const { raidOf, raidSegments, gatesText, hardestMode, RAIDS } = createEventSignups;
 const gateway = require('../discordGateway');
-const { raidEmbed, raidButtons, raidJoinReply, signupMessage, raidRoleChangeDm } = gateway.__test;
+const { raidEmbed, raidButtons, raidJoinReply, signupMessage, raidRoleChangeDm, raidRescheduledDm } = gateway.__test;
 
 const ALTAR = raidOf('altar_of_calanthia');
 const DAY = 86_400_000;
@@ -22,13 +22,15 @@ const isoDate = (ms) => new Date(ms).toISOString().slice(0, 10);
 
 // Just enough of supabase-js: recorded filters, single/maybeSingle, insert,
 // awaiting the builder, and rpc() answered from `rpcData`.
-function fakeSupabase(tables, { rpcCalls = [], rpcData = {}, inserts = [] } = {}) {
+function fakeSupabase(tables, { rpcCalls = [], rpcData = {}, inserts = [], updates = [] } = {}) {
   return {
     from(table) {
       const filters = [];
       const rows = () => (tables[table] || []).filter((r) => filters.every((f) => f(r)));
       let inserted = null;
+      let patch = null;
       const q = {
+        update: (p) => { patch = p; return q; },
         select: () => q,
         eq: (f, v) => { filters.push((r) => String(r[f]) === String(v)); return q; },
         in: (f, vs) => { filters.push((r) => vs.map(String).includes(String(r[f]))); return q; },
@@ -36,7 +38,13 @@ function fakeSupabase(tables, { rpcCalls = [], rpcData = {}, inserts = [] } = {}
         lte: (f, v) => { filters.push((r) => r[f] <= v); return q; },
         order: () => q,
         insert: (row) => { inserted = { id: 'new-run', ...row }; inserts.push(inserted); return q; },
-        single: async () => (inserted ? { data: inserted, error: null } : { data: rows()[0] || null, error: rows()[0] ? null : { message: 'none' } }),
+        single: async () => {
+          if (inserted) return { data: inserted, error: null };
+          const row = rows()[0];
+          if (!row) return { data: null, error: { message: 'none' } };
+          if (patch) { updates.push({ table, id: row.id, patch }); Object.assign(row, patch); }
+          return { data: row, error: null };
+        },
         maybeSingle: async () => ({ data: rows()[0] || null, error: null }),
         then: (resolve) => Promise.resolve({ data: rows(), error: null }).then(resolve),
       };
@@ -363,5 +371,90 @@ describe('the raid lead changing a role (migration 24)', () => {
       /^🔄 <@lead-1> changed your role for \*\*Altar run\*\* to 💚 \*\*Healer\*\* \(starts <t:\d+:R>\)\. You're in the roster\.$/);
     assert.match(raidRoleChangeDm(event, { role: 'Tank', status: 'bench', benchKind: 'overflow' }, 'lead-1'), /moved up if a slot opens/);
     assert.match(raidRoleChangeDm(event, { role: 'DPS', status: 'bench', benchKind: 'opt_in' }, 'lead-1'), /available if needed/);
+  });
+});
+
+describe('the raid lead changing the time', () => {
+  const HOUR = 3_600_000;
+  // A night and time that land `ms` from now, on the guild's clock, read back
+  // through the same resolveStartsAt the code uses.
+  const later = (days) => isoDate(Date.now() + days * DAY);
+  const setup = (over = {}) => {
+    const updates = [];
+    const row = run({ event_time: '21:00', reminder_sent_at: '2026-11-20T00:00:00Z', ...over });
+    const signups = createEventSignups(fakeSupabase({ signup_events: [row] }, { updates }));
+    return { signups, updates, row };
+  };
+
+  test('moves the night and time, recomputes starts_at and re-arms the reminder', async () => {
+    const { signups, updates } = setup();
+    const result = await signups.setRaidTime('run-1', { eventDate: later(3), eventTime: '22:30' });
+    assert.equal(result.moved, true);
+    assert.equal(result.reopened, false);
+    const { patch } = updates[0];
+    assert.deepEqual([patch.event_date, patch.event_time, patch.reminder_sent_at], [later(3), '22:30', null]);
+    assert.ok(new Date(patch.starts_at).getTime() > Date.now() + 2 * DAY);
+    assert.equal('status' in patch, false);
+  });
+
+  test('a time after midnight belongs to the night before', async () => {
+    const { signups, updates } = setup();
+    await signups.setRaidTime('run-1', { eventDate: later(3), eventTime: '00:30' });
+    const startsAt = new Date(updates[0].patch.starts_at);
+    // The 00:30 of night N is the next calendar day, so it's later than 22:30 on night N.
+    const { signups: s2, updates: u2 } = setup();
+    await s2.setRaidTime('run-1', { eventDate: later(3), eventTime: '22:30' });
+    assert.ok(startsAt > new Date(u2[0].patch.starts_at));
+  });
+
+  test('only the time, keeping the night', async () => {
+    const { signups, updates, row } = setup({ event_date: later(4) });
+    await signups.setRaidTime('run-1', { eventTime: '20:00' });
+    assert.equal(updates[0].patch.event_date, row.event_date);
+  });
+
+  test('the same time again changes nothing', async () => {
+    const { signups, updates } = setup();
+    await signups.setRaidTime('run-1', { eventDate: later(3), eventTime: '22:30' });
+    const again = await signups.setRaidTime('run-1', { eventDate: later(3), eventTime: '22:30' });
+    assert.equal(again.moved, false);
+    assert.equal(updates.length, 1);
+  });
+
+  test('held to the posting rules', async () => {
+    const { signups, updates } = setup();
+    await assert.rejects(signups.setRaidTime('run-1', { eventDate: isoDate(Date.now() - 2 * DAY), eventTime: '21:00' }),
+      (e) => e.status === 409 && /already passed/.test(e.message));
+    await assert.rejects(signups.setRaidTime('run-1', { eventDate: later(45), eventTime: '21:00' }), /30 days/);
+    await assert.rejects(signups.setRaidTime('run-1', { eventDate: later(3), eventTime: '' }), /start time/);
+    await assert.rejects(signups.setRaidTime('run-1', { eventDate: '21/11', eventTime: '21:00' }), /YYYY-MM-DD/);
+    assert.equal(updates.length, 0);
+  });
+
+  test('cancelled runs and War signups are refused', async () => {
+    await assert.rejects(setup({ status: 'cancelled' }).signups.setRaidTime('run-1', { eventDate: later(3), eventTime: '21:00' }),
+      /cancelled/);
+    await assert.rejects(setup({ raid_key: null }).signups.setRaidTime('run-1', { eventDate: later(3), eventTime: '21:00' }),
+      /isn't a raid run/);
+  });
+
+  test('a run closed by its start passing reopens; one closed by hand stays closed', async () => {
+    const started = setup({ status: 'closed', starts_at: new Date(Date.now() - HOUR).toISOString() });
+    const moved = await started.signups.setRaidTime('run-1', { eventDate: later(2), eventTime: '21:00' });
+    assert.equal(moved.reopened, true);
+    assert.equal(started.updates[0].patch.status, 'open');
+
+    const byHand = setup({ status: 'closed', starts_at: new Date(Date.now() + DAY).toISOString() });
+    const kept = await byHand.signups.setRaidTime('run-1', { eventDate: later(2), eventTime: '21:00' });
+    assert.equal(kept.reopened, false);
+    assert.equal('status' in byHand.updates[0].patch, false);
+  });
+
+  test('everyone on the run is told the new time and where they stand', () => {
+    const event = run({ title: 'Altar run' });
+    const going = raidRescheduledDm(event, { role: 'Healer', status: 'going' }, 'lead-1');
+    assert.match(going, /^⏰ <@lead-1> moved \*\*Altar run\*\* to <t:\d+:F> \(<t:\d+:R>\)\. You're still in as 💚 \*\*Healer\*\*\./);
+    assert.match(going, /withdraw on the post or the Raids page/);
+    assert.match(raidRescheduledDm(event, { role: 'Tank', status: 'bench' }, 'lead-1'), /still on the bench as 🛡️ \*\*Tank\*\*/);
   });
 });

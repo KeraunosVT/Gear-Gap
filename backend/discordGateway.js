@@ -2463,6 +2463,36 @@ async function notifyRaidRoleChange(member, signupEventId, byId) {
   }
 }
 
+// What someone on a raid run is told when the lead moves it.
+function raidRescheduledDm(event, entry, byId) {
+  const at = signupUnix(event);
+  const role = `${ROLE_EMOJI[entry.role] || ''} **${entry.role}**`;
+  return `⏰ <@${byId}> moved **${event.title}** to <t:${at}:F> (<t:${at}:R>). `
+    + (entry.status === 'going'
+      ? `You're still in as ${role}.`
+      : `You're still on the bench as ${role}.`)
+    + ' If the new time doesn\'t work for you, withdraw on the post or the Raids page.';
+}
+
+// DMs everyone on the run except the person who moved it, paced like a
+// reminder. Resolves when the last DM has gone; the route doesn't wait.
+async function notifyRaidRescheduled(signupEventId, byId) {
+  if (!ready || !client || !signups) return { count: 0 };
+  const event = await signups.get(signupEventId);
+  const { going, bench } = await signups.detail(signupEventId);
+  const members = [...going, ...bench].filter((e) => String(e.discord_id) !== String(byId));
+  for (const e of members) {
+    try {
+      const user = await client.users.fetch(e.discord_id);
+      await user.send({ content: raidRescheduledDm(event, e, byId), allowedMentions: { parse: [] } });
+    } catch (err) {
+      console.error(`Raid reschedule DM error for ${e.discord_id}:`, err.message);
+    }
+    await new Promise((r) => setTimeout(r, DM_PACING_MS));
+  }
+  return { count: members.length };
+}
+
 async function handleSignupButton(interaction) {
   if (!interaction.customId.startsWith('sg:')) return;
   const [, action, id] = interaction.customId.split(':');
@@ -2730,6 +2760,7 @@ module.exports = {
   deleteSignupMessage,
   notifySignupPromotion,
   notifyRaidRoleChange,
+  notifyRaidRescheduled,
   sendSignupReminder,
   notifyLateAttendance,
   postPoll,
@@ -2748,6 +2779,7 @@ module.exports = {
 // its CLI script: a seam for a caller that can't take the normal route.
 module.exports.__test = {
   raidRoleChangeDm,
+  raidRescheduledDm,
   raidEmbed,
   raidButtons,
   raidJoinReply,

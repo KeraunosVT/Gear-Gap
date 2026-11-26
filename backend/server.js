@@ -1186,6 +1186,19 @@ app.post('/api/raids/:id/move', raidRoute(async (req, res) => {
   }
 }));
 
+// Move the run to another night or time. Everyone on it except whoever moved
+// it is DMed the new time, since a signup was a yes to the old one.
+app.post('/api/raids/:id/time', raidRoute(async (req, res) => {
+  await raidsApi.managed(req);
+  const { event_date, event_time } = req.body || {};
+  const result = await signups.setRaidTime(req.params.id, { eventDate: event_date, eventTime: event_time });
+  res.json({ moved: result.moved, reopened: result.reopened, event: result.event });
+  if (!result.moved) return;
+  gateway.refreshSignupMessage(req.params.id);
+  gateway.notifyRaidRescheduled(req.params.id, req.user.id)
+    .catch((err) => console.error('Raid reschedule DM error:', err.message));
+}));
+
 // Change someone's role. The member is DMed, and so is whoever moved up into
 // the slot they left.
 app.post('/api/raids/:id/role', raidRoute(async (req, res) => {

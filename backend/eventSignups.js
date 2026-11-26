@@ -440,6 +440,50 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
       return data;
     },
 
+    // A run's night and start time, changed after posting. Held to the same
+    // rules as posting one: a time is required, it can't have passed, and it's
+    // at most MEMBER_OPEN_HORIZON_DAYS out. starts_at follows (it drives
+    // reminders and auto-close), and a move re-arms the reminder.
+    //
+    // A run closed by its start passing is reopened when moved later: the
+    // close was about the old time. One the lead closed by hand, with its
+    // start still ahead, stays closed.
+    async setRaidTime(id, { eventDate, eventTime: rawTime } = {}) {
+      const event = await loadEvent(id);
+      if (!event.raid_key) throw httpError(400, "That signup isn't a raid run.");
+      if (event.status === 'cancelled') throw httpError(409, 'This run was cancelled.');
+
+      const date = eventDate === undefined ? event.event_date : eventDate;
+      if (!isValidDate(date)) throw httpError(400, 'Date must be in YYYY-MM-DD format.');
+      const time = rawTime === undefined ? event.event_time : (rawTime ? createLoa.parseTimeOfDay(rawTime) : null);
+      if (!time) throw httpError(400, 'A raid run needs a start time, e.g. 9:00 PM.');
+
+      const startsAt = resolveStartsAt(date, time);
+      const before = event.starts_at ? new Date(event.starts_at).getTime() : null;
+      if (startsAt.getTime() === before) return { event, moved: false, reopened: false };
+      const now = Date.now();
+      if (startsAt.getTime() <= now) throw httpError(409, 'That time has already passed.');
+      if (startsAt.getTime() - now > MEMBER_OPEN_HORIZON_DAYS * 86_400_000) {
+        throw httpError(400, `Raid runs can be scheduled up to ${MEMBER_OPEN_HORIZON_DAYS} days ahead.`);
+      }
+
+      const reopened = event.status === 'closed' && before !== null && before <= now;
+      const update = {
+        event_date: date,
+        event_time: time,
+        starts_at: startsAt.toISOString(),
+        reminder_sent_at: null,
+        updated_at: new Date(now).toISOString(),
+        ...(reopened ? { status: 'open' } : {}),
+      };
+      const { data, error } = await supabase.from('signup_events').update(update).eq('id', id).select('*').single();
+      if (error || !data) {
+        console.error('signups.setRaidTime error:', error?.message);
+        throw httpError(500, 'Failed to change the time.');
+      }
+      return { event: data, moved: true, reopened };
+    },
+
     // Whether this member leads the run (posted it). Officers are checked by
     // the caller, which knows the session's permissions.
     isRaidLead(event, discordId) {
