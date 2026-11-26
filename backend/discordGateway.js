@@ -2443,6 +2443,26 @@ async function notifySignupPromotion(member, signupEventId) {
   }
 }
 
+// What a member is told when the raid lead changes their role.
+function raidRoleChangeDm(event, member, byId) {
+  const where = member.status === 'going' ? "You're in the roster."
+    : member.benchKind === 'overflow' ? "You're on the bench, and will be moved up if a slot opens."
+      : "You're on the bench, available if needed.";
+  return `🔄 <@${byId}> changed your role for **${event.title}** to ${ROLE_EMOJI[member.role] || ''} **${member.role}**`
+    + ` (starts <t:${signupUnix(event)}:R>). ${where}`;
+}
+
+async function notifyRaidRoleChange(member, signupEventId, byId) {
+  if (!ready || !client || !member?.discord_id) return;
+  try {
+    const event = await signups.get(signupEventId);
+    const user = await client.users.fetch(member.discord_id);
+    await user.send({ content: raidRoleChangeDm(event, member, byId), allowedMentions: { parse: [] } });
+  } catch (err) {
+    console.error(`Raid role change DM error for ${member.discord_id}:`, err.message);
+  }
+}
+
 async function handleSignupButton(interaction) {
   if (!interaction.customId.startsWith('sg:')) return;
   const [, action, id] = interaction.customId.split(':');
@@ -2709,6 +2729,7 @@ module.exports = {
   refreshSignupMessage,
   deleteSignupMessage,
   notifySignupPromotion,
+  notifyRaidRoleChange,
   sendSignupReminder,
   notifyLateAttendance,
   postPoll,
@@ -2726,6 +2747,7 @@ module.exports = {
 // any other way. Same motivation as gearIlvl exporting parseGearScreenshot for
 // its CLI script: a seam for a caller that can't take the normal route.
 module.exports.__test = {
+  raidRoleChangeDm,
   raidEmbed,
   raidButtons,
   raidJoinReply,

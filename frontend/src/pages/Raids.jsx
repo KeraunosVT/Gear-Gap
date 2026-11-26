@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 import { useAuth } from '../auth';
 import {
-  Landmark, Megaphone, Bell, Lock, Trash2, Loader2, Check, ArrowDown, ArrowUp, X, Pencil, Armchair,
+  Landmark, Megaphone, Bell, Lock, Trash2, Loader2, Check, ArrowDown, ArrowUp, X, Pencil, Armchair, ArrowLeftRight,
 } from 'lucide-react';
 
 import { fmtTimeEst, todayInGuildTz, isAfterMidnight } from '../timeUtils';
@@ -305,6 +305,14 @@ export default function Raids() {
                 await refresh(row.id);
                 return to === 'going' ? t('raids.movedUp', { name }) : t('raids.movedToBench', { name });
               })}
+              onRole={(discordId, role, name) => run(`role:${row.id}`, async () => {
+                const { data } = await axios.post(`/api/raids/${row.id}/role`, { discord_id: discordId, role });
+                await refresh(row.id);
+                const label = `${ROLE_EMOJI[role]} ${t(`role.${role}`)}`;
+                if (data.status === 'going') return t('raids.roleChanged', { name, role: label });
+                if (data.benchKind === 'overflow') return t('raids.roleChangedBench', { name, role: label, n: data.position || 1 });
+                return t('raids.roleChangedOptIn', { name, role: label });
+              })}
               onRemove={(discordId, name) => run(`rm:${row.id}`, async () => {
                 await axios.delete(`/api/raids/${row.id}/entries/${discordId}`);
                 await refresh(row.id);
@@ -337,10 +345,12 @@ export default function Raids() {
 }
 
 function RaidCard({
-  row, raid, detail, myId, busy, onJoin, onWithdraw, onMove, onRemove, onPatch, onAnnounce, onRemind, onDelete,
+  row, raid, detail, myId, busy, onJoin, onWithdraw, onMove, onRole, onRemove, onPatch, onAnnounce, onRemind, onDelete,
 }) {
   const { t } = useT();
   const [pickingBench, setPickingBench] = useState(false);
+  // Whose role the lead is changing: that member's row shows the other roles.
+  const [changingRole, setChangingRole] = useState(null);
   const [editingGates, setEditingGates] = useState(false);
   const [gates, setGates] = useState(() => fromSegments(row.raid_segments));
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -356,6 +366,35 @@ function RaidCard({
   const bench = detail?.bench || [];
   const isMe = (e) => String(e.discord_id) === String(myId);
   const isLead = (e) => String(e.discord_id) === String(row.created_by);
+
+  // The lead's role control for one member: a swap button, which opens the
+  // other roles as buttons. Emoji only, because a slot is narrow; each button
+  // is labelled for screen readers and hover. `wrap` puts the open choice on
+  // its own line inside a roster slot, so the name stays readable.
+  const roleControl = (e, { wrap = false } = {}) => {
+    if (!manage || closed) return null;
+    if (changingRole !== e.discord_id) {
+      return (
+        <button type="button" onClick={() => setChangingRole(e.discord_id)} disabled={working}
+          title={t('raids.changeRole', { name: e.display_name })} aria-label={t('raids.changeRole', { name: e.display_name })}
+          className="text-ash hover:text-bone"><ArrowLeftRight className="w-3.5 h-3.5" /></button>
+      );
+    }
+    return (
+      <span className={`inline-flex items-center gap-1 ${wrap ? 'basis-full justify-end' : ''}`}>
+        {ROLES.filter((r) => r !== e.role && (caps[r] || 0) > 0).map((r) => {
+          const label = t('raids.makeRole', { name: e.display_name, role: t(`role.${r}`) });
+          return (
+            <button key={r} type="button" disabled={working} title={label} aria-label={label}
+              onClick={() => { setChangingRole(null); onRole(e.discord_id, r, e.display_name); }}
+              className="leading-none rounded px-1 hover:bg-hall">{ROLE_EMOJI[r]}</button>
+          );
+        })}
+        <button type="button" onClick={() => setChangingRole(null)} title={t('common.cancel')} aria-label={t('common.cancel')}
+          className="text-ash hover:text-bone"><X className="w-3 h-3" /></button>
+      </span>
+    );
+  };
 
   // Each overflow bench entry's place in line for its role.
   const benchPos = {};
@@ -402,19 +441,21 @@ function RaidCard({
                 <span>{ROLE_EMOJI[role]} {t(`raids.plural.${role}`)}</span>
                 <span className="font-mono text-ash tracking-normal">{inRole.length}/{cap}</span>
               </div>
-              <div className={`grid gap-1.5 ${role === 'DPS' ? 'grid-cols-2' : 'grid-cols-1'}`}>
+              <div className={`grid gap-1.5 items-start ${role === 'DPS' ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1'}`}>
                 {inRole.map((e) => (
                   <div key={e.discord_id}
-                    className={`min-h-[34px] rounded-lg px-2.5 py-1.5 text-sm flex items-center gap-2 border min-w-0 ${
+                    className={`min-h-[34px] rounded-lg px-2.5 py-1.5 text-sm flex flex-wrap items-center gap-x-2 gap-y-1 border min-w-0 ${
                       isMe(e) ? `${ROLE_BORDER[role]} bg-panelup` : 'border-line bg-panelup'}`}>
                     <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${ROLE_DOT[role]}`} />
                     <span className="truncate flex-1 text-bone">{e.display_name}</span>
                     {isLead(e) && <span className="eyebrow text-[9px] text-brass">{t('raids.lead')}</span>}
-                    {manage && !closed && (
+                    {manage && !closed && changingRole !== e.discord_id && roleControl(e)}
+                    {manage && !closed && changingRole !== e.discord_id && (
                       <button type="button" onClick={() => onMove(e.discord_id, 'bench', e.display_name)} disabled={working}
                         title={t('raids.toBench', { name: e.display_name })} aria-label={t('raids.toBench', { name: e.display_name })}
                         className="text-ash hover:text-bone"><ArrowDown className="w-3.5 h-3.5" /></button>
                     )}
+                    {changingRole === e.discord_id && roleControl(e, { wrap: true })}
                   </div>
                 ))}
                 {Array.from({ length: Math.max(0, cap - inRole.length) }, (_, i) => (
@@ -441,12 +482,13 @@ function RaidCard({
                 {benchPos[e.discord_id] && <span className="font-mono text-[11px] text-ash">#{benchPos[e.discord_id]}</span>}
                 <span className="text-bone">{e.display_name}</span>
                 {e.bench_kind === 'opt_in' && <span className="text-[11px] text-ash">{t('raids.optIn')}</span>}
-                {manage && !closed && (
+                {roleControl(e)}
+                {manage && !closed && changingRole !== e.discord_id && (
                   <button type="button" onClick={() => onMove(e.discord_id, 'going', e.display_name)} disabled={working}
                     title={t('raids.toRoster', { name: e.display_name })} aria-label={t('raids.toRoster', { name: e.display_name })}
                     className="text-ash hover:text-bone"><ArrowUp className="w-3.5 h-3.5" /></button>
                 )}
-                {manage && (
+                {manage && changingRole !== e.discord_id && (
                   <button type="button" onClick={() => onRemove(e.discord_id, e.display_name)} disabled={working}
                     title={t('raids.remove', { name: e.display_name })} aria-label={t('raids.remove', { name: e.display_name })}
                     className="text-ash hover:text-oxblood"><X className="w-3 h-3" /></button>

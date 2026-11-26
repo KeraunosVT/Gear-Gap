@@ -2,6 +2,8 @@
 
 A guild-management web app for a *Throne & Liberty* guild, built around Discord: members log in with Discord OAuth, officers run the "war table" (attendance, loot council, rosters), and a companion Discord bot handles slash commands, timers, and announcements. Branding (house name, tag, motto) lives in one file and is meant to be re-themed per guild — see [Configuration](#configuration).
 
+**Raid signups for other servers:** [GH Raid Bot](https://github.com/KeraunosVT/GH-Raid-Bot) is a separate, public Discord bot that any *Throne & Liberty* server can invite. It's this app's raid runs rebuilt to stand alone, with no website and no login.
+
 ## Features
 
 **For members**
