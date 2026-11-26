@@ -74,8 +74,6 @@ export default function ScoutPostModal({ guild, signupId = null, onClose, onPost
             placeholder={t('scout.notePlaceholder')} className={FIELD} />
         </div>
 
-        {signupId && <p className="text-xs text-ash/70">{t('scout.claimsAuto')}</p>}
-
         {error && <div className="text-sm text-oxblood">{error}</div>}
 
         <div className="flex justify-end gap-2 pt-2">

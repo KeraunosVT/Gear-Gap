@@ -18,7 +18,6 @@ const createQuestionnaires = require('./questionnaires');
 const createMemberTimezones = require('./memberTimezones');
 const { listMembers } = require('./discord');
 const guildConfig = require('./guildConfig');
-const { postScouting, SCOUTING_LEAD_MINUTES } = require('./scouting');
 
 // Only the three things that are identity or secret still come from the
 // environment. Every channel, every role list and the house name are columns on
@@ -215,9 +214,6 @@ let memberTimezones = null;
 let polls = null;
 let questionnaires = null;
 let sweepTimer = null;
-// Only the scouting post reads the database directly (through scouting.js);
-// everything else here goes through one of the modules above.
-let db = null;
 
 function start(supabase) {
   if (!BOT_TOKEN || !GUILD_ID) {
@@ -225,7 +221,6 @@ function start(supabase) {
     return;
   }
 
-  db = supabase || null;
   eliteTimers = supabase ? createEliteTimers(supabase) : null;
   identities = supabase ? createIdentities(supabase) : null;
   loa = supabase ? createLoa(supabase, identities) : null;
@@ -2610,26 +2605,6 @@ async function sendSignupReminder(signupEventId, { manual = false } = {}) {
   }
 }
 
-// The automatic scouting post: the opponent's report, SCOUTING_LEAD_MINUTES
-// before a signup that names one. Only when Guild Settings names a Scouting
-// channel — checked before claiming, so setting one mid-way still catches a
-// fight that's already inside the window. Claimed before posting, like the
-// reminder: a post that then fails is logged, not retried every minute.
-async function sendScoutingReport(event) {
-  const channelId = guildConfig.scoutingChannelId();
-  if (!db || !signups || !channelId) return;
-  try {
-    if (!(await signups.claimScouting(event.id))) return;
-    await postScouting(db, {
-      enemy: event.opponent_guild,
-      channelId,
-      event: { title: event.title, startsAt: event.starts_at },
-    });
-  } catch (err) {
-    console.error(`Scouting post error for ${event.id}:`, err.response?.data?.message || err.message);
-  }
-}
-
 // The only scheduler in the backend. Runs in the web process, so it does nothing
 // while that process is asleep — and the `starts_at > now()` guard in
 // dueForReminder means a long outage suppresses stale reminders rather than
@@ -2646,11 +2621,6 @@ function startSignupSweep() {
         } catch (err) {
           console.error(`Signup reminder error for ${event.id}:`, err.message);
         }
-      }
-      // Skipped outright with no Scouting channel, so a guild that never sets
-      // one doesn't pay for the query every minute.
-      if (guildConfig.scoutingChannelId()) {
-        for (const event of await signups.dueForScouting(SCOUTING_LEAD_MINUTES)) await sendScoutingReport(event);
       }
       for (const event of await signups.dueToClose()) {
         await signups.setStatus(event.id, 'closed');

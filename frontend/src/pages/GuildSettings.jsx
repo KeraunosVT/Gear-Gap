@@ -34,7 +34,7 @@ const CHANNELS = [
   { key: 'in_house_channel_id', label: 'In-House signups', hint: "Where an In-House event's signup post goes, instead of the Signups channel. Falls back to Signups when left blank" },
   { key: 'raid_channel_id', label: 'Raid signups', hint: "Where a raid run's signup post goes, instead of the Signups channel. Falls back to Signups when left blank" },
   { key: 'calendar_channel_id', label: 'Event Calendar', hint: "Where the calendar's Post to Discord goes. Falls back to Signups when left blank" },
-  { key: 'scouting_channel_id', label: 'Scouting', hint: "An enemy guild's scouting report posts here an hour before any signup that names them as the opponent. Blank = never automatically; the Post to Discord buttons still work. No fallback, since the report names their best players" },
+  { key: 'scouting_channel_id', label: 'Scouting', hint: "Where the Post scouting buttons start. You still pick the channel before anything posts. Falls back to Event Calendar when left blank" },
 ];
 
 const ROLE_GROUPS = [
