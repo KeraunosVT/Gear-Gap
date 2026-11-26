@@ -14,7 +14,7 @@ const assert = require('node:assert/strict');
 const createEventSignups = require('../eventSignups');
 const { raidOf, raidSegments, gatesText, hardestMode, RAIDS } = createEventSignups;
 const gateway = require('../discordGateway');
-const { raidEmbed, raidButtons, raidJoinReply, signupMessage } = gateway.__test;
+const { raidEmbed, raidButtons, raidJoinReply, signupMessage, raidRoleChangeDm } = gateway.__test;
 
 const ALTAR = raidOf('altar_of_calanthia');
 const DAY = 86_400_000;
@@ -306,5 +306,62 @@ describe('the Discord post', () => {
     assert.match(raidJoinReply({ wasNew: false, status: 'going', role: 'DPS' }), /already in/);
     assert.match(raidJoinReply({ wasNew: true, status: 'going', role: 'DPS', promoted: { display_name: 'Orrin', role: 'Tank' } }),
       /Orrin\*\* moved up from the bench into your old Tank slot/);
+  });
+});
+
+describe('the raid lead changing a role (migration 24)', () => {
+  // The slot rules are SQL (raid_change_role); this checks what goes in and
+  // what comes back.
+  test('goes to raid_change_role and reports where they landed and who moved up', async () => {
+    const rpcCalls = [];
+    const signups = createEventSignups(fakeSupabase({ signup_events: [run()] }, {
+      rpcCalls,
+      rpcData: { raid_change_role: [{
+        entry_status: 'going', entry_role: 'DPS', entry_bench_kind: null, bench_position: null,
+        changed: true, from_role: 'Tank', promoted_id: 'orrin', promoted_name: 'Orrin', promoted_role: 'Tank',
+      }] },
+    }));
+    const result = await signups.raidChangeRole({ id: 'run-1', discordId: 123, role: 'DPS' });
+    assert.deepEqual(rpcCalls, [{ name: 'raid_change_role', args: { p_event_id: 'run-1', p_discord_id: '123', p_role: 'DPS' } }]);
+    assert.deepEqual(result, {
+      status: 'going', role: 'DPS', benchKind: null, position: null, changed: true, fromRole: 'Tank',
+      promoted: { discord_id: 'orrin', display_name: 'Orrin', role: 'Tank' },
+    });
+  });
+
+  test('a waiting member stays waiting, with their place', async () => {
+    const signups = createEventSignups(fakeSupabase({ signup_events: [run()] }, {
+      rpcData: { raid_change_role: [{ entry_status: 'bench', entry_role: 'Healer', entry_bench_kind: 'overflow', bench_position: 2, changed: true, from_role: 'DPS' }] },
+    }));
+    const result = await signups.raidChangeRole({ id: 'run-1', discordId: 'ana', role: 'Healer' });
+    assert.deepEqual([result.status, result.benchKind, result.position, result.promoted], ['bench', 'overflow', 2, null]);
+  });
+
+  test('an unknown role is refused before the database', async () => {
+    const rpcCalls = [];
+    const signups = createEventSignups(fakeSupabase({}, { rpcCalls }));
+    await assert.rejects(signups.raidChangeRole({ id: 'run-1', discordId: 'ana', role: 'Bard' }), /Pick a role/);
+    assert.equal(rpcCalls.length, 0);
+  });
+
+  test('a full role, a missing member and a missing migration say so', async () => {
+    const failing = (message) => createEventSignups({ rpc: async () => ({ data: null, error: { message } }) });
+    await assert.rejects(failing('raid_role_full').raidChangeRole({ id: 'r', discordId: 'a', role: 'Tank' }),
+      (e) => e.status === 409 && /role is full/.test(e.message));
+    await assert.rejects(failing('raid_not_signed_up').raidChangeRole({ id: 'r', discordId: 'a', role: 'Tank' }),
+      (e) => e.status === 404);
+    await assert.rejects(
+      failing('Could not find the function public.raid_change_role(p_discord_id, p_event_id, p_role) in the schema cache')
+        .raidChangeRole({ id: 'r', discordId: 'a', role: 'Tank' }),
+      (e) => e.status === 503 && /migration 24/.test(e.message),
+    );
+  });
+
+  test('the member is told what changed and where they stand', () => {
+    const event = run({ title: 'Altar run' });
+    assert.match(raidRoleChangeDm(event, { role: 'Healer', status: 'going' }, 'lead-1'),
+      /^🔄 <@lead-1> changed your role for \*\*Altar run\*\* to 💚 \*\*Healer\*\* \(starts <t:\d+:R>\)\. You're in the roster\.$/);
+    assert.match(raidRoleChangeDm(event, { role: 'Tank', status: 'bench', benchKind: 'overflow' }, 'lead-1'), /moved up if a slot opens/);
+    assert.match(raidRoleChangeDm(event, { role: 'DPS', status: 'bench', benchKind: 'opt_in' }, 'lead-1'), /available if needed/);
   });
 });

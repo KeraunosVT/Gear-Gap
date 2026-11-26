@@ -1186,6 +1186,24 @@ app.post('/api/raids/:id/move', raidRoute(async (req, res) => {
   }
 }));
 
+// Change someone's role. The member is DMed, and so is whoever moved up into
+// the slot they left.
+app.post('/api/raids/:id/role', raidRoute(async (req, res) => {
+  await raidsApi.managed(req);
+  const { discord_id, role } = req.body || {};
+  if (!discord_id) return res.status(400).json({ error: 'Member id required.' });
+  const result = await signups.raidChangeRole({ id: req.params.id, discordId: discord_id, role });
+  res.json(result);
+  if (!result.changed) return;
+  gateway.refreshSignupMessage(req.params.id);
+  // After the response, so a failure here is logged rather than answered.
+  if (String(discord_id) !== String(req.user.id)) {
+    gateway.notifyRaidRoleChange({ discord_id: String(discord_id), ...result }, req.params.id, req.user.id)
+      .catch((err) => console.error('Raid role change DM error:', err.message));
+  }
+  if (result.promoted) gateway.notifySignupPromotion(result.promoted, req.params.id);
+}));
+
 // Take someone off the run entirely — a member who left the guild still
 // holding a slot.
 app.delete('/api/raids/:id/entries/:discordId', raidRoute(async (req, res) => {

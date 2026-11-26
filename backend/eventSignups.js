@@ -253,7 +253,10 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
     if (msg.includes('raid_role_full')) return httpError(409, 'That role is full. Move someone to the bench first.');
     if (msg.includes('raid_not_signed_up')) return httpError(404, "They aren't signed up for this run.");
     if (msg.includes('raid_bad_move')) return httpError(400, 'Move them to the roster or the bench.');
-    // The functions are missing: migration 22 hasn't run.
+    // The functions are missing: a migration hasn't run.
+    if (/raid_change_role/.test(msg) && /function|schema cache/i.test(msg)) {
+      return httpError(503, 'Changing roles needs migration 24 to be run first.');
+    }
     if (/raid_(join|withdraw|move)/.test(msg) && /function|schema cache/i.test(msg)) {
       return httpError(503, 'Raid signups need migration 22 to be run first.');
     }
@@ -451,6 +454,28 @@ module.exports = function createEventSignups(supabase, identities = null, loa = 
       if (error) throw rpcError(error);
       const row = (data || [])[0] || {};
       return { status: row.entry_status || to, role: row.entry_role || null };
+    },
+
+    // The raid lead changing someone's role (migration 24). They keep their
+    // place as far as the new role allows; see the migration for the rules.
+    async raidChangeRole({ id, discordId, role }) {
+      if (!RAID_ROLES.includes(role)) throw httpError(400, 'Pick a role: Tank, DPS or Healer.');
+      const { data, error } = await supabase.rpc('raid_change_role', {
+        p_event_id: id, p_discord_id: String(discordId), p_role: role,
+      });
+      if (error) throw rpcError(error);
+      const row = (data || [])[0] || {};
+      return {
+        status: row.entry_status || null,
+        role: row.entry_role || role,
+        benchKind: row.entry_bench_kind || null,
+        position: row.bench_position || null,
+        changed: Boolean(row.changed),
+        fromRole: row.from_role || null,
+        promoted: row.promoted_id
+          ? { discord_id: row.promoted_id, display_name: row.promoted_name, role: row.promoted_role }
+          : null,
+      };
     },
 
     get: loadEvent,

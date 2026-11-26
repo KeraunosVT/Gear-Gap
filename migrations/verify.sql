@@ -379,6 +379,13 @@ select '23 · guild_config.raid_channel_id',
         where table_schema = 'public' and table_name = 'guild_config' and column_name = 'raid_channel_id') = 1
 union all
 
+-- ── 24_raid_change_role ─────────────────────────────────────────────────────
+-- Called by the Raids page's role buttons; missing, they answer 503.
+select '24 · raid_change_role(3)',
+       (select count(*) from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+        where n.nspname = 'public' and p.proname = 'raid_change_role' and p.pronargs = 3) = 1
+union all
+
 -- ── 12_lock_down_anon ───────────────────────────────────────────────────────
 -- These are standing checks, not one-offs: a table or function added by a
 -- LATER migration without the same treatment turns its row false. Re-running
