@@ -57,6 +57,11 @@ const ROUTE_PERMISSIONS = [
   { prefix: '/maps', permission: 'match' },
   { prefix: '/rosters', permission: 'parties' },
   { prefix: '/member-roles', permission: 'parties' },
+  // The Members page: current roster, former members, who was in on a night.
+  // Who's on the roster is the Parties officer's question, so it takes that
+  // key rather than a new one that would start granted to nobody. Not caught
+  // by the shared '/members' read — the boundary rule needs a '/' after it.
+  { prefix: '/membership', permission: 'parties' },
   { prefix: '/loa/unavailable', permission: 'parties' },
   { prefix: '/voice-channels', permission: 'attendance' },
   { prefix: '/events', permission: 'attendance' },

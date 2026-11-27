@@ -24,6 +24,7 @@ const createMemberTenure = require('./memberTenure');
 const FEATURES = [
   require('./admin/settings'),
   require('./admin/members'),
+  require('./admin/membership'),
   require('./admin/loot'),
   require('./admin/lootCurrency'),
   require('./admin/shardPriority'),
