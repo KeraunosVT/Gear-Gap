@@ -87,7 +87,34 @@ const VIEWS = {
     ],
     empty: 'No one on record held the member role that night.',
   },
+  compare: {
+    columns: [
+      { key: 'name', label: 'Member', render: nameCell },
+      { key: 'username', label: 'Discord', render: usernameCell },
+      { key: 'status', label: 'Change', render: (m) => <StatusBadge status={m.status} /> },
+      { key: 'since', label: 'Joined', align: 'right', render: (m) => <Joined m={m} /> },
+      { key: 'until', label: 'Left', align: 'right', render: (m) => (m.status === 'left'
+        ? <span className="text-bone" title={m.until ? undefined : 'Gone from Discord; the hourly role check will record the date.'}>{fmtDay(m.until)}</span>
+        : <span className="text-ash">—</span>) },
+    ],
+    empty: 'No one on record that night or now.',
+  },
 };
+
+// The comparison's three outcomes, in the order the server sends them —
+// changes first. `rank` keeps that order when the column is sorted.
+const STATUS = {
+  left: { label: 'Left since', rank: 0, cls: 'text-oxblood border-oxblood/50' },
+  joined: { label: 'Joined since', rank: 1, cls: 'text-emerald-400 border-emerald-500/40' },
+  stayed: { label: 'Stayed', rank: 2, cls: 'text-ash border-line' },
+};
+
+function StatusBadge({ status }) {
+  const s = STATUS[status];
+  return s ? <span className={`text-[10px] eyebrow border rounded-full px-2 py-0.5 ${s.cls}`}>{s.label}</span> : null;
+}
+
+const sortValue = (r, k) => (k === 'status' ? STATUS[r.status]?.rank : r[k]);
 
 const TEXT_KEYS = ['name', 'username'];
 
@@ -102,6 +129,8 @@ export default function Members() {
   const [error, setError] = useState('');
   const [dateError, setDateError] = useState('');
   const [filter, setFilter] = useState('');
+  // Compare tab only: narrow to one outcome, or '' for all of them.
+  const [status, setStatus] = useState('');
   const { key: sortKey, dir: sortDir, sortBy } = useSort(TEXT_KEYS);
   // Only the newest request may land: picking dates quickly would otherwise
   // let a slow earlier answer overwrite a later one.
@@ -130,21 +159,31 @@ export default function Members() {
   };
 
   const lists = useMemo(() => {
-    if (!data) return { active: [], past: [], date: [] };
+    if (!data) return { active: [], past: [], date: [], compare: [] };
     return {
       active: data.active.map((m) => ({ ...m, days: m.since ? daysBetween(m.since, today) : null })),
       past: data.past.map((m) => ({ ...m, days: m.since ? daysBetween(m.since, m.until) : null })),
       date: data.on?.members || [],
+      compare: data.on?.compare || [],
     };
   }, [data, today]);
 
+  // Over the whole comparison, not the filtered rows, so the counts stay put
+  // while they're being used as the filter.
+  const tally = useMemo(() => {
+    const t = { left: 0, joined: 0, stayed: 0 };
+    lists.compare.forEach((m) => { t[m.status] += 1; });
+    return t;
+  }, [lists]);
+
   const rows = useMemo(() => {
     const f = filter.trim().toLowerCase();
-    const list = lists[view].filter((m) => !f
+    const list = lists[view].filter((m) => (!f
       || (m.name || '').toLowerCase().includes(f)
-      || (m.username || '').toLowerCase().includes(f));
-    return sortRows(list, sortKey, sortDir);
-  }, [lists, view, filter, sortKey, sortDir]);
+      || (m.username || '').toLowerCase().includes(f))
+      && (view !== 'compare' || !status || m.status === status));
+    return sortRows(list, sortKey, sortDir, sortValue);
+  }, [lists, view, filter, status, sortKey, sortDir]);
 
   if (!can('parties')) return <RestrictedGate />;
 
@@ -152,7 +191,9 @@ export default function Members() {
     { key: 'active', label: `Active${data ? ` (${lists.active.length})` : ''}` },
     { key: 'past', label: `Past${data ? ` (${lists.past.length})` : ''}` },
     { key: 'date', label: 'On a date' },
+    { key: 'compare', label: 'Compare' },
   ];
+  const datePicked = view === 'date' || view === 'compare';
   const { columns, empty } = VIEWS[view];
 
   return (
@@ -165,9 +206,9 @@ export default function Members() {
             value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Search members…"
             className="bg-panel border border-line rounded-lg px-4 py-2.5 text-bone focus:outline-none focus:border-brass w-full max-w-xs"
           />
-          {view === 'date' && (
+          {datePicked && (
             <label className="flex items-center gap-2 text-sm text-ash">
-              In the guild on
+              {view === 'compare' ? 'Now compared with' : 'In the guild on'}
               <input
                 type="date" value={onDate} max={today} onChange={(e) => pickDate(e.target.value)}
                 className="bg-panel border border-line rounded-lg px-3 py-2 text-bone focus:outline-none focus:border-brass"
@@ -176,7 +217,14 @@ export default function Members() {
           )}
         </div>
         <div className="flex items-center gap-4">
-          {!loading && !error && (
+          {!loading && !error && view === 'compare' && data?.on && (
+            <span className="text-sm text-ash" title={`${lists.date.length} on ${fmtGuildDay(data.on.date, { year: true })}, ${lists.active.length} now`}>
+              <span className="text-bone font-mono">{lists.date.length}</span> then
+              <span className="mx-1.5">→</span>
+              <span className="text-bone font-mono">{lists.active.length}</span> now
+            </span>
+          )}
+          {!loading && !error && view !== 'compare' && (
             <span className="text-sm text-ash">
               <span className="text-bone font-mono">{rows.length}</span> member{rows.length === 1 ? '' : 's'}
               {view === 'date' && data?.on && <> on {fmtGuildDay(data.on.date, { year: true })}</>}
@@ -189,19 +237,37 @@ export default function Members() {
         </div>
       </div>
 
-      {data?.discordUnavailable && view === 'active' && (
+      {/* The outcomes double as the filter: click one to see only those,
+          click it again (or All) to see everyone. */}
+      {view === 'compare' && data?.on && !error && (
+        <div className="flex flex-wrap items-center gap-2 mb-5">
+          <button type="button" onClick={() => setStatus('')}
+            className={`px-3 py-1.5 rounded-full border text-xs font-bold tracking-wide transition-colors ${!status ? 'border-brass text-brassbright bg-panel' : 'border-line text-ash hover:text-bone'}`}>
+            All <span className="font-mono ml-1">{lists.compare.length}</span>
+          </button>
+          {Object.entries(STATUS).map(([key, s]) => (
+            <button key={key} type="button" onClick={() => setStatus((cur) => (cur === key ? '' : key))}
+              aria-pressed={status === key}
+              className={`px-3 py-1.5 rounded-full border text-xs font-bold tracking-wide transition-colors ${status === key ? `${s.cls} bg-panel` : 'border-line text-ash hover:text-bone'}`}>
+              {s.label} <span className="font-mono ml-1">{tally[key]}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {data?.discordUnavailable && (view === 'active' || view === 'compare') && (
         <ErrorBanner>
           Discord couldn&apos;t be reached, so this is the roster as of the last hourly role check rather than live.
         </ErrorBanner>
       )}
-      {dateError && view === 'date' && <ErrorBanner>{dateError}</ErrorBanner>}
+      {dateError && datePicked && <ErrorBanner>{dateError}</ErrorBanner>}
 
       {error ? (
         <ErrorState message={error} onRetry={() => load()} />
       ) : loading ? (
         <EmptyState>Reading the roll…</EmptyState>
       ) : rows.length === 0 ? (
-        <EmptyState>{filter ? 'No one matches that search.' : empty}</EmptyState>
+        <EmptyState>{filter || (view === 'compare' && status) ? 'No one matches that filter.' : empty}</EmptyState>
       ) : (
         <Table maxHeight="max-h-[70vh]">
           <Thead sticky>
@@ -230,6 +296,7 @@ export default function Members() {
           Join and leave dates come from the hourly role check, so they can be up to an hour off. It keeps one
           stretch per person: someone who left and came back only shows from their latest return. Nobody is on
           record from before the check started keeping track.
+          {view === 'compare' && ' So a member who was in that night, left, and has since come back shows here as Joined since.'}
         </p>
       )}
     </PageShell>
