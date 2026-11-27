@@ -6,7 +6,7 @@
 
 const { test, describe } = require('node:test');
 const assert = require('node:assert/strict');
-const { assemble, membersOn } = require('../membership');
+const { assemble, membersOn, compare } = require('../membership');
 const { permissionForPath } = require('../permissions');
 
 // Midday UTC lands on the same guild night whatever the guild's timezone and
@@ -62,6 +62,45 @@ describe('membersOn', () => {
 
   test('nobody before the first join', () => {
     assert.deepEqual(membersOn(entries, '2025-12-31'), []);
+  });
+});
+
+describe('compare', () => {
+  // On 2026-03-01: Ann, Bea, Cy. Now: Ann, Bea, Dee. Bea is back after a
+  // return the sweep hasn't stamped, so her current row has no start date.
+  const rows = [
+    row('1', '2026-01-01', null, 'ann'),
+    row('2', '2026-01-01', '2026-04-01', 'bea'),
+    row('3', '2026-01-01', '2026-05-01', 'cy'),
+    row('4', '2026-06-01', null, 'dee'),
+  ];
+  const members = [{ id: '1', name: 'ann' }, { id: '4', name: 'dee' }, { id: '2', name: 'bea' }];
+  const { active, entries } = assemble(members, rows, noAliases);
+  const result = compare(active, membersOn(entries, '2026-03-01'));
+
+  test('changes first — left, then joined — then everyone on both', () => {
+    assert.deepEqual(result.map((r) => [r.name, r.status]),
+      [['cy', 'left'], ['dee', 'joined'], ['ann', 'stayed'], ['bea', 'stayed']]);
+  });
+
+  test('a member on both keeps their current row', () => {
+    const ann = result.find((r) => r.name === 'ann');
+    assert.equal(ann.since, '2026-01-01');
+    assert.equal(ann.until, null);
+  });
+
+  test('a return not yet recorded borrows the night\'s start date and reads as still in', () => {
+    const bea = result.find((r) => r.name === 'bea');
+    assert.equal(bea.since, '2026-01-01');
+    assert.equal(bea.until, null);
+  });
+
+  test('a member who left keeps the night\'s row, with when they left', () => {
+    assert.equal(result.find((r) => r.name === 'cy').until, '2026-05-01');
+  });
+
+  test('a night before anyone joined makes everyone a joiner', () => {
+    assert.ok(compare(active, membersOn(entries, '2025-12-01')).every((r) => r.status === 'joined'));
   });
 });
 

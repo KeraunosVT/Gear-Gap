@@ -84,6 +84,26 @@ function membersOn(entries, date) {
     .sort(byName);
 }
 
+// The roster on a night against the roster now. Changes lead — who left, then
+// who joined — since they're what the comparison is for; the members on both
+// follow. A member on both is described by their current row (live name,
+// current stretch); the night's row stands in for a start date the sweep
+// hasn't recorded yet. Someone who left and came back since only shows as
+// stayed if their old row hasn't been reset — see the header.
+const STATUS_ORDER = { left: 0, joined: 1, stayed: 2 };
+
+function compare(active, onMembers) {
+  const now = new Map(active.map((m) => [m.discord_id, m]));
+  const then = new Set(onMembers.map((m) => m.discord_id));
+  const rows = onMembers.map((m) => {
+    const cur = now.get(m.discord_id);
+    if (!cur) return { ...m, status: 'left' };
+    return cur.since ? { ...cur, status: 'stayed' } : { ...cur, since: m.since, source: m.source, status: 'stayed' };
+  });
+  active.forEach((m) => { if (!then.has(m.discord_id)) rows.push({ ...m, status: 'joined' }); });
+  return rows.sort((a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || byName(a, b));
+}
+
 module.exports = function createMembership(supabase, listMembers, identities) {
   async function read({ on = null } = {}) {
     const [rows, ids, members] = await Promise.all([
@@ -101,10 +121,11 @@ module.exports = function createMembership(supabase, listMembers, identities) {
       }),
     ]);
     const { active, past, entries } = assemble(members, rows, ids.displayNameFor);
+    const then = on ? membersOn(entries, on) : null;
     return {
       active,
       past,
-      on: on ? { date: on, members: membersOn(entries, on) } : null,
+      on: on ? { date: on, members: then, compare: compare(active, then) } : null,
       discordUnavailable: !members,
     };
   }
@@ -114,4 +135,5 @@ module.exports = function createMembership(supabase, listMembers, identities) {
 
 module.exports.assemble = assemble;
 module.exports.membersOn = membersOn;
+module.exports.compare = compare;
 module.exports.DATE_RE = DATE_RE;
