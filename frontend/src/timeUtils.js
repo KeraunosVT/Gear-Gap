@@ -210,11 +210,12 @@ export function guildDateOf(instant) {
 }
 
 // A guild day as a short label, "Thu, Nov 13" (or "Nov 13" without the
-// weekday). Pinned to UTC noon so the viewer's own timezone can't move a bare
-// date onto its neighbour.
-export function fmtGuildDay(dateStr, { weekday = true } = {}) {
+// weekday, "Nov 13, 2026" with the year). Pinned to UTC noon so the viewer's
+// own timezone can't move a bare date onto its neighbour.
+export function fmtGuildDay(dateStr, { weekday = true, year = false } = {}) {
   return new Date(`${dateStr}T12:00:00Z`).toLocaleDateString(displayLocale, {
-    ...(weekday ? { weekday: 'short' } : {}), month: 'short', day: 'numeric', timeZone: 'UTC',
+    ...(weekday ? { weekday: 'short' } : {}), ...(year ? { year: 'numeric' } : {}),
+    month: 'short', day: 'numeric', timeZone: 'UTC',
   });
 }
 

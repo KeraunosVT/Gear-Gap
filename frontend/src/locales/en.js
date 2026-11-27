@@ -26,6 +26,7 @@ export default {
   'nav.memberBuild': 'Member builds',
   'nav.Upload Match': 'Upload Match',
   'nav.Parties': 'Parties',
+  'nav.Members': 'Members',
   'nav.Names': 'Names',
   'nav.Loot Council': 'Loot Council',
   'nav.Manage Items': 'Manage Items',

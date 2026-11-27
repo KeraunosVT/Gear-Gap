@@ -17,6 +17,7 @@ import Loot from './pages/Loot';
 import Login from './pages/Login';
 import Admin from './pages/Admin';
 import Parties from './pages/Parties';
+import Members from './pages/Members';
 import Names from './pages/Names';
 import LootTally from './pages/LootTally';
 import LootItems from './pages/LootItems';
@@ -121,6 +122,7 @@ function Gate() {
           <Route path="/builds/:discordId" element={<MemberBuild />} />
           <Route path="/admin" element={<Admin />} />
           <Route path="/admin/parties" element={<Parties />} />
+          <Route path="/admin/members" element={<Members />} />
           <Route path="/admin/names" element={<Names />} />
           <Route path="/admin/loot" element={<LootTally />} />
           <Route path="/admin/loot/items" element={<LootItems />} />

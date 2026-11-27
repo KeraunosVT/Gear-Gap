@@ -22,6 +22,7 @@ export default {
   'nav.memberBuild': 'Builds do membro',
   'nav.Upload Match': 'Enviar partida',
   'nav.Parties': 'Grupos',
+  'nav.Members': 'Membros',
   'nav.Names': 'Nomes',
   'nav.Loot Council': 'Conselho de saque',
   'nav.Manage Items': 'Gerenciar itens',

@@ -3,7 +3,7 @@ import { NavLink, Link, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard, Swords, Users, Gem, Package, CalendarRange, Layers, Gauge,
   Upload, LayoutGrid, Tag, Gavel, ScrollText, ShieldCheck, LogOut, Settings, ChevronDown,
-  BarChart3, ArrowRightLeft, Vote,
+  BarChart3, ArrowRightLeft, Vote, UserCheck,
 } from 'lucide-react';
 import Sigil from './Sigil';
 import { useGuild } from '../guild';
@@ -60,6 +60,8 @@ export const memberLinks = [
 export const adminLinks = [
   { to: '/admin', label: 'Upload Match', end: true, icon: Upload, perm: 'match' },
   { to: '/admin/parties', label: 'Parties', icon: LayoutGrid, perm: 'parties' },
+  // Who holds the member role now, who has left, and who held it on a night.
+  { to: '/admin/members', label: 'Members', icon: UserCheck, perm: 'parties' },
   { to: '/admin/names', label: 'Names', icon: Tag, perm: 'names' },
   // `tabs`: one sidebar link, with the pages as a tab bar (LootNav) on each of
   // them. The children stay listed here because the Topbar's breadcrumbs and
