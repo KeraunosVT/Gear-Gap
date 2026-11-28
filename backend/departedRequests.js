@@ -12,9 +12,15 @@
 //   - lucent_requests still open — pending, or approved but not yet paid
 //   - every loa_entries row, plus its Discord announcement — the same cleanup
 //     cancelling it by hand does
+//   - their seat in every saved roster (rosters.layout): out of each party and
+//     the Absent box, with their class and role picks for that roster. The
+//     roster itself stays, minus them.
 // What stays:
 //   - paid and denied Lucent requests. Paid ones point at a currency_awards row
 //     and are history, the same as loot_awards, which this never touches.
+//   - events.party_layout. That is the copy of a roster taken when a night was
+//     logged, and it is the record of who played — rewriting it would rewrite
+//     history. Only the working rosters on the Parties board are edited.
 //
 // Two ways in:
 //   - sweep(), hourly, on its own. Two guards, because the deletes can't be
@@ -38,6 +44,53 @@ const OPEN_STATUSES = ['pending', 'approved'];
 const MASS_FRACTION = 0.5;
 const MASS_MIN = 3; // a small guild losing 2 of 3 requesters is not a misconfig
 
+// Everyone seated in a roster layout — party members and the Absent box — as
+// { discord_id, display_name } rows, one per seat. The name is whatever the
+// roster saved, which is all there is once Discord has forgotten someone.
+function rosterSeats(layout) {
+  const parties = Array.isArray(layout?.parties) ? layout.parties : [];
+  const absent = Array.isArray(layout?.absent) ? layout.absent : [];
+  return [...parties.flatMap((p) => (Array.isArray(p?.members) ? p.members : [])), ...absent]
+    .filter((m) => m && m.id != null)
+    .map((m) => ({ discord_id: String(m.id), display_name: m.name || null }));
+}
+
+// The layout with everyone in `gone` taken out: their seats, and their entries
+// in the per-mode class and role maps (which would otherwise come back as
+// stale picks if the same id ever reappeared). Null when nobody in `gone` is
+// in it, so the caller can skip the write.
+function stripLayout(layout, gone) {
+  if (!layout || typeof layout !== 'object') return null;
+  let changed = false;
+  const keep = (list) => {
+    if (!Array.isArray(list)) return list;
+    const out = list.filter((m) => !(m && gone.has(String(m.id))));
+    if (out.length !== list.length) changed = true;
+    return out;
+  };
+  const dropKeys = (byMode) => {
+    if (!byMode || typeof byMode !== 'object') return byMode;
+    const out = {};
+    for (const [mode, map] of Object.entries(byMode)) {
+      if (!map || typeof map !== 'object') { out[mode] = map; continue; }
+      out[mode] = Object.fromEntries(Object.entries(map).filter(([id]) => {
+        if (!gone.has(String(id))) return true;
+        changed = true;
+        return false;
+      }));
+    }
+    return out;
+  };
+  const next = { ...layout };
+  if (Array.isArray(layout.parties)) {
+    next.parties = layout.parties.map((p) => (p && Array.isArray(p.members) ? { ...p, members: keep(p.members) } : p));
+  }
+  if (Array.isArray(layout.absent)) next.absent = keep(layout.absent);
+  if (layout.classAssignments) next.classAssignments = dropKeys(layout.classAssignments);
+  if (layout.rolesByMode) next.rolesByMode = dropKeys(layout.rolesByMode);
+  return changed ? next : null;
+}
+
 // `deleteLoaMessage` is optional: without it the LOA rows still go, only their
 // channel announcements are left behind.
 module.exports = function createDepartedRequests(supabase, listMembers, { deleteLoaMessage = null } = {}) {
@@ -46,18 +99,50 @@ module.exports = function createDepartedRequests(supabase, listMembers, { delete
   // Everything this module can clear, row by row, with the names on the rows —
   // the preview needs to say who someone was after Discord has forgotten them.
   async function holdings() {
-    const [wl, lr, loa] = await Promise.all([
+    const [wl, lr, loa, rosters] = await Promise.all([
       supabase.from('loot_wishlists').select('discord_id, display_name'),
       supabase.from('lucent_requests').select('discord_id, display_name').in('status', OPEN_STATUSES),
       supabase.from('loa_entries').select('discord_id, display_name'),
+      loadRosters(),
     ]);
     if (wl.error) throw new Error(`loot_wishlists: ${wl.error.message}`);
     if (lr.error) throw new Error(`lucent_requests: ${lr.error.message}`);
     if (loa.error) throw new Error(`loa_entries: ${loa.error.message}`);
-    return { wishlists: wl.data || [], lucent: lr.data || [], loas: loa.data || [] };
+    // One row per roster a person is seated in, not per seat — the preview
+    // counts rosters, and someone can't usefully be in one roster twice.
+    const seats = rosters.flatMap((r) => {
+      const seen = new Map();
+      rosterSeats(r.layout).forEach((s) => { if (!seen.has(s.discord_id)) seen.set(s.discord_id, s); });
+      return [...seen.values()];
+    });
+    return { wishlists: wl.data || [], lucent: lr.data || [], loas: loa.data || [], seats };
   }
 
-  const holderIds = (h) => new Set([...h.wishlists, ...h.lucent, ...h.loas].map((r) => String(r.discord_id)));
+  // The rosters table is small (one row per saved board) and its members live
+  // inside a JSON layout, so it is read whole rather than filtered by id.
+  async function loadRosters() {
+    const { data, error } = await supabase.from('rosters').select('id, layout');
+    if (error) throw new Error(`rosters: ${error.message}`);
+    return data || [];
+  }
+
+  const holderIds = (h) => new Set([...h.wishlists, ...h.lucent, ...h.loas, ...h.seats].map((r) => String(r.discord_id)));
+
+  // Takes everyone in `ids` out of every saved roster. updated_at is left
+  // alone on purpose: it orders the Parties dropdown by when an officer last
+  // worked on a roster, and a cleanup isn't that.
+  async function removeFromRosters(ids) {
+    const gone = new Set(ids.map(String));
+    let rosters = 0;
+    for (const r of await loadRosters()) {
+      const layout = stripLayout(r.layout, gone);
+      if (!layout) continue;
+      const { error } = await supabase.from('rosters').update({ layout }).eq('id', r.id);
+      if (error) throw new Error(`rosters: ${error.message}`);
+      rosters += 1;
+    }
+    return rosters;
+  }
 
   // An empty list is a Discord or config failure, never a real answer.
   async function currentIds() {
@@ -93,6 +178,7 @@ module.exports = function createDepartedRequests(supabase, listMembers, { delete
       if (lr.error) throw new Error(`lucent_requests: ${lr.error.message}`);
       if (loa.error) throw new Error(`loa_entries: ${loa.error.message}`);
     }
+    const rosters = await removeFromRosters(ids);
     ids.forEach((id) => missingSince.delete(id));
 
     // After the delete — the same order cancel uses. A message that won't
@@ -103,7 +189,7 @@ module.exports = function createDepartedRequests(supabase, listMembers, { delete
       })().catch((err) => console.error('Former-member LOA post cleanup failed:', err.message));
       if (waitForPosts) await posts;
     }
-    return { posts: messageIds.length };
+    return { posts: messageIds.length, rosters };
   }
 
   async function sweep() {
@@ -132,8 +218,8 @@ module.exports = function createDepartedRequests(supabase, listMembers, { delete
       return { removed: [], skipped: 'mass removal' };
     }
 
-    await remove(due);
-    console.log(`Departed-request sweep: cleared loot requests and LOAs for ${due.length} former member(s): ${due.join(', ')}`);
+    const { rosters } = await remove(due);
+    console.log(`Departed-request sweep: cleared loot requests, LOAs and seats in ${rosters} roster(s) for ${due.length} former member(s): ${due.join(', ')}`);
     return { removed: due };
   }
 
@@ -147,7 +233,7 @@ module.exports = function createDepartedRequests(supabase, listMembers, { delete
     const touch = (r) => {
       const id = String(r.discord_id);
       if (current.has(id)) return null;
-      if (!byId.has(id)) byId.set(id, { discord_id: id, display_name: null, wishlist: false, lucent: 0, loas: 0 });
+      if (!byId.has(id)) byId.set(id, { discord_id: id, display_name: null, wishlist: false, lucent: 0, loas: 0, rosters: 0 });
       const p = byId.get(id);
       if (!p.display_name && r.display_name) p.display_name = r.display_name;
       return p;
@@ -155,6 +241,7 @@ module.exports = function createDepartedRequests(supabase, listMembers, { delete
     h.wishlists.forEach((r) => { const p = touch(r); if (p) p.wishlist = true; });
     h.lucent.forEach((r) => { const p = touch(r); if (p) p.lucent += 1; });
     h.loas.forEach((r) => { const p = touch(r); if (p) p.loas += 1; });
+    h.seats.forEach((r) => { const p = touch(r); if (p) p.rosters += 1; });
     const people = [...byId.values()].sort((a, b) => String(a.display_name || a.discord_id).localeCompare(String(b.display_name || b.discord_id)));
     return { people, holders: holderIds(h).size };
   }
@@ -166,9 +253,9 @@ module.exports = function createDepartedRequests(supabase, listMembers, { delete
     if (!current) throw Object.assign(new Error('The Discord member list came back empty — nothing was cleared.'), { status: 503 });
     const due = [...wanted].filter((id) => !current.has(id));
     if (!due.length) return { removed: [], kept: [...wanted] };
-    const { posts } = await remove(due, { waitForPosts: false });
-    console.log(`Former-member cleanup (manual): cleared loot requests and LOAs for ${due.length}: ${due.join(', ')}`);
-    return { removed: due, kept: [...wanted].filter((id) => current.has(id)), posts };
+    const { posts, rosters } = await remove(due, { waitForPosts: false });
+    console.log(`Former-member cleanup (manual): cleared loot requests, LOAs and seats in ${rosters} roster(s) for ${due.length}: ${due.join(', ')}`);
+    return { removed: due, kept: [...wanted].filter((id) => current.has(id)), posts, rosters };
   }
 
   // Never throws into the timer — this app has no unhandledRejection handler,

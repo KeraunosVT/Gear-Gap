@@ -10,19 +10,23 @@ const assert = require('node:assert/strict');
 const createDepartedRequests = require('../departedRequests');
 
 // Just enough of the supabase-js builder for the tables the sweep reads
-// and deletes from: select / delete, then .in() filters, awaited.
+// and writes: select / delete / update, then .in() and .eq() filters, awaited.
 function fakeSupabase(tables) {
   return {
     from(name) {
       const filters = [];
       let op = 'select';
+      let patch = null;
       const q = {
         select() { op = 'select'; return q; },
         delete() { op = 'delete'; return q; },
+        update(p) { op = 'update'; patch = p; return q; },
         in(col, vals) { filters.push((r) => vals.includes(r[col])); return q; },
+        eq(col, val) { filters.push((r) => r[col] === val); return q; },
         then(resolve) {
           const hit = (r) => filters.every((f) => f(r));
           if (op === 'delete') tables[name] = tables[name].filter((r) => !hit(r));
+          if (op === 'update') tables[name] = tables[name].map((r) => (hit(r) ? { ...r, ...patch } : r));
           resolve({ data: op === 'select' ? tables[name].filter(hit) : null, error: null });
         },
       };
@@ -49,6 +53,26 @@ beforeEach(() => {
       { discord_id: 'a', discord_message_id: 'msg-a' },
       { discord_id: 'b', discord_message_id: 'msg-b1' },
       { discord_id: 'b', discord_message_id: null },
+    ],
+    rosters: [
+      {
+        id: 'r1',
+        updated_at: '2026-11-01T00:00:00Z',
+        layout: {
+          parties: [
+            { id: 'p1', name: 'Party 1', members: [{ id: 'a', name: 'Ann' }, { id: 'b', name: 'Bo' }] },
+            { id: 'p2', name: 'Party 2', members: [{ id: 'c', name: 'Cy' }] },
+          ],
+          absent: [{ id: 'b', name: 'Bo', why: 'loa' }],
+          classAssignments: { pvp: { a: 'Mage', b: 'Tank' }, pve: { b: 'Healer' } },
+          rolesByMode: { pvp: { a: 'DPS', b: 'Tank' }, pve: {} },
+        },
+      },
+      {
+        id: 'r2',
+        updated_at: '2026-11-02T00:00:00Z',
+        layout: { parties: [{ id: 'p1', name: 'Party 1', members: [{ id: 'c', name: 'Cy' }] }], absent: [] },
+      },
     ],
   };
   members = [{ id: 'a' }, { id: 'c' }, { id: 'd' }];
@@ -80,6 +104,41 @@ describe('departed-request sweep', () => {
     assert.deepEqual(deletedMessages, ['msg-b1']);
   });
 
+  test('second sighting takes them out of saved rosters, picks and all', async () => {
+    await departed.sweep();
+    await departed.sweep();
+    const r1 = tables.rosters.find((r) => r.id === 'r1');
+    assert.deepEqual(r1.layout.parties.map((p) => p.members.map((m) => m.id)), [['a'], ['c']]);
+    assert.deepEqual(r1.layout.absent, []);
+    assert.deepEqual(r1.layout.classAssignments, { pvp: { a: 'Mage' }, pve: {} });
+    assert.deepEqual(r1.layout.rolesByMode, { pvp: { a: 'DPS' }, pve: {} });
+    // Party names and the rest of the roster survive; only the seat goes.
+    assert.deepEqual(r1.layout.parties.map((p) => p.name), ['Party 1', 'Party 2']);
+    assert.equal(r1.updated_at, '2026-11-01T00:00:00Z');
+  });
+
+  test('a roster with nobody departed in it is not rewritten', async () => {
+    const before = tables.rosters.find((r) => r.id === 'r2');
+    await departed.sweep();
+    await departed.sweep();
+    assert.equal(tables.rosters.find((r) => r.id === 'r2'), before);
+  });
+
+  test('someone holding only a roster seat is still cleared', async () => {
+    tables.rosters[1].layout.parties[0].members.push({ id: 'e', name: 'Eve' });
+    await departed.sweep();
+    const { removed } = await departed.sweep();
+    assert.deepEqual(removed.sort(), ['b', 'e']);
+    assert.deepEqual(tables.rosters[1].layout.parties[0].members.map((m) => m.id), ['c']);
+  });
+
+  test('getting the role back keeps their roster seats', async () => {
+    await departed.sweep();
+    members = [...members, { id: 'b' }];
+    await departed.sweep();
+    assert.deepEqual(tables.rosters[0].layout.parties[0].members.map((m) => m.id), ['a', 'b']);
+  });
+
   test('someone holding only an LOA is still cleared', async () => {
     tables.loa_entries.push({ discord_id: 'e', discord_message_id: 'msg-e' });
     await departed.sweep();
@@ -105,16 +164,27 @@ describe('departed-request sweep', () => {
     assert.equal(result.skipped, 'mass removal');
     assert.equal(tables.loot_wishlists.length, 4);
     assert.equal(tables.loa_entries.length, 3);
+    assert.deepEqual(tables.rosters[1].layout.parties[0].members.map((m) => m.id), ['c']);
   });
 
   test('preview lists who would go and what of theirs, without deleting', async () => {
     tables.loa_entries.push({ discord_id: 'e', display_name: 'Gone', discord_message_id: null });
     const { people } = await departed.preview();
+    // b sits twice in r1 (a party and Absent), which is one roster, not two.
     assert.deepEqual(
-      people.map((p) => [p.discord_id, p.wishlist, p.lucent, p.loas]),
-      [['b', true, 2, 2], ['e', false, 0, 1]],
+      people.map((p) => [p.discord_id, p.wishlist, p.lucent, p.loas, p.rosters]),
+      [['b', true, 2, 2, 1], ['e', false, 0, 1, 0]],
     );
     assert.equal(tables.loa_entries.length, 4);
+    assert.equal(tables.rosters[0].layout.absent.length, 1);
+  });
+
+  test('preview names someone known only from a roster by the name it saved', async () => {
+    tables.rosters[1].layout.parties[0].members.push({ id: 'e', name: 'Eve' });
+    const { people } = await departed.preview();
+    assert.deepEqual(people.find((p) => p.discord_id === 'e'), {
+      discord_id: 'e', display_name: 'Eve', wishlist: false, lucent: 0, loas: 0, rosters: 1,
+    });
   });
 
   test('clear skips both guards but keeps anyone who has come back', async () => {
@@ -123,9 +193,11 @@ describe('departed-request sweep', () => {
     assert.equal(sweep.removed.length, 0);
 
     members = [{ id: 'a' }, { id: 'c' }]; // c came back after the page loaded
-    const { removed, kept } = await departed.clear(['b', 'c', 'd']);
+    const { removed, kept, rosters } = await departed.clear(['b', 'c', 'd']);
     assert.deepEqual(removed.sort(), ['b', 'd']);
     assert.deepEqual(kept, ['c']);
+    assert.equal(rosters, 1);
+    assert.deepEqual(tables.rosters[0].layout.parties[1].members.map((m) => m.id), ['c']);
     assert.deepEqual(tables.loot_wishlists.map((r) => r.discord_id), ['a', 'c']);
     assert.deepEqual(tables.loa_entries.map((r) => r.discord_id), ['a']);
     assert.deepEqual(deletedMessages, ['msg-b1']);
