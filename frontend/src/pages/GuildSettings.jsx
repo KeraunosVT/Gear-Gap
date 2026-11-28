@@ -442,14 +442,18 @@ function FormerMembers() {
 
   const clear = async () => {
     const loas = chosen.reduce((n, p) => n + p.loas, 0);
+    const seated = chosen.some((p) => p.rosters);
     if (!window.confirm(`Clear what ${chosen.length} former member${chosen.length === 1 ? '' : 's'} left behind?\n\n`
-      + `${loas} LOA${loas === 1 ? '' : 's'} (and their channel posts), wishlists and open Lucent requests will be deleted. This can't be undone.`)) return;
+      + `${loas} LOA${loas === 1 ? '' : 's'} (and their channel posts), wishlists and open Lucent requests will be deleted`
+      + `${seated ? ', and they will be taken out of every saved roster' : ''}. This can't be undone.`)) return;
     setClearing(true); setError('');
     try {
       const res = await axios.post('/api/admin/settings/departed/clear', { ids: chosen.map((p) => p.discord_id) });
       const kept = res.data.kept?.length || 0;
       const posts = res.data.posts || 0;
+      const rosters = res.data.rosters || 0;
       setResult(`Cleared ${res.data.removed.length}.`
+        + `${rosters ? ` Removed from ${rosters} saved roster${rosters === 1 ? '' : 's'}.` : ''}`
         + `${posts ? ` ${posts} LOA post${posts === 1 ? ' is' : 's are'} being removed from Discord in the background.` : ''}`
         + `${kept ? ` ${kept} kept — they have the roster role again.` : ''}`);
       check({ keepMessages: true });
@@ -476,8 +480,8 @@ function FormerMembers() {
         <div>
           <div className="eyebrow text-brass text-[10px]">Former members</div>
           <p className="text-ash text-xs mt-1">
-            People without a roster role who still have LOAs, wishlists or open Lucent requests. These are cleared
-            automatically every hour, except when a lot of people look gone at once.
+            People without a roster role who still have LOAs, wishlists, open Lucent requests or seats in saved rosters.
+            These are cleared automatically every hour, except when a lot of people look gone at once.
           </p>
         </div>
         <Button variant="secondary" size="sm" onClick={check} disabled={checking}
@@ -512,6 +516,7 @@ function FormerMembers() {
                     p.loas && `${p.loas} LOA${p.loas === 1 ? '' : 's'}`,
                     p.wishlist && 'wishlist',
                     p.lucent && `${p.lucent} Lucent request${p.lucent === 1 ? '' : 's'}`,
+                    p.rosters && `in ${p.rosters} roster${p.rosters === 1 ? '' : 's'}`,
                   ].filter(Boolean).join(' · ')}
                 </span>
               </label>
