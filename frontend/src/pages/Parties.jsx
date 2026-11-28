@@ -367,8 +367,6 @@ export default function Parties() {
   // The default the board was just started from, for the status strip. Gone
   // once the board is saved, reset or replaced.
   const [fromDefault, setFromDefault] = useState(null);
-  const boardLoa = editingDefault ? NO_ONE : loaById;
-  const boardSignups = editingDefault ? NO_ONE : signupById;
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
@@ -381,6 +379,12 @@ export default function Parties() {
   const [signupById, setSignupById] = useState(() => new Map());
   const signupRef = useRef(signupById);
   useEffect(() => { signupRef.current = signupById; }, [signupById]);
+
+  // What the board reads LOA and signups as: none on the Defaults tab.
+  // Declared here, after both maps — reading signupById above its declaration
+  // is a temporal-dead-zone crash on first render.
+  const boardLoa = editingDefault ? NO_ONE : loaById;
+  const boardSignups = editingDefault ? NO_ONE : signupById;
 
   useEffect(() => { setPickId(rosterId || ''); }, [rosterId]);
 
