@@ -14,12 +14,13 @@ import { PageShell } from '../components/ui/PageShell';
 import { todayInGuildTz, fmtTimeEst, eventsForGuildDay, isAfterMidnight } from '../timeUtils';
 import {
   Save, Trash2, Send, Plus, Copy, RefreshCw, CalendarOff, CalendarDays, CalendarCheck, ClipboardList, X,
-  AlertTriangle, Clock, Pencil, ChevronDown,
+  AlertTriangle, Clock, Pencil, ChevronDown, LayoutTemplate, Info, Eraser,
 } from 'lucide-react';
 import { BUILD_CHIP_ON, KIND_BUILD } from '../buildColors';
 import ErrorBanner from '../components/ui/ErrorBanner';
 import {
   ROLES, PARTY_SIZE, partyMakeup, poolView, boardSignature, rosterForOccasion, rosterOccasionKey, loadsAsCopy,
+  boardFromLayout, layoutSummary, fromDefaultName,
 } from '../partyBoard';
 
 const DAY_ABBR = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -107,6 +108,14 @@ const isFullyOut = (loa, id) => {
 };
 
 const LOA_TYPE_LABEL = { event: 'Out this event', range: 'Away (date range)', recurring: 'Out weekly' };
+
+// What the Defaults tab reads LOA and signups as. A default isn't for any one
+// night, so nobody is out and nobody has signed up.
+const NO_ONE = new Map();
+const DEFAULT_MODES = ['pvp', 'pve'];
+const shortDay = (iso) => (iso
+  ? new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  : '');
 
 // Compact time for the inline card label, where a full "7:00 PM ET – 8:00 PM ET"
 // is far too wide. The tooltip carries the fully qualified version.
@@ -344,6 +353,23 @@ export default function Parties() {
   const [classMode, setClassMode] = useState('pvp');
   const [classAssignments, setClassAssignments] = useState({ pvp: {}, pve: {} });
 
+  // 'event': building a roster for a night. 'defaults': editing the PvP or
+  // PvE default, a template with no night, loaded into an event as a start.
+  // Both use the one board; the Defaults tab just reads nobody as out or
+  // signed up, and saves to its own route.
+  const [view, setView] = useState('event');
+  const editingDefault = view === 'defaults';
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const [defaultMode, setDefaultMode] = useState('pvp');
+  // mode -> { layout, updated_at }, or null when that default was never saved.
+  const [defaults, setDefaults] = useState({ pvp: null, pve: null });
+  // The default the board was just started from, for the status strip. Gone
+  // once the board is saved, reset or replaced.
+  const [fromDefault, setFromDefault] = useState(null);
+  const boardLoa = editingDefault ? NO_ONE : loaById;
+  const boardSignups = editingDefault ? NO_ONE : signupById;
+
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const loaRef = useRef(loaById);
@@ -375,19 +401,23 @@ export default function Parties() {
   const pool = useMemo(() => poolView(items.pool, {
     nameOf: (id) => byId[id]?.name,
     roleOf: (id) => roles[id],
-    signupOf: (id) => signupById.get(id),
+    signupOf: (id) => boardSignups.get(id),
     query: filter,
-    signedOnly,
-  }), [items.pool, byId, roles, signupById, filter, signedOnly]);
-  const poolFiltered = Boolean(filter.trim()) || signedOnly;
+    signedOnly: signedOnly && !editingDefault,
+  }), [items.pool, byId, roles, boardSignups, filter, signedOnly, editingDefault]);
+  const poolFiltered = Boolean(filter.trim()) || (signedOnly && !editingDefault);
 
   // ── Saved / Unsaved changes ────────────────────────────────────────────
   // The board is compared with a signature of what was last saved or loaded,
   // so undoing a move by hand reads as Saved again. markClean() asks for the
   // next committed board to become the new baseline; the tick makes that
   // happen even when the board itself didn't change.
+  // A default has no name or occasion to edit, so it's told apart by mode.
   const sigFor = (name) => boardSignature({
-    items, partyIds: PARTY_IDS, partyNames, classAssignments, rosterName: name, date: loaDate, event: loaEvent,
+    items, partyIds: PARTY_IDS, partyNames, classAssignments,
+    ...(editingDefault
+      ? { rosterName: `default:${defaultMode}`, date: '', event: '' }
+      : { rosterName: name, date: loaDate, event: loaEvent }),
   });
   const boardSig = sigFor(rosterName);
   const [cleanSig, setCleanSig] = useState(null);
@@ -439,7 +469,7 @@ export default function Parties() {
         setItems((prev) => {
           const placed = new Set([...PARTY_IDS, 'absent'].flatMap((k) => prev[k]));
           const unplaced = ms.map((m) => m.id).filter((id) => !placed.has(id));
-          const loa = loaRef.current;
+          const loa = viewRef.current === 'defaults' ? NO_ONE : loaRef.current;
           return {
             ...prev,
             pool: unplaced.filter((id) => !isFullyOut(loa, id)),
@@ -457,6 +487,11 @@ export default function Parties() {
     axios.get('/api/admin/rosters').then((res) => setSaved(res.data.rosters || []))
       .catch(() => {})
       .finally(() => setSavedReady(true));
+  };
+  const loadDefaults = () => {
+    axios.get('/api/admin/rosters/defaults')
+      .then((res) => setDefaults({ pvp: null, pve: null, ...(res.data.defaults || {}) }))
+      .catch(() => {});
   };
 
   const loadSchedule = () => {
@@ -518,7 +553,7 @@ export default function Parties() {
   // already known to be out straight into the Absent box as it buckets the
   // pool, which is the only place absence is applied automatically.
   useEffect(() => {
-    loadSaved(); loadSchedule();
+    loadSaved(); loadSchedule(); loadDefaults();
     loaFetchedFor.current = `${loaDate}|${loaEvent}`;
     Promise.all([fetchLoa(loaDate, loaEvent), fetchSignups(loaDate, loaEvent)])
       .then(([out, up]) => {
@@ -600,16 +635,16 @@ export default function Parties() {
   // bulk-moved; `partial` is surfaced so an officer can check the window and
   // decide, since it may not collide with this event at all.
   const loaConflicts = useMemo(() => {
-    const onBoard = [...PARTY_IDS, 'pool'].flatMap((k) => items[k].filter((id) => loaById.has(id)));
-    const inParties = PARTY_IDS.flatMap((pid) => items[pid].filter((id) => loaById.has(id)));
+    const onBoard = [...PARTY_IDS, 'pool'].flatMap((k) => items[k].filter((id) => boardLoa.has(id)));
+    const inParties = PARTY_IDS.flatMap((pid) => items[pid].filter((id) => boardLoa.has(id)));
     return {
-      full: onBoard.filter((id) => isFullyOut(loaById, id)),
-      partial: onBoard.filter((id) => !isFullyOut(loaById, id)),
+      full: onBoard.filter((id) => isFullyOut(boardLoa, id)),
+      partial: onBoard.filter((id) => !isFullyOut(boardLoa, id)),
       // Definite absences sitting in a party — the case that breaks a roster,
       // as opposed to one just cluttering the pool.
-      fullInParties: inParties.filter((id) => isFullyOut(loaById, id)),
+      fullInParties: inParties.filter((id) => isFullyOut(boardLoa, id)),
     };
-  }, [items, loaById]);
+  }, [items, boardLoa]);
 
   // Headline numbers for the signups chip, plus how many of them are still
   // sitting in the pool — which is what "Seed parties" would actually move, so
@@ -619,14 +654,14 @@ export default function Parties() {
     // Composition of who's coming, read off the same rolesByMode the seed uses
     // — so the chip is a preview of what "Seed parties" would actually build.
     const byRole = { Tank: 0, DPS: 0, Healer: 0, unroled: 0 };
-    signupById.forEach((s, id) => {
+    boardSignups.forEach((s, id) => {
       if (s !== 'going') { waitlist += 1; return; }
       going += 1;
       if (ROLES.includes(roles[id])) byRole[roles[id]] += 1; else byRole.unroled += 1;
     });
-    const inPool = items.pool.filter((id) => signupById.has(id)).length;
+    const inPool = items.pool.filter((id) => boardSignups.has(id)).length;
     return { going, waitlist, inPool, byRole };
-  }, [signupById, items.pool, roles]);
+  }, [boardSignups, items.pool, roles]);
 
   // Keep absentWhy in step with the Absent box. Anyone arriving without an
   // already-recorded reason is classified once, on arrival: a definite absence
@@ -638,8 +673,9 @@ export default function Parties() {
     setAbsentWhy((prev) => {
       const next = {};
       let changed = items.absent.length !== Object.keys(prev).length;
+      const loa = viewRef.current === 'defaults' ? NO_ONE : loaRef.current;
       items.absent.forEach((id) => {
-        next[id] = prev[id] || (isFullyOut(loaRef.current, id) ? 'loa' : 'benched');
+        next[id] = prev[id] || (isFullyOut(loa, id) ? 'loa' : 'benched');
         if (prev[id] !== next[id]) changed = true;
       });
       return changed ? next : prev;
@@ -651,8 +687,8 @@ export default function Parties() {
   // people as an officer moves between dates. Deliberate benches never appear
   // here; the officer meant those.
   const staleBenches = useMemo(
-    () => items.absent.filter((id) => absentWhy[id] === 'loa' && !isFullyOut(loaById, id)),
-    [items.absent, absentWhy, loaById],
+    () => items.absent.filter((id) => absentWhy[id] === 'loa' && !isFullyOut(boardLoa, id)),
+    [items.absent, absentWhy, boardLoa],
   );
 
   // A click that ends a drag must not also pick the card up for click-to-place.
@@ -798,9 +834,103 @@ export default function Parties() {
     setItems(next);
     setPartyNames(initNames()); setRosterId(null); setPickId(''); setRosterName(''); setExtra({});
     setClassAssignments({ pvp: {}, pve: {} }); setLoaDiff(null); setAbsentWhy({}); setSelected(null);
+    setFromDefault(null);
     markClean();
   };
   const newBoard = () => { if (okToDiscard()) resetBoard(); };
+
+  // A saved layout (a roster's or a default's) onto the board. `loa` only
+  // decides where unplaced members start; see boardFromLayout.
+  const applyLayout = (layout, loa = NO_ONE) => {
+    const ids = members.map((m) => m.id);
+    const b = boardFromLayout(layout, { partyIds: PARTY_IDS, memberIds: ids, isOut: (id) => isFullyOut(loa, id) });
+    setItems(b.items); setPartyNames({ ...initNames(), ...b.names }); setAbsentWhy(b.absentWhy);
+    setRolesByMode({
+      pvp: { ...rolesByMode.pvp, ...b.rolesByMode.pvp },
+      pve: { ...rolesByMode.pve, ...b.rolesByMode.pve },
+    });
+    setExtra(b.extra); setClassAssignments(b.classAssignments); setSelected(null);
+  };
+
+  // ── Defaults ─────────────────────────────────────────────────────────────
+  // The Defaults tab edits one default at a time, PvP or PvE, and pins the
+  // board's class/role mode to it.
+  const openDefault = (mode) => {
+    applyLayout(defaults[mode]?.layout || {});
+    setDefaultMode(mode); setClassMode(mode); setLoaDiff(null); setFromDefault(null);
+    markClean();
+  };
+  const showDefaults = () => {
+    if (editingDefault || !okToDiscard()) return;
+    setView('defaults');
+    openDefault(defaultMode);
+  };
+  // Back to building for the night: its linked roster if it has one, else a
+  // blank board, the same as opening the page.
+  const showEventRosters = () => {
+    if (!editingDefault || !okToDiscard()) return;
+    setView('event');
+    const linked = rosterForOccasion(saved, loaDate, loaEvent);
+    if (linked) load(linked.id, { confirmed: true });
+    else resetBoard();
+  };
+  const switchDefaultMode = (mode) => {
+    if (mode === defaultMode || !okToDiscard()) return;
+    openDefault(mode);
+  };
+  const saveDefault = async () => {
+    setBusy(true);
+    // Everyone in a default's Absent box was put there by hand: there's no
+    // night for an LOA to be about, even if a copied roster said so.
+    const absent = buildPayloadAbsent().map((m) => ({ ...m, why: 'benched' }));
+    const layout = { parties: buildPayloadParties(), absent, classAssignments, rolesByMode };
+    const sig = boardSig;
+    const mode = defaultMode;
+    try {
+      const res = await axios.put(`/api/admin/rosters/defaults/${mode}`, { layout });
+      setDefaults((prev) => ({ ...prev, [mode]: { layout, updated_at: res.data.updated_at } }));
+      setCleanSig(sig);
+      flash(`Saved the ${KIND_BUILD[mode]} default.`);
+    } catch (err) { flash(err.response?.data?.error || 'Save failed.', false); }
+    finally { setBusy(false); }
+  };
+  // Empties the board, not the saved default: Save default makes it stick.
+  const clearDefault = () => {
+    const placed = [...PARTY_IDS, 'absent'].some((k) => items[k].length > 0);
+    if (placed && !window.confirm('Put everyone back in the pool? The saved default only changes when you press Save default.')) return;
+    applyLayout({});
+  };
+  // A saved roster's parties as the start of a default. Its night doesn't
+  // come with it; a default has none.
+  const copyIntoDefault = async (id) => {
+    if (!id || !okToDiscard()) return;
+    try {
+      const res = await axios.get(`/api/admin/rosters/${id}`);
+      applyLayout(res.data.roster?.layout || {});
+      flash(`Copied "${res.data.roster?.name || 'roster'}". Save default to keep it.`);
+    } catch (err) { flash(err.response?.data?.error || 'Copy failed.', false); }
+  };
+
+  // The event the picker is on, by name, for naming a board started from a
+  // default. Weekly and one-off ids can't collide (see oneOffs).
+  const pickedEventName = () => [
+    ...eventsForDate.map((s) => ({ id: String(s.id), name: s.name })),
+    ...oneOffs.map((o) => ({ id: `signup:${o.id}`, name: o.title })),
+  ].find((e) => e.id === String(loaEvent))?.name || '';
+
+  // A default onto the board as a new, unsaved roster for the picked night.
+  // Nobody it seats is moved for LOA: anyone out shows in the LOA chip with
+  // its Move to Absent button, the same as any roster. The default itself is
+  // untouched; Save writes a roster for this night.
+  const startFromDefault = (mode) => {
+    if (!defaults[mode] || !okToDiscard()) return;
+    applyLayout(defaults[mode].layout, loaById);
+    setClassMode(mode);
+    setRosterId(null); setPickId('');
+    setRosterName(fromDefaultName({ eventName: pickedEventName(), modeLabel: KIND_BUILD[mode], date: loaDate }));
+    setLoaDiff(null); setFromDefault(mode);
+    flash(`Started from the ${KIND_BUILD[mode]} default. Save to keep it.`);
+  };
 
   // Move everyone definitely out off the board in one go — the explicit version
   // of what used to happen silently on every date change. Partial absences are
@@ -920,7 +1050,7 @@ export default function Parties() {
     try {
       if (rosterId) await axios.put(`/api/admin/rosters/${rosterId}`, body);
       else { const res = await axios.post('/api/admin/rosters', body); setRosterId(res.data.id); }
-      setCleanSig(sig);
+      setCleanSig(sig); setFromDefault(null);
       loadSaved(); flash('Roster saved.');
     } catch (err) { flash(err.response?.data?.error || 'Save failed.', false); }
     finally { setBusy(false); }
@@ -951,7 +1081,7 @@ export default function Parties() {
       setRosterId(res.data.id); setRosterName(name); setCleanSig(sig);
       // The LOA-changed note is about the roster that was loaded; the copy is
       // freshly saved, so there's nothing to have changed since.
-      setLoaDiff(null);
+      setLoaDiff(null); setFromDefault(null);
       loadSaved(); flash(`Duplicated as "${name}".`);
     } catch (err) { flash(err.response?.data?.error || 'Duplicate failed.', false); }
     finally { setBusy(false); }
@@ -978,39 +1108,6 @@ export default function Parties() {
       const event = asCopy ? loaEvent : rosterOccasionKey(r);
       const loa = date ? await fetchLoa(date, event) : loaById;
 
-      const nextItems = initItems();
-      const nextNames = initNames();
-      // Rosters saved before roles were split by mode only have a flat m.role —
-      // fall back to applying it to both, same as it behaved before the split.
-      const legacyRoles = {};
-      const nextExtra = {};
-      (r.layout?.parties || []).forEach((lp) => {
-        if (!PARTY_IDS.includes(lp.id)) return;
-        nextNames[lp.id] = lp.name || nextNames[lp.id];
-        (lp.members || []).forEach((m) => {
-          nextItems[lp.id].push(m.id);
-          if (m.role) legacyRoles[m.id] = m.role;
-          if (!members.find((x) => x.id === m.id)) nextExtra[m.id] = { id: m.id, name: m.name, missing: true };
-        });
-      });
-      // Absent membership is whatever was saved with the roster, not the current LOA status.
-      (r.layout?.absent || []).forEach((m) => {
-        nextItems.absent.push(m.id);
-        if (m.role) legacyRoles[m.id] = m.role;
-        if (!members.find((x) => x.id === m.id)) nextExtra[m.id] = { id: m.id, name: m.name, missing: true };
-      });
-      const savedRolesByMode = r.layout?.rolesByMode || { pvp: legacyRoles, pve: legacyRoles };
-      const mergedRolesByMode = {
-        pvp: { ...rolesByMode.pvp, ...savedRolesByMode.pvp },
-        pve: { ...rolesByMode.pve, ...savedRolesByMode.pve },
-      };
-      const assigned = new Set([...PARTY_IDS, 'absent'].flatMap((p) => nextItems[p]));
-      const unassigned = members.map((m) => m.id).filter((mid) => !assigned.has(mid));
-      unassigned.forEach((mid) => {
-        if (isFullyOut(loa, mid)) nextItems.absent.push(mid);
-        else nextItems.pool.push(mid);
-      });
-
       // Assigned members who have filed since this was saved. Only this half of
       // the comparison lives here, because it names which party each one is in
       // — something nothing else can say. The reverse case (benched for an
@@ -1023,13 +1120,12 @@ export default function Parties() {
       const nowOut = (r.layout?.parties || []).flatMap((lp) =>
         (lp.members || []).filter((m) => isFullyOut(loa, m.id))
           .map((m) => ({ id: m.id, name: nameNow(m), party: lp.name || lp.id })));
-      const savedWhy = {};
-      (r.layout?.absent || []).forEach((m) => { savedWhy[m.id] = m.why || 'benched'; });
 
-      setItems(nextItems); setPartyNames(nextNames); setAbsentWhy(savedWhy);
-      setRolesByMode(mergedRolesByMode); setExtra(nextExtra);
-      setClassAssignments(r.layout?.classAssignments || { pvp: {}, pve: {} });
-      setSelected(null);
+      // Absent membership is whatever was saved with the roster, not the
+      // current LOA status; only members the roster didn't place are sorted
+      // by it. The saved `why` markers come back with it, for staleBenches.
+      applyLayout(r.layout, loa);
+      setFromDefault(null);
       if (asCopy) {
         // A new roster for the picked event: no id until it's saved, and left
         // unsaved on purpose so the strip says so. Anyone on LOA for this event
@@ -1111,25 +1207,91 @@ export default function Parties() {
   const slottedCount = BOARD_PARTY_IDS.reduce((n, pid) => n + items[pid].length, 0);
   const fillCount = items[FILL_PARTY_ID].length;
 
+  // On the Defaults tab "saved" means that default exists, not a roster id.
+  const isSaved = editingDefault ? Boolean(defaults[defaultMode]) : Boolean(rosterId);
   const saveState = dirty
     ? { label: 'Unsaved changes', cls: `${WARN_TEXT} border-amber-500/50`, dot: 'bg-amber-500' }
-    : rosterId
+    : isSaved
       ? { label: 'Saved', cls: `${GOOD_TEXT} border-emerald-500/40`, dot: 'bg-emerald-500' }
-      : { label: 'New board', cls: 'text-ash border-line', dot: 'bg-ash' };
+      : { label: editingDefault ? 'Not set up yet' : 'New board', cls: 'text-ash border-line', dot: 'bg-ash' };
+
+  // The defaults the From default menu and the empty-board prompt can offer:
+  // saved, with someone in a party.
+  const defaultChoices = DEFAULT_MODES.map((mode) => ({
+    mode,
+    label: `${KIND_BUILD[mode]} default`,
+    saved: defaults[mode],
+    ...layoutSummary(defaults[mode]?.layout, { fillId: FILL_PARTY_ID }),
+  }));
+  const loadableDefaults = defaultChoices.filter((d) => d.saved && d.seated > 0);
+  const boardEmpty = PARTY_IDS.every((pid) => items[pid].length === 0);
 
   // `inParty`: a party (or Fill) card, which puts the class beside the name.
   const memberCard = (id, { returnable = false, inParty = false } = {}) => (
     <SortableMember key={id} member={byId[id] || { id, name: 'Unknown' }} role={roles[id]} onRole={setRole}
-      loa={loaById.get(id)} signup={signupById.get(id)} classMode={classMode} classInline={inParty}
+      loa={boardLoa.get(id)} signup={boardSignups.get(id)} classMode={classMode} classInline={inParty}
       assignedClass={classAssignments[classMode][id]} onClassChange={(cls) => setMemberClass(classMode, id, cls)}
       selected={selected === id} onSelect={selectMember} onReturn={returnable ? returnToPool : undefined} />
   );
 
   return (
     <PageShell width="full" paddingX="px-2">
-      {/* Header, split by job: the night you're building for, the roster
+      {/* Building for a night, or editing the defaults that night's roster can
+          start from. Leaving either asks first if the board has unsaved work. */}
+      <div role="tablist" aria-label="Parties view" className="inline-flex rounded-full border border-line bg-panel p-0.5 mb-3">
+        {[['event', 'Event rosters', showEventRosters], ['defaults', 'Defaults', showDefaults]].map(([key, label, open]) => (
+          <button key={key} type="button" role="tab" aria-selected={view === key} onClick={open}
+            className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-colors ${view === key ? 'bg-brass text-white' : 'text-ash hover:text-bone'}`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {editingDefault ? (
+        <header className="panel rounded-lg p-3 mb-3 flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+          <div className="flex flex-col gap-1">
+            <span className="eyebrow text-[10px] text-ash flex items-center gap-1.5">
+              <LayoutTemplate className="w-3.5 h-3.5" /> Default roster for
+            </span>
+            <div role="tablist" aria-label="Which default" className="inline-flex rounded-lg border border-line bg-hall p-0.5">
+              {DEFAULT_MODES.map((m) => (
+                <button key={m} type="button" role="tab" aria-selected={defaultMode === m} onClick={() => switchDefaultMode(m)}
+                  className={`px-4 py-1 rounded-md text-sm font-bold tracking-wide transition-colors ${defaultMode === m ? BUILD_CHIP_ON[KIND_BUILD[m]] : 'text-ash hover:text-bone'}`}>
+                  {KIND_BUILD[m]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 flex-1 basis-64 justify-center min-w-0">
+            <h1 className="font-display text-lg text-bone">{KIND_BUILD[defaultMode]} default</h1>
+            <span className={`inline-flex items-center gap-1.5 text-xs font-semibold border rounded-full px-2.5 py-0.5 whitespace-nowrap ${saveState.cls}`}>
+              <span className={`w-1.5 h-1.5 rounded-full ${saveState.dot}`} />{saveState.label}
+            </span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Picking a roster copies its parties in; the select snaps back,
+                since it's an action, not a view of what's open. */}
+            <select value="" onChange={(e) => copyIntoDefault(e.target.value)} disabled={busy || saved.length === 0}
+              aria-label="Copy from a saved roster" title="Start this default from a roster you already built"
+              className="bg-hall border border-line rounded-lg px-2 py-2 text-bone text-sm focus:outline-none focus:border-brass w-56 max-w-full">
+              <option value="">{saved.length ? 'Copy from a saved roster…' : 'No saved rosters to copy'}</option>
+              {saved.map((r) => (
+                <option key={r.id} value={r.id}>{r.name}{r.event_date ? ` · ${r.event_date}` : ''}</option>
+              ))}
+            </select>
+            <button type="button" onClick={clearDefault} disabled={busy} title="Put everyone back in the pool"
+              className={`${HEADER_BTN} text-oxblood hover:border-oxblood/50`}>
+              <Eraser className="w-4 h-4" /> Clear
+            </button>
+            <Button size="none" className="px-4 py-2" disabled={busy} onClick={saveDefault}><Save className="w-4 h-4" /> Save default</Button>
+          </div>
+        </header>
+      ) : (
+      /* Header, split by job: the night you're building for, the roster
           itself, then what you do with it: the saved-roster dropdown with
-          Load, New, Duplicate and Delete, then Save and Post. */}
+          Load, New, Duplicate and Delete, then Save and Post. */
       <header className="panel rounded-lg p-3 mb-3 flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
         <div className="flex flex-col gap-1">
           <span className="eyebrow text-[10px] text-ash flex items-center gap-1.5">
@@ -1198,6 +1360,7 @@ export default function Parties() {
                 </option>
               ))}
             </select>
+            <FromDefaultMenu choices={defaultChoices} disabled={busy} onPick={startFromDefault} onEdit={showDefaults} />
             <button type="button" onClick={newBoard} disabled={busy} title="Start an empty board" className={HEADER_BTN}>
               <Plus className="w-4 h-4" /> New
             </button>
@@ -1215,11 +1378,51 @@ export default function Parties() {
           <Button variant="secondary" size="none" className="px-4 py-2" disabled={busy} onClick={post}><Send className="w-4 h-4" /> Post to Discord</Button>
         </div>
       </header>
+      )}
 
-      {/* One status strip in place of the stacked bars: signups, LOA trouble,
+      {editingDefault ? (
+        <div aria-label="Board status" className="panel rounded-lg px-2.5 py-2 mb-4 flex flex-wrap items-center gap-2 text-sm text-ash">
+          <Info className="w-4 h-4 shrink-0" />
+          <span>
+            A default isn&apos;t for any one night, so LOAs and signups aren&apos;t shown here. They&apos;re checked when you
+            load it into an event with <b className="text-bone">From default</b>.
+          </span>
+          <span className="flex-1" />
+          <span role="status" className={`text-xs ${msg ? (msg.ok ? GOOD_TEXT : 'text-oxblood') : 'sr-only'}`}>{msg?.text || ''}</span>
+          <span className="text-xs whitespace-nowrap">
+            <b className="font-mono text-bone">{slottedCount}</b> seated
+            {' · '}<b className="font-mono text-bone">{fillCount}</b> in {partyNames[FILL_PARTY_ID] || 'Fill'}
+          </span>
+        </div>
+      ) : (
+      /* One status strip in place of the stacked bars: signups, LOA trouble,
           and the result of the last action. Each chip only appears when it has
-          something to say, except signups, which always reports. */}
+          something to say, except signups, which always reports. */
       <div aria-label="Board status" className="panel rounded-lg px-2.5 py-2 mb-4 flex flex-wrap items-center gap-2 text-sm">
+        {/* Where this board came from, until it's saved as the night's own. */}
+        {fromDefault && !rosterId && (
+          <StatusChip tone="brand">
+            <LayoutTemplate className="w-4 h-4 shrink-0 text-brass" />
+            <span className="text-bone">
+              Started from the <b>{KIND_BUILD[fromDefault]} default</b>. Save keeps it as this night&apos;s roster; the default itself doesn&apos;t change.
+            </span>
+          </StatusChip>
+        )}
+
+        {/* Nothing placed yet: offer the defaults rather than a blank start. */}
+        {boardEmpty && !fromDefault && loadableDefaults.length > 0 && (
+          <StatusChip tone="brand">
+            <LayoutTemplate className="w-4 h-4 shrink-0 text-brass" />
+            <span className="text-bone">Empty board. Start from a default?</span>
+            {loadableDefaults.map((d) => (
+              <button key={d.mode} type="button" onClick={() => startFromDefault(d.mode)} disabled={busy}
+                className="px-2 py-0.5 rounded border border-brass/60 text-xs font-semibold text-bone hover:bg-brass/10">
+                {d.label}
+              </button>
+            ))}
+          </StatusChip>
+        )}
+
         {signupById.size > 0 ? (
           <StatusChip title="Who said they're coming. Everyone else just hasn't answered.">
             <ClipboardList className={`w-4 h-4 shrink-0 ${GOOD_TEXT}`} />
@@ -1319,6 +1522,7 @@ export default function Parties() {
           {loaById.size > 0 && <>{' · '}<b className="font-mono text-oxblood">{loaById.size}</b> on LOA</>}
         </span>
       </div>
+      )}
 
       <DndContext sensors={sensors} collisionDetection={collisionDetection}
         onDragStart={onDragStart} onDragOver={onDragOver} onDragEnd={onDragEnd} onDragCancel={endDrag}>
@@ -1332,6 +1536,7 @@ export default function Parties() {
                   Pool <span className="font-mono text-xs text-ash font-normal">{items.pool.length}</span>
                 </h2>
                 <div className="flex items-center gap-3">
+                  {!editingDefault && (
                   <button type="button" role="switch" aria-checked={signedOnly} onClick={() => setSignedOnly((v) => !v)}
                     className={`inline-flex items-center gap-1.5 text-xs ${signedOnly ? 'text-bone' : 'text-ash hover:text-bone'}`}>
                     <span className={`relative inline-block w-6 h-3.5 rounded-full transition-colors ${signedOnly ? 'bg-emerald-500' : 'bg-line'}`}>
@@ -1339,6 +1544,7 @@ export default function Parties() {
                     </span>
                     Signed up only
                   </button>
+                  )}
                   <button type="button" onClick={loadMembers} className="text-ash hover:text-brass" title="Reload members" aria-label="Reload members">
                     <RefreshCw className="w-3.5 h-3.5" />
                   </button>
@@ -1413,7 +1619,7 @@ export default function Parties() {
           </div>
         </div>
 
-        <DragOverlay>{activeMember ? <MemberCardBase member={activeMember} role={roles[activeMember.id]} loa={loaById.get(activeMember.id)} signup={signupById.get(activeMember.id)} overlay /> : null}</DragOverlay>
+        <DragOverlay>{activeMember ? <MemberCardBase member={activeMember} role={roles[activeMember.id]} loa={boardLoa.get(activeMember.id)} signup={boardSignups.get(activeMember.id)} overlay /> : null}</DragOverlay>
       </DndContext>
     </PageShell>
   );
@@ -1425,7 +1631,57 @@ const CHIP_TONE = {
   warn: `border-amber-500/40 ${WARN_TEXT}`,
   danger: 'border-oxblood/50 bg-oxblood/10',
   good: 'border-emerald-500/40',
+  brand: 'border-brass/45 bg-brass/[0.06]',
 };
+
+// The header's From default menu: each default with how full it is and when
+// it was last saved, and a way to the Defaults tab. One not set up yet is
+// listed but can't be picked, so the menu says why rather than hiding it.
+function FromDefaultMenu({ choices, disabled, onPick, onEdit }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const away = (e) => { if (!ref.current?.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === 'Escape') setOpen(false); };
+    document.addEventListener('mousedown', away);
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', esc); };
+  }, [open]);
+  const pick = (fn) => () => { setOpen(false); fn(); };
+  return (
+    <div ref={ref} className="relative">
+      <button type="button" onClick={() => setOpen((v) => !v)} disabled={disabled} aria-haspopup="menu" aria-expanded={open}
+        title="Start this board from the PvP or PvE default" className={HEADER_BTN}>
+        <LayoutTemplate className="w-4 h-4" /> From default <ChevronDown className="w-3.5 h-3.5 text-ash" />
+      </button>
+      {open && (
+        <div role="menu" className="absolute right-0 top-full mt-1 z-30 w-72 rounded-lg border border-line bg-panelup shadow-xl p-1.5">
+          {choices.map((d) => {
+            const usable = d.saved && d.seated > 0;
+            return (
+              <button key={d.mode} type="button" role="menuitem" disabled={!usable} onClick={pick(() => onPick(d.mode))}
+                className="w-full text-left rounded-md px-3 py-2 hover:bg-line/60 disabled:opacity-50 disabled:hover:bg-transparent">
+                <div className="text-sm font-semibold text-bone">{d.label}</div>
+                <div className="text-[11px] text-ash">
+                  {!d.saved ? 'Not set up yet'
+                    : d.seated === 0 ? 'Saved with nobody in a party'
+                      : `${d.seated} seated in ${d.parties} part${d.parties === 1 ? 'y' : 'ies'}${d.saved.updated_at ? ` · edited ${shortDay(d.saved.updated_at)}` : ''}`}
+                </div>
+              </button>
+            );
+          })}
+          <div className="border-t border-line mt-1 pt-1">
+            <button type="button" role="menuitem" onClick={pick(onEdit)}
+              className="w-full text-left rounded-md px-3 py-2 text-xs text-brass hover:bg-line/60">
+              Edit defaults
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function StatusChip({ tone = 'neutral', title, children }) {
   return (

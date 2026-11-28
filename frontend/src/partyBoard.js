@@ -84,6 +84,66 @@ export function loadsAsCopy(r, date, event) {
   return !(r.event_date === date && rosterOccasionKey(r) === event);
 }
 
+// A saved layout laid out as a board: what loading a roster or a default puts
+// on screen.
+//   partyIds   the board's party ids; a saved party with any other id is dropped
+//   memberIds  everyone in the member list, for the pool
+//   isOut      id -> definitely out for the occasion. Only decides whether an
+//              unplaced member starts in the pool or Absent; nobody the layout
+//              seated is moved, that stays the officer's call.
+// Members the layout names who aren't in the member list come back in `extra`,
+// flagged missing, so their card still has a name. `names` holds only the
+// party names the layout saved; the caller fills in the rest. Layouts saved
+// before roles were split by mode have only a flat m.role, applied to both.
+export function boardFromLayout(layout, { partyIds, memberIds, isOut = () => false }) {
+  const items = { pool: [], absent: [], ...Object.fromEntries(partyIds.map((id) => [id, []])) };
+  const names = {};
+  const extra = {};
+  const absentWhy = {};
+  const legacyRoles = {};
+  const known = new Set(memberIds);
+  const seat = (list, m) => {
+    list.push(m.id);
+    if (m.role) legacyRoles[m.id] = m.role;
+    if (!known.has(m.id)) extra[m.id] = { id: m.id, name: m.name, missing: true };
+  };
+  (layout?.parties || []).forEach((lp) => {
+    if (!partyIds.includes(lp.id)) return;
+    if (lp.name) names[lp.id] = lp.name;
+    (lp.members || []).forEach((m) => seat(items[lp.id], m));
+  });
+  (layout?.absent || []).forEach((m) => {
+    seat(items.absent, m);
+    absentWhy[m.id] = m.why || 'benched';
+  });
+  const placed = new Set([...partyIds, 'absent'].flatMap((p) => items[p]));
+  memberIds.filter((id) => !placed.has(id)).forEach((id) => (isOut(id) ? items.absent : items.pool).push(id));
+  return {
+    items,
+    names,
+    extra,
+    absentWhy,
+    rolesByMode: layout?.rolesByMode || { pvp: legacyRoles, pve: legacyRoles },
+    classAssignments: layout?.classAssignments || { pvp: {}, pve: {} },
+  };
+}
+
+// How full a saved layout is, for the From default menu: people seated in
+// parties (the standby group not counted) and how many parties have anyone.
+export function layoutSummary(layout, { fillId } = {}) {
+  const parties = (layout?.parties || []).filter((p) => p.id !== fillId && (p.members || []).length > 0);
+  return { seated: parties.reduce((n, p) => n + p.members.length, 0), parties: parties.length };
+}
+
+// The name a board started from a default gets: the event it's for (or the
+// mode, with no event picked) and the night, e.g. "Siege · Nov 28".
+export function fromDefaultName({ eventName, modeLabel, date }) {
+  const day = date
+    ? new Date(`${date}T12:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+    : '';
+  return [eventName || modeLabel, day].filter(Boolean).join(' · ').slice(0, 120);
+}
+
 // Everything a saved roster records, as one comparable string. The pool is
 // left out on purpose: it's whoever isn't placed, and its order means nothing.
 // Roles are left out too, because they're saved per member the moment they

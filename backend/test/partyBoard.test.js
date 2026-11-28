@@ -172,3 +172,87 @@ describe('boardSignature', () => {
     assert.notEqual(pb.boardSignature({ ...base(), date: '2026-11-16' }), ref);
   });
 });
+
+describe('boardFromLayout', () => {
+  const PARTY_IDS = ['p1', 'p2', 'p12'];
+  const layout = {
+    parties: [
+      { id: 'p1', name: 'Frontline', members: [{ id: 'a', name: 'Ann' }, { id: 'gone', name: 'Left Guild' }] },
+      { id: 'p9', name: 'Not on this board', members: [{ id: 'b', name: 'Bo' }] },
+    ],
+    absent: [{ id: 'c', name: 'Cy', why: 'loa' }, { id: 'd', name: 'Di' }],
+    classAssignments: { pvp: { a: 'Greatsword' }, pve: {} },
+    rolesByMode: { pvp: { a: 'Tank' }, pve: { a: 'DPS' } },
+  };
+  const opts = (isOut) => ({ partyIds: PARTY_IDS, memberIds: ['a', 'b', 'c', 'd', 'e', 'f'], isOut });
+
+  test('seats who the layout seated, and puts everyone else in the pool', () => {
+    const b = pb.boardFromLayout(layout, opts());
+    assert.deepEqual(b.items.p1, ['a', 'gone']);
+    assert.deepEqual(b.items.p2, []);
+    assert.deepEqual(b.items.absent, ['c', 'd']);
+    // b was in a party this board doesn't have, so they're unplaced.
+    assert.deepEqual(b.items.pool, ['b', 'e', 'f']);
+    assert.deepEqual(b.names, { p1: 'Frontline' });
+  });
+
+  test('only members the layout left unplaced go to Absent for being out', () => {
+    const b = pb.boardFromLayout(layout, opts((id) => id === 'a' || id === 'e'));
+    assert.deepEqual(b.items.p1, ['a', 'gone']); // seated and out: left for the officer
+    assert.deepEqual(b.items.absent, ['c', 'd', 'e']);
+    assert.deepEqual(b.items.pool, ['b', 'f']);
+  });
+
+  test('someone no longer in the member list keeps their seat, flagged missing', () => {
+    const b = pb.boardFromLayout(layout, opts());
+    assert.deepEqual(b.extra, { gone: { id: 'gone', name: 'Left Guild', missing: true } });
+  });
+
+  test('Absent reasons, classes and per-mode roles come back with it', () => {
+    const b = pb.boardFromLayout(layout, opts());
+    assert.deepEqual(b.absentWhy, { c: 'loa', d: 'benched' });
+    assert.deepEqual(b.classAssignments, layout.classAssignments);
+    assert.deepEqual(b.rolesByMode, layout.rolesByMode);
+  });
+
+  test('a layout from before roles were split by mode applies its flat role to both', () => {
+    const old = { parties: [{ id: 'p1', members: [{ id: 'a', role: 'Healer' }] }] };
+    const b = pb.boardFromLayout(old, opts());
+    assert.deepEqual(b.rolesByMode, { pvp: { a: 'Healer' }, pve: { a: 'Healer' } });
+    assert.deepEqual(b.classAssignments, { pvp: {}, pve: {} });
+  });
+
+  test('no layout at all is an empty board with everyone in the pool', () => {
+    const b = pb.boardFromLayout(undefined, opts());
+    assert.deepEqual(b.items.pool, ['a', 'b', 'c', 'd', 'e', 'f']);
+    assert.deepEqual(b.items.absent, []);
+  });
+});
+
+describe('layoutSummary', () => {
+  test('counts people seated in parties, not the standby group', () => {
+    const layout = {
+      parties: [
+        { id: 'p1', members: [{ id: 'a' }, { id: 'b' }] },
+        { id: 'p2', members: [] },
+        { id: 'p3', members: [{ id: 'c' }] },
+        { id: 'p12', members: [{ id: 'd' }, { id: 'e' }] },
+      ],
+    };
+    assert.deepEqual(pb.layoutSummary(layout, { fillId: 'p12' }), { seated: 3, parties: 2 });
+  });
+
+  test('a missing layout is empty', () => {
+    assert.deepEqual(pb.layoutSummary(null, { fillId: 'p12' }), { seated: 0, parties: 0 });
+  });
+});
+
+describe('fromDefaultName', () => {
+  test('names the board for the event and the night', () => {
+    assert.equal(pb.fromDefaultName({ eventName: 'Siege', modeLabel: 'PvP', date: '2026-11-28' }), 'Siege · Nov 28');
+  });
+
+  test('falls back to the mode with no event picked', () => {
+    assert.equal(pb.fromDefaultName({ eventName: '', modeLabel: 'PvE', date: '2026-11-28' }), 'PvE · Nov 28');
+  });
+});
