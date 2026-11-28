@@ -1,4 +1,4 @@
-// backend/admin/parties.js — Saved party rosters, posting them to Discord, and the LOA feed the builder reads.
+// backend/admin/parties.js — Saved party rosters, the PvP/PvE default rosters, posting them to Discord, and the LOA feed the builder reads.
 // Registered onto the one admin router by ../admin.js; access is gated by
 // route prefix in ../permissions.js, not by which file a route lives in.
 const crypto = require('crypto');
@@ -10,6 +10,19 @@ const { upload } = require('./helpers');
 const ROLE_EMOJI = { Tank: '🛡️', DPS: '⚔️', Healer: '💚' };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// ── Default rosters ───────────────────────────────────────────────────────────
+// One PvP and one PvE default: templates an officer loads into an event as a
+// starting point. They are ordinary rows in `rosters` under fixed ids, so the
+// former-member cleanup (departedRequests.js) reaches them with no extra code
+// and no migration was needed. They have no occasion (all three occasion
+// columns null), so attendance's roster auto-match by night never picks one,
+// and they are left out of GET /rosters so the saved-roster dropdown and the
+// open-the-night's-roster logic never see them.
+const DEFAULT_MODES = { pvp: 'PvP default', pve: 'PvE default' };
+const defaultIdFor = (mode) => `default-${mode}`;
+const DEFAULT_IDS = new Set(Object.keys(DEFAULT_MODES).map(defaultIdFor));
+const isDefaultId = (id) => DEFAULT_IDS.has(String(id));
 
 // Build a Discord embed from a roster layout.
 function rosterEmbed(name, parties) {
@@ -56,7 +69,47 @@ module.exports = function registerParties(router, ctx) {
       .from('rosters').select('id, name, updated_at, event_date, event_schedule_id, signup_event_id')
       .order('updated_at', { ascending: false });
     if (error) return res.status(500).json({ error: 'Failed to load rosters.' });
-    res.json({ rosters: data || [] });
+    res.json({ rosters: (data || []).filter((r) => !isDefaultId(r.id)) });
+  });
+
+  // Registered before /rosters/:id, which would otherwise take "defaults" as
+  // an id. Both modes always come back; one never saved is null.
+  router.get('/rosters/defaults', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const { data, error } = await supabase
+      .from('rosters').select('id, layout, updated_at').in('id', [...DEFAULT_IDS]);
+    if (error) return res.status(500).json({ error: 'Failed to load default rosters.' });
+    const defaults = {};
+    Object.keys(DEFAULT_MODES).forEach((mode) => {
+      const row = (data || []).find((r) => r.id === defaultIdFor(mode));
+      defaults[mode] = row ? { layout: row.layout || {}, updated_at: row.updated_at } : null;
+    });
+    res.json({ defaults });
+  });
+
+  router.put('/rosters/defaults/:mode', async (req, res) => {
+    if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    const { mode } = req.params;
+    if (!DEFAULT_MODES[mode]) return res.status(400).json({ error: 'Mode must be pvp or pve.' });
+    const layout = req.body?.layout;
+    if (!layout || typeof layout !== 'object' || Array.isArray(layout)) {
+      return res.status(400).json({ error: 'A layout is required.' });
+    }
+    const id = defaultIdFor(mode);
+    const now = new Date().toISOString();
+    // Read first rather than upsert, so created_at stays the first save's.
+    const { data: existing, error: readError } = await supabase
+      .from('rosters').select('id').eq('id', id).maybeSingle();
+    if (readError) return res.status(500).json({ error: 'Failed to save the default roster.' });
+    const row = {
+      name: DEFAULT_MODES[mode], layout,
+      event_date: null, event_schedule_id: null, signup_event_id: null, updated_at: now,
+    };
+    const { error } = existing
+      ? await supabase.from('rosters').update(row).eq('id', id)
+      : await supabase.from('rosters').insert({ id, ...row, created_at: now });
+    if (error) return res.status(500).json({ error: 'Failed to save the default roster.' });
+    res.json({ ok: true, updated_at: now });
   });
 
   router.get('/rosters/:id', async (req, res) => {
@@ -81,8 +134,14 @@ module.exports = function registerParties(router, ctx) {
     res.json({ id });
   });
 
+  // The defaults are written only through their own route above: through this
+  // one a default could be given a night and start opening as that night's
+  // roster, or be deleted out from under the Defaults tab.
+  const DEFAULT_REFUSAL = 'Default rosters are edited from the Defaults tab.';
+
   router.put('/rosters/:id', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    if (isDefaultId(req.params.id)) return res.status(400).json({ error: DEFAULT_REFUSAL });
     const { name, layout } = req.body || {};
     const occasion = rosterOccasion(req.body || {});
     if (!occasion) return res.status(400).json({ error: 'Date must be in YYYY-MM-DD format.' });
@@ -95,6 +154,7 @@ module.exports = function registerParties(router, ctx) {
 
   router.delete('/rosters/:id', async (req, res) => {
     if (!supabase) return res.status(503).json({ error: 'Database not configured.' });
+    if (isDefaultId(req.params.id)) return res.status(400).json({ error: DEFAULT_REFUSAL });
     const { error } = await supabase.from('rosters').delete().eq('id', req.params.id);
     if (error) return res.status(500).json({ error: 'Failed to delete roster.' });
     res.json({ ok: true });
